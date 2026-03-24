@@ -568,7 +568,7 @@ def ciclo():
             log.info("✅ Postado!")
         else:
             log.error("❌ Falha")
-        if postou >= 2:
+        if postou >= 5:
             break
         time.sleep(8)
     log.info(f"Ciclo concluído — {postou} post(s)\n")
