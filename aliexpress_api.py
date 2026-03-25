@@ -26,6 +26,7 @@ CATEGORIAS = [
     "wireless keyboard",
 ]
 
+PRECO_MINIMO    = 30.00
 PRECO_MAXIMO    = 300.00
 DESCONTO_MINIMO = 20
 
@@ -88,7 +89,7 @@ def buscar_produtos_aliexpress(keyword, limit=10):
             except:
                 continue
 
-            if preco <= 0 or preco > PRECO_MAXIMO:
+            if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
                 continue
 
             desconto = 0
