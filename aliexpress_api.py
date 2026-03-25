@@ -51,6 +51,15 @@ CATEGORIAS = [
     "tiktok made me buy gadget",
     "viral tech product",
     "gadget that went viral",
+    # Copa do Mundo 2026
+    "world cup 2026 gadget",
+    "soccer fan gadget",
+    "football led fan",
+    "sports bluetooth speaker",
+    "mini projector football",
+    "led jersey light fan",
+    "stadium fan accessories",
+    "world cup smart watch",
 ]
 
 PRECO_MINIMO    = 50.00
@@ -60,6 +69,31 @@ DESCONTO_MINIMO = 20
 # Preços em USD para filtro na API (R$50=~$9 / R$800=~$145)
 PRECO_MIN_USD = "9"
 PRECO_MAX_USD = "145"
+
+# Palavras que indicam produto técnico, fora do nicho ou indesejado
+PALAVRAS_BLOQUEADAS = [
+    # Manutenção e reparo técnico
+    "repair", "maintenance", "soldering", "pcb", "lcd separator",
+    "rework", "fixture", "jig", "spare part", "replacement part",
+    "motherboard", "flex cable", "digitizer", "screen separator",
+    # Atacado / industrial
+    "wholesale", "bulk", "lot of", "pcs lot", "oem", "odm",
+    "industrial", "factory", "mold", "tool kit professional",
+    # Fora do nicho
+    "wig", "hair extension", "nail art", "eyelash", "lace front",
+    "fishing", "hunting", "bait", "hook",
+    "medical", "surgical", "clinical", "dental",
+    "diaper", "baby formula", "pet food",
+]
+
+
+def produto_valido(nome):
+    """Verifica se o produto não contém palavras bloqueadas."""
+    nome_lower = nome.lower()
+    for palavra in PALAVRAS_BLOQUEADAS:
+        if palavra in nome_lower:
+            return False
+    return True
 
 
 def encurtar_link(url_longa):
@@ -142,6 +176,11 @@ def buscar_produtos_aliexpress(keyword, limit=10):
             imagem = item.get("product_main_image_url", "")
 
             if not nome or not link_original:
+                continue
+
+            # Filtra produtos fora do nicho
+            if not produto_valido(nome):
+                print(f"  Bloqueado: {nome[:50]}")
                 continue
 
             link = encurtar_link(link_original)
