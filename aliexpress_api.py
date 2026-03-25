@@ -12,18 +12,26 @@ ALIEXPRESS_APP_SECRET = "ubsjVAWmokbBynXv0uYsQz2PJSwsshXP"
 ALIEXPRESS_TRACKING   = "default"
 
 CATEGORIAS = [
-    "bluetooth earphone",
-    "smart watch",
-    "usb charger gan",
-    "wireless mouse",
-    "led lamp smart",
-    "mini projector",
-    "power bank",
-    "robot vacuum",
-    "air fryer",
-    "phone holder",
-    "usb hub",
-    "wireless keyboard",
+    "smartwatch fitness tracker",
+    "wireless earbuds noise cancelling",
+    "mechanical keyboard gaming",
+    "gaming mouse wireless",
+    "mini projector portable",
+    "robot vacuum cleaner wifi",
+    "air fryer electric",
+    "power bank 20000mah fast charge",
+    "security camera wifi outdoor",
+    "smart led strip lights",
+    "bluetooth speaker waterproof",
+    "laptop stand adjustable",
+    "webcam 1080p streaming",
+    "electric toothbrush sonic",
+    "dash cam car recorder",
+    "gadget smart home",
+    "gadget kitchen electric",
+    "gadget office desk",
+    "cool gadget men",
+    "tech gadget 2025",
 ]
 
 PRECO_MINIMO    = 30.00
