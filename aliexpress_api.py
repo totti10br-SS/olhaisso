@@ -72,6 +72,12 @@ PRECO_MAX_USD = "145"
 
 # Palavras que indicam produto técnico, fora do nicho ou indesejado
 PALAVRAS_BLOQUEADAS = [
+    # Termos técnicos em português
+    "separador de tela", "manutenção", "desmontagem", "reparo", "solda",
+    "placa mãe", "cabo flex", "ferramenta de", "kit de reparo",
+    "separador lcd", "aquecimento para", "abertura de celular",
+    "substituição", "peça de reposição", "conserto",
+    "chave de fenda", "alicate", "pinça", "estação de solda",
     # Manutenção e reparo técnico
     "repair", "maintenance", "soldering", "pcb", "lcd separator",
     "rework", "fixture", "jig", "spare part", "replacement part",
