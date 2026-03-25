@@ -53,26 +53,38 @@ CATEGORIAS = [
     "gadget that went viral",
 ]
 
-PRECO_MINIMO    = 30.00
-PRECO_MAXIMO    = 300.00
+PRECO_MINIMO    = 50.00
+PRECO_MAXIMO    = 800.00
 DESCONTO_MINIMO = 20
+
+# Preços em USD para filtro na API (R$50=~$9 / R$800=~$145)
+PRECO_MIN_USD = "9"
+PRECO_MAX_USD = "145"
+
+
+def encurtar_link(url_longa):
+    """Encurta link usando TinyURL — gratuito, sem API key."""
+    try:
+        r = requests.get(
+            f"https://tinyurl.com/api-create.php?url={url_longa}",
+            timeout=5
+        )
+        if r.status_code == 200 and r.text.startswith("https://"):
+            return r.text.strip()
+    except:
+        pass
+    return url_longa
 
 
 def gerar_assinatura(params, secret):
-    """
-    Assinatura MD5 no formato correto do AliExpress Open API:
-    secret + chave1valor1chave2valor2... + secret (ordenado alfabeticamente)
-    """
     keys = sorted(params.keys())
     base = secret + "".join(f"{k}{params[k]}" for k in keys) + secret
     return hashlib.md5(base.encode("utf-8")).hexdigest().upper()
 
 
 def buscar_produtos_aliexpress(keyword, limit=10):
-    """Busca produtos por keyword usando a API de afiliados."""
     try:
         timestamp = str(int(time.time() * 1000))
-
         params = {
             "app_key":         ALIEXPRESS_APP_KEY,
             "timestamp":       timestamp,
@@ -81,19 +93,18 @@ def buscar_produtos_aliexpress(keyword, limit=10):
             "keywords":        keyword,
             "page_no":         "1",
             "page_size":       str(limit),
-            "sort":            "SALE_PRICE_ASC",
+            "sort":            "LAST_VOLUME_DESC",
+            "min_sale_price":  PRECO_MIN_USD,
+            "max_sale_price":  PRECO_MAX_USD,
             "target_currency": "BRL",
             "target_language": "PT",
             "tracking_id":     ALIEXPRESS_TRACKING,
             "ship_to_country": "BR",
             "fields":          "product_id,product_title,target_sale_price,target_original_price,target_sale_price_currency,discount,evaluate_rate,lastest_volume,product_main_image_url,promotion_link",
         }
-
         params["sign"] = gerar_assinatura(params, ALIEXPRESS_APP_SECRET)
 
-        url = "https://api-sg.aliexpress.com/sync"
-        r = requests.post(url, data=params, timeout=15)
-
+        r = requests.post("https://api-sg.aliexpress.com/sync", data=params, timeout=15)
         if r.status_code != 200:
             print(f"AliExpress HTTP erro: {r.status_code}")
             return []
@@ -127,11 +138,13 @@ def buscar_produtos_aliexpress(keyword, limit=10):
                 continue
 
             nome = item.get("product_title", "")
-            link = item.get("promotion_link", "")
+            link_original = item.get("promotion_link", "")
             imagem = item.get("product_main_image_url", "")
 
-            if not nome or not link:
+            if not nome or not link_original:
                 continue
+
+            link = encurtar_link(link_original)
 
             produtos.append({
                 "nome": nome,
@@ -154,9 +167,6 @@ def buscar_produtos_aliexpress(keyword, limit=10):
 
 
 def buscar_todos_produtos():
-    """Busca produtos em todas as categorias."""
-    import hashlib as _h
-
     todos = []
     vistos = set()
 
@@ -164,7 +174,7 @@ def buscar_todos_produtos():
         try:
             produtos = buscar_produtos_aliexpress(keyword, limit=5)
             for p in produtos:
-                chave = _h.md5(p["nome"].encode()).hexdigest()
+                chave = hashlib.md5(p["nome"].encode()).hexdigest()
                 if chave not in vistos:
                     vistos.add(chave)
                     todos.append(p)
