@@ -1,10 +1,10 @@
 """
-OlhaissoTech Bot v3.0
-- Shopee scraping real (sem API oficial)
+OlhaissoTech Bot v4.0
+- AliExpress API oficial (AppKey: 530504)
+- Amazon Best Sellers
 - Google Trends BR
 - TikTok Creative Center
 - Reddit gadgets
-- Amazon Best Sellers
 - Score inteligente por cruzamento de fontes
 - Imagem 1080x1080 com logo
 - 5 posts por ciclo
@@ -20,7 +20,7 @@ import textwrap
 from io import BytesIO
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
-from shopee_scraper import buscar_todos_gadgets
+from aliexpress_api import buscar_todos_produtos
 
 logging.basicConfig(
     level=logging.INFO,
@@ -124,19 +124,16 @@ def gerar_imagem(produto):
 
     f_badge = carregar_fonte(19, negrito=True)
 
-    # Badge score
     label_score, cor_score = badge_score(produto.get("score", 0))
     draw.rounded_rectangle([60, 60, 60+220, 60+44], radius=22, fill=cor_score)
     bb = draw.textbbox((0,0), label_score, font=f_badge)
     draw.text((60+(220-(bb[2]-bb[0]))//2, 60+12), label_score, font=f_badge, fill=COR_BRANCO)
 
-    # Badge loja
-    loja = produto.get("loja", "SHOPEE")
+    loja = produto.get("loja", "ALIEXPRESS")
     draw.rounded_rectangle([W//2-70, 60, W//2+70, 60+44], radius=22, fill=(40,40,40))
     bb2 = draw.textbbox((0,0), loja, font=f_badge)
     draw.text((W//2-(bb2[2]-bb2[0])//2, 60+12), loja, font=f_badge, fill=COR_LARANJA)
 
-    # Badge desconto
     desc = produto.get("desconto", 0)
     if desc > 0:
         desc_txt = f"-{desc}%"
@@ -144,7 +141,6 @@ def gerar_imagem(produto):
         bb3 = draw.textbbox((0,0), desc_txt, font=f_badge)
         draw.text((W-60-130+(130-(bb3[2]-bb3[0]))//2, 60+12), desc_txt, font=f_badge, fill=COR_BRANCO)
 
-    # Imagem do produto
     img_url = produto.get("imagem_url", "")
     prod_img = None
     if img_url:
@@ -162,19 +158,20 @@ def gerar_imagem(produto):
         f_ico = carregar_fonte(80)
         draw.text((540, 340), "📦", font=f_ico, fill=(70,70,70), anchor="mm")
 
-    # Linha separadora
     draw.rectangle([60, 568, W-60, 570], fill=COR_CINZA_ESCURO)
 
-    # Fontes
     fontes = produto.get("fontes", [])
-    labels_f = {"google": "Google Trends", "tiktok": "TikTok Viral", "reddit": "Reddit", "amazon": "Amazon BR", "shopee": "Shopee BR"}
+    labels_f = {
+        "google": "Google Trends", "tiktok": "TikTok Viral",
+        "reddit": "Reddit", "amazon": "Amazon BR",
+        "aliexpress": "AliExpress", "shopee": "Shopee BR"
+    }
     txt_fontes = " · ".join([labels_f.get(f, f) for f in fontes])
     if txt_fontes:
         f_sub = carregar_fonte(20)
         bb = draw.textbbox((0,0), txt_fontes, font=f_sub)
         draw.text(((W-(bb[2]-bb[0]))//2, 580), txt_fontes, font=f_sub, fill=COR_CINZA)
 
-    # Nome
     f_nome = carregar_fonte(36, negrito=True)
     nome = produto.get("nome", "")
     linhas = textwrap.wrap(nome, width=34)[:2]
@@ -184,7 +181,6 @@ def gerar_imagem(produto):
         draw.text(((W-(bb[2]-bb[0]))//2, y), linha, font=f_nome, fill=COR_BRANCO)
         y += 48
 
-    # Preço original com risco
     preco_orig = produto.get("preco_original", 0)
     if preco_orig > 0:
         f_old = carregar_fonte(26)
@@ -197,21 +193,18 @@ def gerar_imagem(produto):
         draw.line([(x_old, meio_y), (x_old + tw, meio_y)], fill=COR_CINZA, width=2)
         y += 48
 
-    # Preço atual
     f_preco = carregar_fonte(80, negrito=True)
     preco = produto.get("preco", 0)
     txt_preco = fmt_preco(preco)
     bb = draw.textbbox((0,0), txt_preco, font=f_preco)
     draw.text(((W-(bb[2]-bb[0]))//2, y + 8), txt_preco, font=f_preco, fill=COR_LARANJA)
 
-    # Frete
     frete = produto.get("frete", "")
     if frete:
         f_frete = carregar_fonte(24)
         bb = draw.textbbox((0,0), frete, font=f_frete)
         draw.text(((W-(bb[2]-bb[0]))//2, y + 100), frete, font=f_frete, fill=COR_VERDE)
 
-    # Rodapé com logo
     draw.rounded_rectangle([32, H-110, W-32, H-32], radius=28, fill=COR_LARANJA)
     desenhar_logo(draw, 62, H-96, tamanho=30)
     f_cta = carregar_fonte(26, negrito=True)
@@ -253,7 +246,11 @@ def montar_caption(produto):
     if frete:
         txt += f"\n{frete}"
     if fontes:
-        labels = {"google": "Google Trends", "tiktok": "TikTok", "reddit": "Reddit", "amazon": "Amazon", "shopee": "Shopee"}
+        labels = {
+            "google": "Google Trends", "tiktok": "TikTok",
+            "reddit": "Reddit", "amazon": "Amazon",
+            "aliexpress": "AliExpress", "shopee": "Shopee"
+        }
         txt += f"\n📊 Em alta: {' · '.join([labels.get(f,f) for f in fontes])}"
     txt += f"\n\n🛒 [Comprar agora — clique aqui]({link})"
     txt += f"\n\n_👀 OlhaissoTech — Gadgets e utilidades com o melhor preço_"
@@ -308,7 +305,7 @@ def buscar_trends_google():
 
 
 def buscar_reddit_gadgets():
-    headers = {"User-Agent": "OlhaissoTechBot/3.0"}
+    headers = {"User-Agent": "OlhaissoTechBot/4.0"}
     termos = []
     for sub in ["gadgets", "BuyItForLife"]:
         try:
@@ -416,24 +413,30 @@ def calcular_score(produto, tg, tt, tr):
     return produto
 
 
+def produtos_mock():
+    return [
+        {"nome": "Fone Bluetooth TWS 5.3 com cancelamento de ruído", "preco": 72.90, "preco_original": 189.90, "desconto": 62, "loja": "ALIEXPRESS", "frete": "🚢 Frete grátis", "link_afiliado": "https://s.click.aliexpress.com/e/_exemplo", "imagem_url": "", "score": 3, "fontes": ["aliexpress", "google", "tiktok"]},
+        {"nome": "Carregador GaN 65W turbo 3 portas USB-C", "preco": 49.90, "preco_original": 129.00, "desconto": 61, "loja": "ALIEXPRESS", "frete": "🚢 Frete grátis", "link_afiliado": "https://s.click.aliexpress.com/e/_exemplo2", "imagem_url": "", "score": 2, "fontes": ["aliexpress", "tiktok"]},
+        {"nome": "Aspirador robô Wi-Fi com mapeamento automático", "preco": 249.90, "preco_original": 499.90, "desconto": 50, "loja": "AMAZON", "frete": "✅ Frete grátis Prime", "link_afiliado": f"https://amzn.to/exemplo", "imagem_url": "", "score": 3, "fontes": ["amazon", "google", "reddit"]},
+    ]
+
+
 def montar_pipeline():
-    log.info("=== Pipeline v3.0 iniciado ===")
+    log.info("=== Pipeline v4.0 iniciado ===")
     tg = buscar_trends_google()
     tt = buscar_tiktok_trending()
     tr = buscar_reddit_gadgets()
     log.info(f"Tendências — Google: {len(tg)} | TikTok: {len(tt)} | Reddit: {len(tr)}")
 
-    log.info("Buscando Shopee (scraping)...")
-    produtos = buscar_todos_gadgets()
+    log.info("Buscando AliExpress API...")
+    produtos = buscar_todos_produtos()
 
     log.info("Buscando Amazon Best Sellers...")
     produtos += buscar_amazon_best_sellers()
 
     if not produtos:
         log.warning("Sem produtos — usando mock")
-        produtos = [
-            {"nome": "Fone Bluetooth TWS 5.3", "preco": 72.90, "preco_original": 189.90, "desconto": 62, "loja": "SHOPEE", "frete": "✅ Frete grátis", "link_afiliado": "https://s.shopee.com.br/3fzEJw9Tqu", "imagem_url": "", "score": 3, "fontes": ["shopee", "google", "tiktok"]},
-        ]
+        produtos = produtos_mock()
 
     produtos = [p for p in produtos if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
     for p in produtos:
@@ -476,7 +479,7 @@ def ciclo():
 
 
 def main():
-    log.info("🤖 OlhaissoTech Bot v3.0 iniciado!")
+    log.info("🤖 OlhaissoTech Bot v4.0 iniciado!")
     log.info(f"📢 Canal: {TELEGRAM_CHANNEL}")
     log.info(f"⏰ Horários: {', '.join(HORARIOS)}")
     log.info(f"📦 Posts por ciclo: {POSTS_POR_CICLO}\n")
