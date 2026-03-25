@@ -12,26 +12,45 @@ ALIEXPRESS_APP_SECRET = "ubsjVAWmokbBynXv0uYsQz2PJSwsshXP"
 ALIEXPRESS_TRACKING   = "default"
 
 CATEGORIAS = [
-    "smartwatch fitness tracker",
-    "wireless earbuds noise cancelling",
-    "mechanical keyboard gaming",
-    "gaming mouse wireless",
-    "mini projector portable",
-    "robot vacuum cleaner wifi",
-    "air fryer electric",
-    "power bank 20000mah fast charge",
+    # Periféricos gamer — top Brasil 2025
+    "mechanical keyboard hot swappable",
+    "gaming controller hall effect",
+    "gaming mouse rgb wireless",
+    "gaming headset surround",
+    "monitor gaming stand",
+    # Áudio e mobile
+    "wireless earbuds noise cancelling anc",
+    "smartwatch health monitor",
+    "power bank magnetic fast charge",
+    "bluetooth speaker portable",
+    "dash cam 4k car",
+    # Casa inteligente
+    "robot vacuum mop wifi",
+    "smart led strip rgb",
     "security camera wifi outdoor",
-    "smart led strip lights",
-    "bluetooth speaker waterproof",
-    "laptop stand adjustable",
-    "webcam 1080p streaming",
-    "electric toothbrush sonic",
-    "dash cam car recorder",
-    "gadget smart home",
+    "air fryer digital",
+    "mini projector portable 1080p",
+    # Informática e upgrade
+    "ssd portable external",
+    "usb hub docking station",
+    "webcam streaming 1080p",
+    "laptop cooling stand",
+    "electric desk lamp led",
+    # Gadgets direcionados
+    "gadget smart home 2025",
+    "cool gadget men gift",
     "gadget kitchen electric",
-    "gadget office desk",
-    "cool gadget men",
-    "tech gadget 2025",
+    "neck fan hands free",
+    "gadget office productivity",
+    # Virais — captura tendências em tempo real
+    "viral gadget tiktok 2025",
+    "trending gadget 2025",
+    "viral product tiktok bought",
+    "gadget viral instagram",
+    "best selling gadget 2025",
+    "tiktok made me buy gadget",
+    "viral tech product",
+    "gadget that went viral",
 ]
 
 PRECO_MINIMO    = 30.00
