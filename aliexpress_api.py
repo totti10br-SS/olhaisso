@@ -9,7 +9,7 @@ import requests
 
 ALIEXPRESS_APP_KEY    = "530504"
 ALIEXPRESS_APP_SECRET = "ubsjVAWmokbBynXv0uYsQz2PJSwsshXP"
-ALIEXPRESS_TRACKING   = "olhaissotech"
+ALIEXPRESS_TRACKING   = "default"
 
 CATEGORIAS = [
     "bluetooth earphone",
