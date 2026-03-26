@@ -215,24 +215,26 @@ def gerar_imagem(produto):
     draw = ImageDraw.Draw(img)
     draw.rounded_rectangle([32, 32, W-32, H-32], radius=36, fill=COR_CARD)
 
-    f_badge = carregar_fonte(19, negrito=True)
+    # Badges do topo — fonte maior para melhor leitura
+    f_badge = carregar_fonte(28, negrito=True)
+    BADGE_H = 56  # altura dos badges
 
     label_score, cor_score = badge_score(produto.get("score", 0))
-    draw.rounded_rectangle([60, 60, 60+220, 60+44], radius=22, fill=cor_score)
+    draw.rounded_rectangle([60, 55, 60+260, 55+BADGE_H], radius=28, fill=cor_score)
     bb = draw.textbbox((0,0), label_score, font=f_badge)
-    draw.text((60+(220-(bb[2]-bb[0]))//2, 60+12), label_score, font=f_badge, fill=COR_BRANCO)
+    draw.text((60+(260-(bb[2]-bb[0]))//2, 55+(BADGE_H-(bb[3]-bb[1]))//2), label_score, font=f_badge, fill=COR_BRANCO)
 
     loja = produto.get("loja", "ALIEXPRESS")
-    draw.rounded_rectangle([W//2-70, 60, W//2+70, 60+44], radius=22, fill=(40,40,40))
+    draw.rounded_rectangle([W//2-90, 55, W//2+90, 55+BADGE_H], radius=28, fill=(40,40,40))
     bb2 = draw.textbbox((0,0), loja, font=f_badge)
-    draw.text((W//2-(bb2[2]-bb2[0])//2, 60+12), loja, font=f_badge, fill=COR_LARANJA)
+    draw.text((W//2-(bb2[2]-bb2[0])//2, 55+(BADGE_H-(bb2[3]-bb2[1]))//2), loja, font=f_badge, fill=COR_LARANJA)
 
     desc = produto.get("desconto", 0)
     if desc > 0:
         desc_txt = f"-{desc}%"
-        draw.rounded_rectangle([W-60-130, 60, W-60, 60+44], radius=22, fill=COR_VERDE)
+        draw.rounded_rectangle([W-60-150, 55, W-60, 55+BADGE_H], radius=28, fill=COR_VERDE)
         bb3 = draw.textbbox((0,0), desc_txt, font=f_badge)
-        draw.text((W-60-130+(130-(bb3[2]-bb3[0]))//2, 60+12), desc_txt, font=f_badge, fill=COR_BRANCO)
+        draw.text((W-60-150+(150-(bb3[2]-bb3[0]))//2, 55+(BADGE_H-(bb3[3]-bb3[1]))//2), desc_txt, font=f_badge, fill=COR_BRANCO)
 
     img_url = produto.get("imagem_url", "")
     prod_img = None
@@ -253,6 +255,7 @@ def gerar_imagem(produto):
 
     draw.rectangle([60, 568, W-60, 570], fill=COR_CINZA_ESCURO)
 
+    # Fontes de tendência (pequenas, abaixo do separador)
     fontes = produto.get("fontes", [])
     labels_f = {
         "google": "Google Trends", "tiktok": "TikTok Viral",
@@ -263,12 +266,18 @@ def gerar_imagem(produto):
     if txt_fontes:
         f_sub = carregar_fonte(20)
         bb = draw.textbbox((0,0), txt_fontes, font=f_sub)
-        draw.text(((W-(bb[2]-bb[0]))//2, 580), txt_fontes, font=f_sub, fill=COR_CINZA)
+        draw.text(((W-(bb[2]-bb[0]))//2, 572), txt_fontes, font=f_sub, fill=COR_CINZA)
+
+    # Header OlhaissO com olhinhos
+    f_header = carregar_fonte(32, negrito=True)
+    header_txt = "👀 OlhaissO"
+    bb_h = draw.textbbox((0,0), header_txt, font=f_header)
+    draw.text(((W-(bb_h[2]-bb_h[0]))//2, 590), header_txt, font=f_header, fill=COR_LARANJA)
 
     f_nome = carregar_fonte(36, negrito=True)
     nome = produto.get("nome", "")
     linhas = textwrap.wrap(nome, width=34)[:2]
-    y = 614
+    y = 638
     for linha in linhas:
         bb = draw.textbbox((0,0), linha, font=f_nome)
         draw.text(((W-(bb[2]-bb[0]))//2, y), linha, font=f_nome, fill=COR_BRANCO)
