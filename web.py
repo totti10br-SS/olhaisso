@@ -106,7 +106,10 @@ HTML = """<!DOCTYPE html>
     <h2>🚀 Publicar produto direto no grupo</h2>
 
     <label>📎 Link do produto</label>
-    <input type="url" id="url_input" placeholder="https://shopee.com.br/... ou aliexpress.com/...">
+    <div style="display:flex; gap:10px; margin-bottom:14px;">
+      <input type="url" id="url_input" placeholder="https://shopee.com.br/... ou aliexpress.com/..." style="margin-bottom:0; flex:1;">
+      <button onclick="abrirLink()" style="background:#2a2a2a; border:1px solid #444; border-radius:10px; color:#FF6B1A; font-size:22px; padding:0 16px; cursor:pointer;" title="Abrir produto em nova aba">🔗</button>
+    </div>
 
     <div class="row2">
       <div>
@@ -134,6 +137,12 @@ HTML = """<!DOCTYPE html>
 </div>
 
 <script>
+function abrirLink() {
+  const url = document.getElementById('url_input').value.trim();
+  if (!url) return alert('Cole o link do produto primeiro!');
+  window.open(url, '_blank');
+}
+
 function detectarLoja(url) {
   if (url.includes('aliexpress.com')) return 'ALIEXPRESS';
   if (url.includes('shopee.com.br'))  return 'SHOPEE';
