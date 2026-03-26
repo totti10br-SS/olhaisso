@@ -349,8 +349,22 @@ def buscar_shopee(url):
         return None
 
 
+def extrair_nome_da_url(url):
+    """Extrai nome do produto diretamente da URL (slug)."""
+    try:
+        from urllib.parse import urlparse, unquote
+        parsed = urlparse(url)
+        slug = parsed.path.strip("/").split("/")[0]
+        slug = re.sub(r'-i\.\d+\.\d+$', '', slug)
+        nome = unquote(slug).replace("-", " ").title()
+        nome = re.sub(r'\s+', ' ', nome).strip()
+        return nome[:200] if len(nome) > 5 else ""
+    except Exception:
+        return ""
+
+
 def buscar_og(url):
-    """Fallback: Open Graph scraping genérico."""
+    """Fallback: Open Graph scraping generico."""
     nome = ""
     imagem = ""
     preco = 0.0
@@ -376,6 +390,10 @@ def buscar_og(url):
                 pass
     except Exception:
         pass
+
+    if not nome:
+        nome = extrair_nome_da_url(url)
+
     return {"nome": nome, "preco": preco, "preco_orig": round(preco * 1.3, 2) if preco > 0 else 0, "imagem": imagem}
 
 
