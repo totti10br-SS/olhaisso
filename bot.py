@@ -313,8 +313,15 @@ def gerar_imagem(produto):
 # TELEGRAM
 # ============================================================
 
+
+def escapar_md(texto):
+    """Escapa caracteres especiais do Markdown do Telegram."""
+    for c in ["*", "_", "[", "]", "`"]:
+        texto = texto.replace(c, f"\\{c}")
+    return texto
+
 def montar_caption(produto):
-    nome   = produto.get("nome", "")
+    nome   = escapar_md(produto.get("nome", ""))
     preco  = produto.get("preco", 0)
     orig   = produto.get("preco_original", 0)
     desc   = produto.get("desconto", 0)
