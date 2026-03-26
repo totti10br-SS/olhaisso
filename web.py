@@ -313,6 +313,72 @@ def logout():
     return redirect("/")
 
 
+def buscar_shopee(url):
+    """Extrai shop_id e item_id da URL Shopee e consulta API oficial."""
+    m = re.search(r'i\.(\d+)\.(\d+)', url)
+    if not m:
+        return None
+    shop_id = m.group(1)
+    item_id = m.group(2)
+
+    api_url = "https://shopee.com.br/api/v4/item/get"
+    params  = {"itemid": item_id, "shopid": shop_id}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://shopee.com.br/",
+        "X-API-SOURCE": "pc",
+    }
+    try:
+        r = requests.get(api_url, params=params, headers=headers, timeout=15)
+        data = r.json()
+        item = data.get("data", {}) or {}
+        if not item:
+            return None
+
+        nome   = item.get("name", "")[:200]
+        preco  = (item.get("price") or item.get("price_min") or 0) / 100000
+        orig   = (item.get("price_before_discount") or item.get("price_max") or 0) / 100000
+        if orig <= preco:
+            orig = round(preco * 1.3, 2)
+
+        imgs   = item.get("images") or []
+        imagem = f"https://cf.shopee.com.br/file/{imgs[0]}" if imgs else ""
+
+        return {"nome": nome, "preco": round(preco, 2), "preco_orig": round(orig, 2), "imagem": imagem}
+    except Exception:
+        return None
+
+
+def buscar_og(url):
+    """Fallback: Open Graph scraping genérico."""
+    nome = ""
+    imagem = ""
+    preco = 0.0
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        r = requests.get(url, headers=headers, timeout=12)
+        html = r.text
+
+        og_title = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\'](.*?)["\']', html)
+        if og_title:
+            nome = og_title.group(1)[:200]
+
+        og_img = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](.*?)["\']', html)
+        if og_img:
+            imagem = og_img.group(1)
+
+        preco_match = re.search(r'R\$\s*([\d.,]+)', html)
+        if preco_match:
+            preco_str = preco_match.group(1).replace(".", "").replace(",", ".")
+            try:
+                preco = float(preco_str)
+            except:
+                pass
+    except Exception:
+        pass
+    return {"nome": nome, "preco": preco, "preco_orig": round(preco * 1.3, 2) if preco > 0 else 0, "imagem": imagem}
+
+
 @app.route("/buscar", methods=["POST"])
 def buscar():
     if not session.get("logged_in"):
@@ -337,45 +403,20 @@ def buscar():
         sep = "&" if "?" in url else "?"
         link = f"{url}{sep}tag={AMAZON_TAG}"
 
-    # Tenta buscar metadados via Open Graph
-    nome = ""
-    imagem = ""
-    preco = 0.0
-
-    try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        r = requests.get(url, headers=headers, timeout=10)
-        html = r.text
-
-        # Open Graph title
-        og_title = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\'](.*?)["\']', html)
-        if og_title:
-            nome = og_title.group(1)[:200]
-
-        # Open Graph image
-        og_img = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](.*?)["\']', html)
-        if og_img:
-            imagem = og_img.group(1)
-
-        # Tenta extrair preço
-        preco_match = re.search(r'R\$\s*([\d.,]+)', html)
-        if preco_match:
-            preco_str = preco_match.group(1).replace(".", "").replace(",", ".")
-            try:
-                preco = float(preco_str)
-            except:
-                pass
-
-    except Exception as e:
-        pass
+    # Busca dados do produto
+    dados = None
+    if loja == "SHOPEE":
+        dados = buscar_shopee(url)
+    if not dados:
+        dados = buscar_og(url)
 
     return jsonify({
-        "nome": nome,
-        "preco": preco,
-        "preco_orig": round(preco * 1.3, 2) if preco > 0 else 0,
-        "loja": loja,
-        "link": link,
-        "imagem": imagem,
+        "nome":       dados.get("nome", ""),
+        "preco":      dados.get("preco", 0),
+        "preco_orig": dados.get("preco_orig", 0),
+        "loja":       loja,
+        "link":       link,
+        "imagem":     dados.get("imagem", ""),
     })
 
 
