@@ -388,29 +388,39 @@ def postar_telegram(produto, imagem_path):
     caption = montar_caption(produto)
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     img_url = produto.get("imagem_url", "")
-    try:
-        # Usa foto real do produto se disponível, senão usa imagem gerada
-        if img_url:
+
+    # Tenta 1: foto real do produto via URL
+    if img_url:
+        try:
             r = requests.post(url, data={
                 "chat_id": TELEGRAM_CHANNEL,
                 "photo": img_url,
                 "caption": caption,
                 "parse_mode": "HTML",
             }, timeout=30)
-        else:
-            with open(imagem_path, "rb") as f:
-                r = requests.post(url, data={
-                    "chat_id": TELEGRAM_CHANNEL,
-                    "caption": caption,
-                    "parse_mode": "HTML",
-                }, files={"photo": f}, timeout=30)
-        ok = r.status_code == 200
-        if not ok:
-            log.error(f"Telegram erro: {r.text[:200]}")
-        return ok
+            if r.status_code == 200:
+                return True
+            log.warning(f"Imagem URL falhou ({r.status_code}), tentando imagem gerada...")
+        except Exception as e:
+            log.warning(f"Imagem URL exceção: {e}, tentando imagem gerada...")
+
+    # Tenta 2: imagem gerada localmente (PIL)
+    try:
+        with open(imagem_path, "rb") as f:
+            r = requests.post(url, data={
+                "chat_id": TELEGRAM_CHANNEL,
+                "caption": caption,
+                "parse_mode": "HTML",
+            }, files={"photo": f}, timeout=30)
+        if r.status_code == 200:
+            return True
+        log.error(f"Telegram erro imagem gerada: {r.text[:200]}")
     except Exception as e:
-        log.error(f"Telegram exceção: {e}")
-        return False
+        log.error(f"Telegram exceção imagem gerada: {e}")
+
+    # Sem imagem = não publica, produto será registrado no banco e pulado
+    log.warning(f"Produto pulado por falha de imagem: {produto.get('nome','')[:50]}")
+    return False
 
 # ============================================================
 # FONTES DE TENDÊNCIA
@@ -660,7 +670,8 @@ def ciclo():
             postou += 1
             log.info("✅ Postado!")
         else:
-            log.error("❌ Falha")
+            registrar_post(produto)
+            log.warning("⏭️ Pulado e registrado (falha de imagem)")
         if postou >= POSTS_POR_CICLO:
             break
         time.sleep(10)
