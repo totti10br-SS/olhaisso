@@ -1,6 +1,7 @@
 """
-OlhaissoTech Bot v4.0
+OlhaissoTech Bot v5.0
 - AliExpress API oficial (AppKey: 530504)
+- Shopee API oficial (AppID: 18307831002)
 - Amazon Best Sellers
 - Google Trends BR
 - TikTok Creative Center
@@ -20,7 +21,8 @@ import textwrap
 from io import BytesIO
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
-from aliexpress_api import buscar_todos_produtos
+from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
+from shopee_api import buscar_todos_produtos as buscar_shopee
 
 logging.basicConfig(
     level=logging.INFO,
@@ -422,14 +424,17 @@ def produtos_mock():
 
 
 def montar_pipeline():
-    log.info("=== Pipeline v4.0 iniciado ===")
+    log.info("=== Pipeline v5.0 iniciado ===")
     tg = buscar_trends_google()
     tt = buscar_tiktok_trending()
     tr = buscar_reddit_gadgets()
     log.info(f"Tendências — Google: {len(tg)} | TikTok: {len(tt)} | Reddit: {len(tr)}")
 
     log.info("Buscando AliExpress API...")
-    produtos = buscar_todos_produtos()
+    produtos = buscar_aliexpress()
+
+    log.info("Buscando Shopee API...")
+    produtos += buscar_shopee()
 
     log.info("Buscando Amazon Best Sellers...")
     produtos += buscar_amazon_best_sellers()
@@ -479,7 +484,7 @@ def ciclo():
 
 
 def main():
-    log.info("🤖 OlhaissoTech Bot v4.0 iniciado!")
+    log.info("🤖 OlhaissoTech Bot v5.0 iniciado!")
     log.info(f"📢 Canal: {TELEGRAM_CHANNEL}")
     log.info(f"⏰ Horários: {', '.join(HORARIOS)}")
     log.info(f"📦 Posts por ciclo: {POSTS_POR_CICLO}\n")
