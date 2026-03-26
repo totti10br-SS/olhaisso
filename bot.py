@@ -1,5 +1,5 @@
 """
-OlhaissoTech Bot v5.0
+OlhaissoTech Bot v6.0
 - AliExpress API oficial (AppKey: 530504)
 - Shopee API oficial (AppID: 18307831002)
 - Amazon Best Sellers
@@ -8,18 +8,20 @@ OlhaissoTech Bot v5.0
 - Reddit gadgets
 - Score inteligente por cruzamento de fontes
 - Imagem 1080x1080 com logo
-- 5 posts por ciclo
+- 8 posts por ciclo
+- SQLite para evitar repetição de produtos
 """
 
 import os
 import time
 import hashlib
 import logging
+import sqlite3
 import schedule
 import requests
 import textwrap
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
 from shopee_api import buscar_todos_produtos as buscar_shopee
@@ -37,10 +39,14 @@ log = logging.getLogger("OlhaissoTech")
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "8258862380:AAGCr--OpycbKXp6KeqJCU1_piyu4kRl4bk")
 TELEGRAM_CHANNEL = os.getenv("TELEGRAM_CHANNEL", "@olhaissotech")
 AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
-PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "300"))
+PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
-POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "5"))
+POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
 HORARIOS         = ["08:00", "11:00", "14:00", "17:00", "20:00", "22:00"]
+DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
+
+# Quantos dias manter um produto no histórico antes de poder repetir
+DIAS_SEM_REPETIR = int(os.getenv("DIAS_SEM_REPETIR", "7"))
 
 KEYWORDS_NICHO = [
     "gadget", "fone", "carregador", "teclado", "mouse", "câmera",
@@ -63,6 +69,91 @@ COR_VERDE         = (0, 187, 68)
 COR_BRANCO        = (255, 255, 255)
 COR_CINZA         = (136, 136, 136)
 COR_CINZA_ESCURO  = (45, 45, 45)
+
+# ============================================================
+# BANCO DE DADOS SQLite
+# ============================================================
+
+def init_db():
+    """Cria o banco de dados e tabelas se não existirem."""
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS postados (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            hash      TEXT UNIQUE NOT NULL,
+            nome      TEXT,
+            preco     REAL,
+            loja      TEXT,
+            postado_em TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+    log.info(f"SQLite iniciado: {DB_PATH}")
+
+
+def ja_postado(hash_produto):
+    """Verifica se produto foi postado nos últimos DIAS_SEM_REPETIR dias."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        limite = (datetime.now() - timedelta(days=DIAS_SEM_REPETIR)).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("SELECT id FROM postados WHERE hash = ? AND postado_em > ?", (hash_produto, limite))
+        resultado = c.fetchone()
+        conn.close()
+        return resultado is not None
+    except Exception as e:
+        log.error(f"SQLite erro ao verificar: {e}")
+        return False
+
+
+def registrar_post(produto):
+    """Registra produto postado no banco."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        hash_p = hashlib.md5(produto["nome"].encode()).hexdigest()
+        agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("""
+            INSERT OR REPLACE INTO postados (hash, nome, preco, loja, postado_em)
+            VALUES (?, ?, ?, ?, ?)
+        """, (hash_p, produto["nome"][:200], produto.get("preco", 0),
+              produto.get("loja", ""), agora))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.error(f"SQLite erro ao registrar: {e}")
+
+
+def limpar_historico_antigo():
+    """Remove registros mais antigos que DIAS_SEM_REPETIR * 2 dias."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        limite = (datetime.now() - timedelta(days=DIAS_SEM_REPETIR * 2)).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("DELETE FROM postados WHERE postado_em < ?", (limite,))
+        removidos = c.rowcount
+        conn.commit()
+        conn.close()
+        if removidos > 0:
+            log.info(f"SQLite: {removidos} registros antigos removidos")
+    except Exception as e:
+        log.error(f"SQLite erro ao limpar: {e}")
+
+
+def contar_postados():
+    """Retorna total de produtos no histórico."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM postados")
+        total = c.fetchone()[0]
+        conn.close()
+        return total
+    except:
+        return 0
 
 # ============================================================
 # HELPERS
@@ -307,7 +398,7 @@ def buscar_trends_google():
 
 
 def buscar_reddit_gadgets():
-    headers = {"User-Agent": "OlhaissoTechBot/4.0"}
+    headers = {"User-Agent": "OlhaissoTechBot/6.0"}
     termos = []
     for sub in ["gadgets", "BuyItForLife"]:
         try:
@@ -418,13 +509,13 @@ def calcular_score(produto, tg, tt, tr):
 def produtos_mock():
     return [
         {"nome": "Fone Bluetooth TWS 5.3 com cancelamento de ruído", "preco": 72.90, "preco_original": 189.90, "desconto": 62, "loja": "ALIEXPRESS", "frete": "🚢 Frete grátis", "link_afiliado": "https://s.click.aliexpress.com/e/_exemplo", "imagem_url": "", "score": 3, "fontes": ["aliexpress", "google", "tiktok"]},
-        {"nome": "Carregador GaN 65W turbo 3 portas USB-C", "preco": 49.90, "preco_original": 129.00, "desconto": 61, "loja": "ALIEXPRESS", "frete": "🚢 Frete grátis", "link_afiliado": "https://s.click.aliexpress.com/e/_exemplo2", "imagem_url": "", "score": 2, "fontes": ["aliexpress", "tiktok"]},
-        {"nome": "Aspirador robô Wi-Fi com mapeamento automático", "preco": 249.90, "preco_original": 499.90, "desconto": 50, "loja": "AMAZON", "frete": "✅ Frete grátis Prime", "link_afiliado": f"https://amzn.to/exemplo", "imagem_url": "", "score": 3, "fontes": ["amazon", "google", "reddit"]},
+        {"nome": "Carregador GaN 65W turbo 3 portas USB-C", "preco": 89.90, "preco_original": 189.00, "desconto": 52, "loja": "ALIEXPRESS", "frete": "🚢 Frete grátis", "link_afiliado": "https://s.click.aliexpress.com/e/_exemplo2", "imagem_url": "", "score": 2, "fontes": ["aliexpress", "tiktok"]},
+        {"nome": "Aspirador robô Wi-Fi com mapeamento automático", "preco": 249.90, "preco_original": 499.90, "desconto": 50, "loja": "AMAZON", "frete": "✅ Frete grátis Prime", "link_afiliado": "https://amzn.to/exemplo", "imagem_url": "", "score": 3, "fontes": ["amazon", "google", "reddit"]},
     ]
 
 
 def montar_pipeline():
-    log.info("=== Pipeline v5.0 iniciado ===")
+    log.info("=== Pipeline v6.0 iniciado ===")
     tg = buscar_trends_google()
     tt = buscar_tiktok_trending()
     tr = buscar_reddit_gadgets()
@@ -443,13 +534,25 @@ def montar_pipeline():
         log.warning("Sem produtos — usando mock")
         produtos = produtos_mock()
 
+    # Filtra por preço e desconto
     produtos = [p for p in produtos if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
+
+    # Calcula score de tendência
     for p in produtos:
         calcular_score(p, tg, tt, tr)
+
+    # Remove produtos já postados recentemente (SQLite)
+    antes = len(produtos)
+    produtos = [p for p in produtos if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+    filtrados = antes - len(produtos)
+    if filtrados > 0:
+        log.info(f"SQLite: {filtrados} produtos já postados recentemente removidos")
+
+    # Ordena por score
     produtos.sort(key=lambda x: x.get("score", 0), reverse=True)
 
-    log.info(f"Pipeline: {len(produtos)} produtos prontos")
-    for p in produtos[:5]:
+    log.info(f"Pipeline: {len(produtos)} produtos prontos ({contar_postados()} no histórico)")
+    for p in produtos[:8]:
         log.info(f"  [{p['score']}pts] {p['nome'][:45]} | {fmt_preco(p['preco'])}")
     return produtos
 
@@ -457,22 +560,19 @@ def montar_pipeline():
 # ============================================================
 # CICLO PRINCIPAL
 # ============================================================
-postados = set()
 
 def ciclo():
     log.info(f"\n{'='*50}")
     log.info(f"Ciclo — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    limpar_historico_antigo()
     produtos = montar_pipeline()
     postou = 0
     for produto in produtos:
-        chave = hashlib.md5(produto["nome"].encode()).hexdigest()
-        if chave in postados:
-            continue
         log.info(f"Postando [{produto['score']}pts]: {produto['nome'][:50]}")
         imagem = gerar_imagem(produto)
         ok = postar_telegram(produto, imagem)
         if ok:
-            postados.add(chave)
+            registrar_post(produto)
             postou += 1
             log.info("✅ Postado!")
         else:
@@ -484,10 +584,12 @@ def ciclo():
 
 
 def main():
-    log.info("🤖 OlhaissoTech Bot v5.0 iniciado!")
+    init_db()
+    log.info("🤖 OlhaissoTech Bot v6.0 iniciado!")
     log.info(f"📢 Canal: {TELEGRAM_CHANNEL}")
     log.info(f"⏰ Horários: {', '.join(HORARIOS)}")
-    log.info(f"📦 Posts por ciclo: {POSTS_POR_CICLO}\n")
+    log.info(f"📦 Posts por ciclo: {POSTS_POR_CICLO}")
+    log.info(f"🗓️ Sem repetir por: {DIAS_SEM_REPETIR} dias\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
     ciclo()
