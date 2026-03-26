@@ -1,15 +1,17 @@
 """
 Shopee Affiliates API — integração oficial
 AppID: 18307831002
+Assinatura: SHA256(AppId + Timestamp + Payload + Secret)
 """
 
 import hashlib
-import hmac
 import time
+import json
 import requests
 
-SHOPEE_APP_ID  = "18307831002"
-SHOPEE_SECRET  = "5TCZ4KND77VOJV5QNUX7PMYKTVPF23XT"
+SHOPEE_APP_ID = "18307831002"
+SHOPEE_SECRET = "5TCZ4KND77VOJV5QNUX7PMYKTVPF23XT"
+SHOPEE_URL    = "https://open-api.affiliate.shopee.com.br/graphql"
 
 CATEGORIAS = [
     "fone bluetooth",
@@ -60,18 +62,7 @@ def produto_valido(nome):
     return True
 
 
-def gerar_assinatura(app_id, secret, timestamp, payload=""):
-    """Assinatura Shopee: HMAC-SHA256(app_id + timestamp + payload, secret)"""
-    base = f"{app_id}{timestamp}{payload}"
-    return hmac.new(
-        secret.encode("utf-8"),
-        base.encode("utf-8"),
-        hashlib.sha256
-    ).hexdigest()
-
-
 def encurtar_link(url_longa):
-    """Encurta link usando TinyURL."""
     try:
         r = requests.get(
             f"https://tinyurl.com/api-create.php?url={url_longa}",
@@ -84,61 +75,75 @@ def encurtar_link(url_longa):
     return url_longa
 
 
-def buscar_produtos_shopee(keyword, limit=10):
-    """Busca produtos via Shopee Affiliate API."""
-    try:
-        timestamp = int(time.time())
-        payload = ""
-        sign = gerar_assinatura(SHOPEE_APP_ID, SHOPEE_SECRET, timestamp, payload)
+def gerar_assinatura(app_id, timestamp, payload_str, secret):
+    """Assinatura correta: SHA256(AppId + Timestamp + Payload + Secret)"""
+    fator = app_id + str(timestamp) + payload_str + secret
+    return hashlib.sha256(fator.encode("utf-8")).hexdigest()
 
-        url = "https://open-api.affiliate.shopee.com.br/graphql"
+
+def buscar_produtos_shopee(keyword, limit=10):
+    """Busca produtos via Shopee Affiliate API GraphQL."""
+    try:
+        query = """query getProducts($keyword: String!, $limit: Int!, $page: Int!) {
+  productOfferV2(
+    listType: 0,
+    sortType: 2,
+    keyword: $keyword,
+    limit: $limit,
+    page: $page
+  ) {
+    nodes {
+      productName
+      priceMin
+      priceMax
+      priceDiscountRate
+      imageUrl
+      offerLink
+      productLink
+      commissionRate
+    }
+    pageInfo { hasNextPage }
+  }
+}"""
+
+        variables = {"keyword": keyword, "limit": limit, "page": 1}
+        body = {
+            "query": query,
+            "operationName": "getProducts",
+            "variables": variables
+        }
+
+        # Payload como string compacta para assinatura
+        payload_str = json.dumps(body, separators=(",", ":"))
+        timestamp = int(time.time())
+        sign = gerar_assinatura(SHOPEE_APP_ID, timestamp, payload_str, SHOPEE_SECRET)
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"SHA256 Credential={SHOPEE_APP_ID},Timestamp={timestamp},Signature={sign}",
         }
 
-        query = """
-        query getProducts($keyword: String!, $limit: Int!) {
-            productOfferV2(
-                listType: 0,
-                sortType: 2,
-                keyword: $keyword,
-                limit: $limit,
-                page: 1
-            ) {
-                nodes {
-                    productName
-                    priceMin
-                    priceMax
-                    priceDiscountRate
-                    imageUrl
-                    productLink
-                    offerLink
-                    shopName
-                }
-            }
-        }
-        """
-
-        body = {
-            "query": query,
-            "variables": {"keyword": keyword, "limit": limit}
-        }
-
-        r = requests.post(url, json=body, headers=headers, timeout=15)
+        r = requests.post(SHOPEE_URL, data=payload_str, headers=headers, timeout=15)
 
         if r.status_code != 200:
-            print(f"Shopee HTTP erro: {r.status_code}")
+            print(f"Shopee HTTP erro {r.status_code}: {r.text[:200]}")
             return []
 
         data = r.json()
+
+        # Verifica erros GraphQL
+        if "errors" in data:
+            print(f"Shopee GraphQL erro: {data['errors']}")
+            return []
+
         nodes = data.get("data", {}).get("productOfferV2", {}).get("nodes", []) or []
         produtos = []
 
         for item in nodes:
             try:
                 preco = float(str(item.get("priceMin", "0")).replace(",", "."))
-                desconto = int(str(item.get("priceDiscountRate", "0")).replace("%", "") or 0)
+                desc_raw = item.get("priceDiscountRate", "0") or "0"
+                desconto = int(str(desc_raw).replace("%", "").strip() or 0)
             except:
                 continue
 
@@ -158,12 +163,7 @@ def buscar_produtos_shopee(keyword, limit=10):
                 print(f"  Shopee bloqueado: {nome[:50]}")
                 continue
 
-            # Calcula preço original estimado
-            if desconto > 0:
-                preco_orig = round(preco / (1 - desconto / 100), 2)
-            else:
-                preco_orig = round(preco * 1.3, 2)
-
+            preco_orig = round(preco / (1 - desconto / 100), 2) if desconto > 0 else round(preco * 1.3, 2)
             link = encurtar_link(link_original)
 
             produtos.append({
@@ -187,7 +187,7 @@ def buscar_produtos_shopee(keyword, limit=10):
 
 
 def buscar_todos_produtos():
-    """Busca produtos em todas as categorias."""
+    import hashlib as _h
     todos = []
     vistos = set()
 
@@ -195,7 +195,7 @@ def buscar_todos_produtos():
         try:
             produtos = buscar_produtos_shopee(keyword, limit=5)
             for p in produtos:
-                chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                chave = _h.md5(p["nome"].encode()).hexdigest()
                 if chave not in vistos:
                     vistos.add(chave)
                     todos.append(p)
