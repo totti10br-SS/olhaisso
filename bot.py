@@ -314,14 +314,13 @@ def gerar_imagem(produto):
 # ============================================================
 
 
-def escapar_md(texto):
-    """Escapa caracteres especiais do Markdown do Telegram."""
-    for c in ["*", "_", "[", "]", "`"]:
-        texto = texto.replace(c, f"\\{c}")
-    return texto
+def escapar_html(texto):
+    """Escapa caracteres especiais do HTML do Telegram."""
+    return texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 
 def montar_caption(produto):
-    nome   = escapar_md(produto.get("nome", ""))
+    nome   = escapar_html(produto.get("nome", ""))
     preco  = produto.get("preco", 0)
     orig   = produto.get("preco_original", 0)
     desc   = produto.get("desconto", 0)
@@ -334,14 +333,14 @@ def montar_caption(produto):
     urgencia = "🔥🔥🔥" if score >= 3 else "🔥🔥" if score == 2 else "🔥"
     eco = fmt_economia(orig, preco) if orig > preco else None
 
-    txt = f"{urgencia} *{nome}*\n\n"
+    txt = f"{urgencia} <b>{nome}</b>\n\n"
     if desc > 0:
-        txt += f"📉 *{desc}% de desconto!*\n"
+        txt += f"📉 <b>{desc}% de desconto!</b>\n"
     if eco:
-        txt += f"💸 Economia de *{eco}*\n"
-    txt += f"\n💰 *{fmt_preco(preco)}*"
+        txt += f"💸 Economia de <b>{eco}</b>\n"
+    txt += f"\n💰 <b>{fmt_preco(preco)}</b>"
     if orig > 0:
-        txt += f"  _(era {fmt_preco(orig)})_"
+        txt += f"  <i>(era {fmt_preco(orig)})</i>"
     txt += f"\n\n🏪 {loja}"
     if frete:
         txt += f"\n{frete}"
@@ -352,8 +351,8 @@ def montar_caption(produto):
             "aliexpress": "AliExpress", "shopee": "Shopee"
         }
         txt += f"\n📊 Em alta: {' · '.join([labels.get(f,f) for f in fontes])}"
-    txt += f"\n\n🛒 [Comprar agora — clique aqui]({link})"
-    txt += f"\n\n_👀 OlhaissoTech — Gadgets e utilidades com o melhor preço_"
+    txt += f"\n\n🛒 <a href=\"{link}\">Comprar agora — clique aqui</a>"
+    txt += f"\n\n<i>👀 OlhaissoTech — Gadgets e utilidades com o melhor preço</i>"
     return txt
 
 
@@ -365,7 +364,7 @@ def postar_telegram(produto, imagem_path):
             r = requests.post(url, data={
                 "chat_id": TELEGRAM_CHANNEL,
                 "caption": caption,
-                "parse_mode": "Markdown",
+                "parse_mode": "HTML",
             }, files={"photo": f}, timeout=30)
         ok = r.status_code == 200
         if not ok:
