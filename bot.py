@@ -46,7 +46,7 @@ HORARIOS         = ["08:00", "11:00", "14:00", "17:00", "20:00", "22:00"]
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
 # Quantos dias manter um produto no histórico antes de poder repetir
-DIAS_SEM_REPETIR = int(os.getenv("DIAS_SEM_REPETIR", "7"))
+DIAS_SEM_REPETIR = int(os.getenv("DIAS_SEM_REPETIR", "2"))
 
 KEYWORDS_NICHO = [
     "gadget", "fone", "carregador", "teclado", "mouse", "câmera",
@@ -554,13 +554,53 @@ def montar_pipeline():
     if filtrados > 0:
         log.info(f"SQLite: {filtrados} produtos já postados recentemente removidos")
 
-    # Ordena por score
-    produtos.sort(key=lambda x: x.get("score", 0), reverse=True)
+    # Separa por loja e ordena cada grupo por score
+    por_loja = {}
+    for p in produtos:
+        loja = p.get("loja", "OUTRO")
+        por_loja.setdefault(loja, []).append(p)
+    for loja in por_loja:
+        por_loja[loja].sort(key=lambda x: x.get("score", 0), reverse=True)
 
-    log.info(f"Pipeline: {len(produtos)} produtos prontos ({contar_postados()} no histórico)")
-    for p in produtos[:8]:
-        log.info(f"  [{p['score']}pts] {p['nome'][:45]} | {fmt_preco(p['preco'])}")
-    return produtos
+    # Rodizio entre lojas para garantir variedade
+    ordem_lojas = ["ALIEXPRESS", "SHOPEE", "ALIEXPRESS", "SHOPEE",
+                   "ALIEXPRESS", "AMAZON", "ALIEXPRESS", "SHOPEE",
+                   "ALIEXPRESS", "SHOPEE", "ALIEXPRESS", "AMAZON"]
+    indices = {loja: 0 for loja in por_loja}
+    fila = []
+
+    for loja_alvo in ordem_lojas:
+        if len(fila) >= POSTS_POR_CICLO * 2:
+            break
+        if loja_alvo in por_loja and indices.get(loja_alvo, 0) < len(por_loja[loja_alvo]):
+            fila.append(por_loja[loja_alvo][indices[loja_alvo]])
+            indices[loja_alvo] += 1
+        else:
+            for loja, lista in por_loja.items():
+                idx = indices.get(loja, 0)
+                if idx < len(lista):
+                    fila.append(lista[idx])
+                    indices[loja] = idx + 1
+                    break
+
+    # Remove duplicatas mantendo ordem
+    vistos = set()
+    resultado = []
+    for p in fila:
+        chave = hashlib.md5(p["nome"].encode()).hexdigest()
+        if chave not in vistos:
+            vistos.add(chave)
+            resultado.append(p)
+
+    lojas_log = {}
+    for p in resultado[:POSTS_POR_CICLO]:
+        lojas_log[p.get("loja","")] = lojas_log.get(p.get("loja",""), 0) + 1
+
+    log.info(f"Pipeline: {len(resultado)} produtos prontos ({contar_postados()} no historico)")
+    log.info(f"Distribuicao: {lojas_log}")
+    for p in resultado[:8]:
+        log.info(f"  [{p['score']}pts][{p['loja']}] {p['nome'][:40]} | {fmt_preco(p['preco'])}")
+    return resultado
 
 
 # ============================================================
