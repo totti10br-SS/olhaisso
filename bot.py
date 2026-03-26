@@ -216,25 +216,25 @@ def gerar_imagem(produto):
     draw.rounded_rectangle([32, 32, W-32, H-32], radius=36, fill=COR_CARD)
 
     # Badges do topo — fonte maior para melhor leitura
-    f_badge = carregar_fonte(28, negrito=True)
-    BADGE_H = 56  # altura dos badges
+    f_badge = carregar_fonte(36, negrito=True)
+    BADGE_H = 70  # altura dos badges
 
     label_score, cor_score = badge_score(produto.get("score", 0))
-    draw.rounded_rectangle([60, 55, 60+260, 55+BADGE_H], radius=28, fill=cor_score)
+    draw.rounded_rectangle([55, 50, 55+280, 50+BADGE_H], radius=28, fill=cor_score)
     bb = draw.textbbox((0,0), label_score, font=f_badge)
-    draw.text((60+(260-(bb[2]-bb[0]))//2, 55+(BADGE_H-(bb[3]-bb[1]))//2), label_score, font=f_badge, fill=COR_BRANCO)
+    draw.text((55+(280-(bb[2]-bb[0]))//2, 50+(BADGE_H-(bb[3]-bb[1]))//2), label_score, font=f_badge, fill=COR_BRANCO)
 
     loja = produto.get("loja", "ALIEXPRESS")
-    draw.rounded_rectangle([W//2-90, 55, W//2+90, 55+BADGE_H], radius=28, fill=(40,40,40))
+    draw.rounded_rectangle([W//2-100, 50, W//2+100, 50+BADGE_H], radius=28, fill=(40,40,40))
     bb2 = draw.textbbox((0,0), loja, font=f_badge)
-    draw.text((W//2-(bb2[2]-bb2[0])//2, 55+(BADGE_H-(bb2[3]-bb2[1]))//2), loja, font=f_badge, fill=COR_LARANJA)
+    draw.text((W//2-(bb2[2]-bb2[0])//2, 50+(BADGE_H-(bb2[3]-bb2[1]))//2), loja, font=f_badge, fill=COR_LARANJA)
 
     desc = produto.get("desconto", 0)
     if desc > 0:
         desc_txt = f"-{desc}%"
-        draw.rounded_rectangle([W-60-150, 55, W-60, 55+BADGE_H], radius=28, fill=COR_VERDE)
+        draw.rounded_rectangle([W-55-165, 50, W-55, 50+BADGE_H], radius=28, fill=COR_VERDE)
         bb3 = draw.textbbox((0,0), desc_txt, font=f_badge)
-        draw.text((W-60-150+(150-(bb3[2]-bb3[0]))//2, 55+(BADGE_H-(bb3[3]-bb3[1]))//2), desc_txt, font=f_badge, fill=COR_BRANCO)
+        draw.text((W-55-165+(165-(bb3[2]-bb3[0]))//2, 50+(BADGE_H-(bb3[3]-bb3[1]))//2), desc_txt, font=f_badge, fill=COR_BRANCO)
 
     img_url = produto.get("imagem_url", "")
     prod_img = None
@@ -264,17 +264,17 @@ def gerar_imagem(produto):
     }
     txt_fontes = " · ".join([labels_f.get(f, f) for f in fontes])
     if txt_fontes:
-        f_sub = carregar_fonte(20)
+        f_sub = carregar_fonte(26)
         bb = draw.textbbox((0,0), txt_fontes, font=f_sub)
         draw.text(((W-(bb[2]-bb[0]))//2, 572), txt_fontes, font=f_sub, fill=COR_CINZA)
 
     # Header OlhaissO com olhinhos
-    f_header = carregar_fonte(32, negrito=True)
+    f_header = carregar_fonte(42, negrito=True)
     header_txt = "👀 OlhaissO"
     bb_h = draw.textbbox((0,0), header_txt, font=f_header)
     draw.text(((W-(bb_h[2]-bb_h[0]))//2, 590), header_txt, font=f_header, fill=COR_LARANJA)
 
-    f_nome = carregar_fonte(36, negrito=True)
+    f_nome = carregar_fonte(44, negrito=True)
     nome = produto.get("nome", "")
     linhas = textwrap.wrap(nome, width=34)[:2]
     y = 638
@@ -285,7 +285,7 @@ def gerar_imagem(produto):
 
     preco_orig = produto.get("preco_original", 0)
     if preco_orig > 0:
-        f_old = carregar_fonte(26)
+        f_old = carregar_fonte(34)
         txt_old = f"De {fmt_preco(preco_orig)}"
         bb = draw.textbbox((0,0), txt_old, font=f_old)
         tw = bb[2] - bb[0]
@@ -303,13 +303,13 @@ def gerar_imagem(produto):
 
     frete = produto.get("frete", "")
     if frete:
-        f_frete = carregar_fonte(24)
+        f_frete = carregar_fonte(32)
         bb = draw.textbbox((0,0), frete, font=f_frete)
         draw.text(((W-(bb[2]-bb[0]))//2, y + 100), frete, font=f_frete, fill=COR_VERDE)
 
     draw.rounded_rectangle([32, H-110, W-32, H-32], radius=28, fill=COR_LARANJA)
     desenhar_logo(draw, 62, H-96, tamanho=30)
-    f_cta = carregar_fonte(26, negrito=True)
+    f_cta = carregar_fonte(34, negrito=True)
     cta = "OlhaissoTech — Link na bio e no Telegram!"
     bb = draw.textbbox((0,0), cta, font=f_cta)
     draw.text(((W-(bb[2]-bb[0]))//2 + 30, H-88), cta, font=f_cta, fill=COR_BRANCO)
