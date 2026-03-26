@@ -213,110 +213,114 @@ def gerar_imagem(produto):
     W, H = 1080, 1080
     img = Image.new("RGB", (W, H), COR_FUNDO)
     draw = ImageDraw.Draw(img)
-    draw.rounded_rectangle([32, 32, W-32, H-32], radius=36, fill=COR_CARD)
 
-    # Badges do topo — fonte maior para melhor leitura
-    f_badge = carregar_fonte(36, negrito=True)
-    BADGE_H = 70  # altura dos badges
-
+    # ── TOPO: badge único grande centralizado ──────────────────
     label_score, cor_score = badge_score(produto.get("score", 0))
-    draw.rounded_rectangle([55, 50, 55+280, 50+BADGE_H], radius=28, fill=cor_score)
+    f_badge = carregar_fonte(54, negrito=True)
+    bw, bh = 580, 90
+    bx = (W - bw) // 2
+    draw.rounded_rectangle([bx, 24, bx+bw, 24+bh], radius=45, fill=cor_score)
     bb = draw.textbbox((0,0), label_score, font=f_badge)
-    draw.text((55+(280-(bb[2]-bb[0]))//2, 50+(BADGE_H-(bb[3]-bb[1]))//2), label_score, font=f_badge, fill=COR_BRANCO)
+    draw.text((bx+(bw-(bb[2]-bb[0]))//2, 24+(bh-(bb[3]-bb[1]))//2), label_score, font=f_badge, fill=COR_BRANCO)
 
+    # ── BADGES LOJA + DESCONTO lado a lado ────────────────────
+    f_sub_badge = carregar_fonte(44, negrito=True)
     loja = produto.get("loja", "ALIEXPRESS")
-    draw.rounded_rectangle([W//2-100, 50, W//2+100, 50+BADGE_H], radius=28, fill=(40,40,40))
-    bb2 = draw.textbbox((0,0), loja, font=f_badge)
-    draw.text((W//2-(bb2[2]-bb2[0])//2, 50+(BADGE_H-(bb2[3]-bb2[1]))//2), loja, font=f_badge, fill=COR_LARANJA)
-
     desc = produto.get("desconto", 0)
-    if desc > 0:
-        desc_txt = f"-{desc}%"
-        draw.rounded_rectangle([W-55-165, 50, W-55, 50+BADGE_H], radius=28, fill=COR_VERDE)
-        bb3 = draw.textbbox((0,0), desc_txt, font=f_badge)
-        draw.text((W-55-165+(165-(bb3[2]-bb3[0]))//2, 50+(BADGE_H-(bb3[3]-bb3[1]))//2), desc_txt, font=f_badge, fill=COR_BRANCO)
 
+    # Badge loja (esquerda)
+    draw.rounded_rectangle([50, 130, 50+300, 130+72], radius=36, fill=(40,40,40))
+    bb2 = draw.textbbox((0,0), loja, font=f_sub_badge)
+    draw.text((50+(300-(bb2[2]-bb2[0]))//2, 130+(72-(bb2[3]-bb2[1]))//2), loja, font=f_sub_badge, fill=COR_LARANJA)
+
+    # Badge desconto (direita)
+    if desc > 0:
+        desc_txt = f"-{desc}% OFF"
+        draw.rounded_rectangle([W-50-300, 130, W-50, 130+72], radius=36, fill=COR_VERDE)
+        bb3 = draw.textbbox((0,0), desc_txt, font=f_sub_badge)
+        draw.text((W-50-300+(300-(bb3[2]-bb3[0]))//2, 130+(72-(bb3[3]-bb3[1]))//2), desc_txt, font=f_sub_badge, fill=COR_BRANCO)
+
+    # ── FOTO DO PRODUTO ────────────────────────────────────────
     img_url = produto.get("imagem_url", "")
     prod_img = None
     if img_url:
         try:
             r = requests.get(img_url, timeout=8)
             prod_img = Image.open(BytesIO(r.content)).convert("RGBA")
-            prod_img = prod_img.resize((500, 400), Image.LANCZOS)
+            prod_img = prod_img.resize((600, 460), Image.LANCZOS)
         except:
             prod_img = None
 
     if prod_img:
-        img.paste(prod_img, ((W-500)//2, 130), prod_img)
+        img.paste(prod_img, ((W-600)//2, 215), prod_img)
     else:
-        draw.rounded_rectangle([240, 130, 840, 550], radius=20, fill=COR_CINZA_ESCURO)
-        f_ico = carregar_fonte(80)
-        draw.text((540, 340), "📦", font=f_ico, fill=(70,70,70), anchor="mm")
+        draw.rounded_rectangle([240, 215, 840, 675], radius=20, fill=COR_CINZA_ESCURO)
+        f_ico = carregar_fonte(100)
+        draw.text((540, 445), "📦", font=f_ico, fill=(70,70,70), anchor="mm")
 
-    draw.rectangle([60, 568, W-60, 570], fill=COR_CINZA_ESCURO)
+    # ── ÁREA DE TEXTO: fundo escuro arredondado ────────────────
+    draw.rounded_rectangle([32, 690, W-32, H-120], radius=28, fill=(22,22,22))
 
-    # Fontes de tendência (pequenas, abaixo do separador)
-    fontes = produto.get("fontes", [])
-    labels_f = {
-        "google": "Google Trends", "tiktok": "TikTok Viral",
-        "reddit": "Reddit", "amazon": "Amazon BR",
-        "aliexpress": "AliExpress", "shopee": "Shopee BR"
-    }
-    txt_fontes = " · ".join([labels_f.get(f, f) for f in fontes])
-    if txt_fontes:
-        f_sub = carregar_fonte(26)
-        bb = draw.textbbox((0,0), txt_fontes, font=f_sub)
-        draw.text(((W-(bb[2]-bb[0]))//2, 572), txt_fontes, font=f_sub, fill=COR_CINZA)
+    y = 706
 
-    # Header OlhaissO com olhinhos
-    f_header = carregar_fonte(42, negrito=True)
-    header_txt = "👀 OlhaissO"
-    bb_h = draw.textbbox((0,0), header_txt, font=f_header)
-    draw.text(((W-(bb_h[2]-bb_h[0]))//2, 590), header_txt, font=f_header, fill=COR_LARANJA)
+    # 👀 OlhaissO
+    f_marca = carregar_fonte(50, negrito=True)
+    marca_txt = "👀 OlhaissO"
+    bb_m = draw.textbbox((0,0), marca_txt, font=f_marca)
+    draw.text(((W-(bb_m[2]-bb_m[0]))//2, y), marca_txt, font=f_marca, fill=COR_LARANJA)
+    y += 66
 
-    f_nome = carregar_fonte(44, negrito=True)
+    # Nome do produto
+    f_nome = carregar_fonte(48, negrito=True)
     nome = produto.get("nome", "")
-    linhas = textwrap.wrap(nome, width=34)[:2]
-    y = 638
+    linhas = textwrap.wrap(nome, width=32)[:2]
     for linha in linhas:
         bb = draw.textbbox((0,0), linha, font=f_nome)
         draw.text(((W-(bb[2]-bb[0]))//2, y), linha, font=f_nome, fill=COR_BRANCO)
-        y += 48
+        y += 60
 
+    y += 8
+
+    # Preço original riscado
     preco_orig = produto.get("preco_original", 0)
-    if preco_orig > 0:
-        f_old = carregar_fonte(34)
+    preco = produto.get("preco", 0)
+    if preco_orig > preco:
+        f_old = carregar_fonte(40)
         txt_old = f"De {fmt_preco(preco_orig)}"
         bb = draw.textbbox((0,0), txt_old, font=f_old)
-        tw = bb[2] - bb[0]
-        x_old = (W - tw) // 2
-        draw.text((x_old, y + 10), txt_old, font=f_old, fill=COR_CINZA)
-        meio_y = y + 10 + (bb[3] - bb[1]) // 2
-        draw.line([(x_old, meio_y), (x_old + tw, meio_y)], fill=COR_CINZA, width=2)
-        y += 48
+        tw = bb[2]-bb[0]
+        x_old = (W-tw)//2
+        draw.text((x_old, y), txt_old, font=f_old, fill=COR_CINZA)
+        meio_y = y + (bb[3]-bb[1])//2
+        draw.line([(x_old, meio_y), (x_old+tw, meio_y)], fill=COR_CINZA, width=2)
+        y += 54
 
-    f_preco = carregar_fonte(80, negrito=True)
-    preco = produto.get("preco", 0)
+    # Preço atual — destaque máximo
+    f_preco = carregar_fonte(88, negrito=True)
     txt_preco = fmt_preco(preco)
     bb = draw.textbbox((0,0), txt_preco, font=f_preco)
-    draw.text(((W-(bb[2]-bb[0]))//2, y + 8), txt_preco, font=f_preco, fill=COR_LARANJA)
+    draw.text(((W-(bb[2]-bb[0]))//2, y), txt_preco, font=f_preco, fill=COR_LARANJA)
+    y += 96
 
+    # Frete
     frete = produto.get("frete", "")
     if frete:
-        f_frete = carregar_fonte(32)
+        f_frete = carregar_fonte(40)
         bb = draw.textbbox((0,0), frete, font=f_frete)
-        draw.text(((W-(bb[2]-bb[0]))//2, y + 100), frete, font=f_frete, fill=COR_VERDE)
+        draw.text(((W-(bb[2]-bb[0]))//2, y), frete, font=f_frete, fill=COR_VERDE)
 
-    draw.rounded_rectangle([32, H-110, W-32, H-32], radius=28, fill=COR_LARANJA)
-    desenhar_logo(draw, 62, H-96, tamanho=30)
-    f_cta = carregar_fonte(34, negrito=True)
+    # ── RODAPÉ LARANJA ─────────────────────────────────────────
+    draw.rounded_rectangle([32, H-108, W-32, H-28], radius=30, fill=COR_LARANJA)
+    desenhar_logo(draw, 58, H-96, tamanho=32)
+    f_cta = carregar_fonte(38, negrito=True)
     cta = "OlhaissoTech — Link na bio e no Telegram!"
     bb = draw.textbbox((0,0), cta, font=f_cta)
-    draw.text(((W-(bb[2]-bb[0]))//2 + 30, H-88), cta, font=f_cta, fill=COR_BRANCO)
+    draw.text(((W-(bb[2]-bb[0]))//2 + 20, H-84), cta, font=f_cta, fill=COR_BRANCO)
 
     path = f"/tmp/oferta_{hashlib.md5(nome.encode()).hexdigest()[:8]}.jpg"
     img.save(path, "JPEG", quality=93)
     return path
+
 
 # ============================================================
 # TELEGRAM
@@ -339,42 +343,67 @@ def montar_caption(produto):
     score  = produto.get("score", 0)
     fontes = produto.get("fontes", [])
 
-    urgencia = "🔥🔥🔥" if score >= 3 else "🔥🔥" if score == 2 else "🔥"
     eco = fmt_economia(orig, preco) if orig > preco else None
 
-    txt = f"{urgencia} <b>{nome}</b>\n\n"
+    # Badge de urgência por score
+    if score >= 3:
+        badge = "🔥 <b>VIRAL AGORA</b>"
+    elif score == 2:
+        badge = "📈 <b>TENDÊNCIA</b>"
+    else:
+        badge = "💰 <b>OFERTA DO DIA</b>"
+
+    # Badge de loja
+    loja_badge = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
+
+    txt  = f"👀 <b>OlhaissO</b> — {badge}\n"
+    txt += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+    txt += f"<b>{nome}</b>\n\n"
+
     if desc > 0:
-        txt += f"📉 <b>{desc}% de desconto!</b>\n"
-    if eco:
-        txt += f"💸 Economia de <b>{eco}</b>\n"
-    txt += f"\n💰 <b>{fmt_preco(preco)}</b>"
-    if orig > 0:
-        txt += f"  <i>(era {fmt_preco(orig)})</i>"
-    txt += f"\n\n🏪 {loja}"
+        txt += f"🏷️ <b>{desc}% OFF</b>"
+        if eco:
+            txt += f"  |  Economia de <b>{eco}</b>"
+        txt += "\n"
+
+    txt += f"\n💵 De <s>{fmt_preco(orig)}</s> por apenas\n"
+    txt += f"💰 <b>{fmt_preco(preco)}</b>\n\n"
+
+    txt += f"{loja_badge}"
     if frete:
-        txt += f"\n{frete}"
+        txt += f"  •  {frete}"
+    txt += "\n"
+
     if fontes:
-        labels = {
-            "google": "Google Trends", "tiktok": "TikTok",
-            "reddit": "Reddit", "amazon": "Amazon",
-            "aliexpress": "AliExpress", "shopee": "Shopee"
-        }
-        txt += f"\n📊 Em alta: {' · '.join([labels.get(f,f) for f in fontes])}"
-    txt += f"\n\n🛒 <a href=\"{link}\">Comprar agora — clique aqui</a>"
-    txt += f"\n\n<i>👀 OlhaissoTech — Gadgets e utilidades com o melhor preço</i>"
+        labels = {"google": "Google Trends", "tiktok": "TikTok", "reddit": "Reddit", "amazon": "Amazon", "aliexpress": "AliExpress", "shopee": "Shopee"}
+        txt += f"📊 Em alta: {' · '.join([labels.get(f,f) for f in fontes])}\n"
+
+    txt += f"\n🛒 <a href=\"{link}\"><b>COMPRAR AGORA — CLIQUE AQUI</b></a>\n"
+    txt += f"\n━━━━━━━━━━━━━━━━━━━━\n"
+    txt += f"<i>👀 OlhaissoTech | Gadgets com o melhor preço</i>"
     return txt
 
 
 def postar_telegram(produto, imagem_path):
     caption = montar_caption(produto)
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    img_url = produto.get("imagem_url", "")
     try:
-        with open(imagem_path, "rb") as f:
+        # Usa foto real do produto se disponível, senão usa imagem gerada
+        if img_url:
             r = requests.post(url, data={
                 "chat_id": TELEGRAM_CHANNEL,
+                "photo": img_url,
                 "caption": caption,
                 "parse_mode": "HTML",
-            }, files={"photo": f}, timeout=30)
+            }, timeout=30)
+        else:
+            with open(imagem_path, "rb") as f:
+                r = requests.post(url, data={
+                    "chat_id": TELEGRAM_CHANNEL,
+                    "caption": caption,
+                    "parse_mode": "HTML",
+                }, files={"photo": f}, timeout=30)
         ok = r.status_code == 200
         if not ok:
             log.error(f"Telegram erro: {r.text[:200]}")
