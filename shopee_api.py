@@ -14,6 +14,7 @@ SHOPEE_SECRET = "5TCZ4KND77VOJV5QNUX7PMYKTVPF23XT"
 SHOPEE_URL    = "https://open-api.affiliate.shopee.com.br/graphql"
 
 CATEGORIAS = [
+    # Originais — tech e gamer
     "fone bluetooth",
     "smartwatch",
     "carregador gan",
@@ -34,6 +35,27 @@ CATEGORIAS = [
     "suporte notebook",
     "relogio inteligente",
     "controle gamer",
+    # Marcas premium
+    "xiaomi fone",
+    "xiaomi smartwatch",
+    "baseus carregador",
+    "baseus cabo",
+    "anker power bank",
+    "jbl caixa som",
+    "jbl fone",
+    "redragon mouse",
+    "redragon teclado",
+    "logitech mouse",
+    "philips luminaria",
+    "mondial fritadeira",
+    # Virais e tendência
+    "gadget criativo",
+    "gadget util dia a dia",
+    "produto viral cozinha",
+    "organizador casa",
+    "setup gamer barato",
+    "item viral tiktok",
+    "produto tendencia",
 ]
 
 PRECO_MINIMO    = 50.00

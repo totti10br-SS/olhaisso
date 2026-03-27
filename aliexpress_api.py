@@ -42,7 +42,7 @@ CATEGORIAS = [
     "gadget kitchen electric",
     "neck fan hands free",
     "gadget office productivity",
-    # Virais — captura tendências em tempo real
+    # Virais
     "viral gadget tiktok 2025",
     "trending gadget 2025",
     "viral product tiktok bought",
@@ -60,6 +60,21 @@ CATEGORIAS = [
     "led jersey light fan",
     "stadium fan accessories",
     "world cup smart watch",
+    # Marcas premium
+    "xiaomi earbuds",
+    "xiaomi smartwatch band",
+    "baseus charger fast",
+    "baseus power bank",
+    "anker charger gan",
+    "anker power bank",
+    "jbl speaker bluetooth",
+    "jbl earbuds",
+    "redragon gaming mouse",
+    "redragon keyboard",
+    "logitech mouse wireless",
+    "logitech keyboard",
+    "samsung ssd portable",
+    "philips smart lamp",
 ]
 
 PRECO_MINIMO    = 50.00
