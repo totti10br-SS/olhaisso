@@ -46,7 +46,8 @@ HORARIOS         = ["08:00", "11:00", "14:00", "17:00", "20:00", "22:00"]
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
 # Quantos dias manter um produto no histórico antes de poder repetir
-DIAS_SEM_REPETIR = int(os.getenv("DIAS_SEM_REPETIR", "2"))
+DIAS_SEM_REPETIR = int(os.getenv("DIAS_SEM_REPETIR", "2"))  # mantido por compatibilidade
+HORAS_SEM_REPETIR = int(os.getenv("HORAS_SEM_REPETIR", str(DIAS_SEM_REPETIR * 24)))
 
 KEYWORDS_NICHO = [
     "gadget", "fone", "carregador", "teclado", "mouse", "câmera",
@@ -95,11 +96,11 @@ def init_db():
 
 
 def ja_postado(hash_produto):
-    """Verifica se produto foi postado nos últimos DIAS_SEM_REPETIR dias."""
+    """Verifica se produto foi postado nas últimas HORAS_SEM_REPETIR horas."""
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        limite = (datetime.now() - timedelta(days=DIAS_SEM_REPETIR)).strftime("%Y-%m-%d %H:%M:%S")
+        limite = (datetime.now() - timedelta(hours=HORAS_SEM_REPETIR)).strftime("%Y-%m-%d %H:%M:%S")
         c.execute("SELECT id FROM postados WHERE hash = ? AND postado_em > ?", (hash_produto, limite))
         resultado = c.fetchone()
         conn.close()
@@ -128,11 +129,11 @@ def registrar_post(produto):
 
 
 def limpar_historico_antigo():
-    """Remove registros mais antigos que DIAS_SEM_REPETIR * 2 dias."""
+    """Remove registros mais antigos que HORAS_SEM_REPETIR * 2 horas."""
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        limite = (datetime.now() - timedelta(days=DIAS_SEM_REPETIR * 2)).strftime("%Y-%m-%d %H:%M:%S")
+        limite = (datetime.now() - timedelta(hours=HORAS_SEM_REPETIR * 2)).strftime("%Y-%m-%d %H:%M:%S")
         c.execute("DELETE FROM postados WHERE postado_em < ?", (limite,))
         removidos = c.rowcount
         conn.commit()
@@ -684,7 +685,7 @@ def main():
     log.info(f"📢 Canal: {TELEGRAM_CHANNEL}")
     log.info(f"⏰ Horários: {', '.join(HORARIOS)}")
     log.info(f"📦 Posts por ciclo: {POSTS_POR_CICLO}")
-    log.info(f"🗓️ Sem repetir por: {DIAS_SEM_REPETIR} dias\n")
+    log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
     ciclo()
