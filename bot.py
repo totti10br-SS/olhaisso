@@ -491,15 +491,12 @@ def postar_whatsapp(produto, imagem_path):
         texto += f"\n━━━━━━━━━━━━━━━━━━━━\n"
         texto += f"👀 OlhaissoTech | Gadgets com o melhor preço"
 
-        headers_json = {
+        headers = {
             "apikey": EVOLUTION_APIKEY,
             "Content-Type": "application/json",
         }
-        headers_file = {
-            "apikey": EVOLUTION_APIKEY,
-        }
 
-        # Tenta 1: URL do produto diretamente
+        # Tenta com imagem via URL do produto
         if img_url:
             payload = {
                 "number": WHATSAPP_GROUP_ID,
@@ -510,47 +507,26 @@ def postar_whatsapp(produto, imagem_path):
             }
             r = requests.post(
                 f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
-                json=payload, headers=headers_json, timeout=30
+                json=payload, headers=headers, timeout=30
             )
             if r.status_code in (200, 201):
-                log.info("✅ WhatsApp postado!")
+                log.info("✅ WhatsApp postado com imagem!")
                 return
-            log.warning(f"WhatsApp URL produto falhou ({r.status_code}), tentando arquivo...")
+            log.warning(f"WhatsApp imagem falhou ({r.status_code}), postando só texto...")
 
-        # Tenta 2: envio da imagem gerada como arquivo multipart
-        with open(imagem_path, "rb") as f:
-            files = {"file": ("oferta.jpg", f, "image/jpeg")}
-            data  = {
-                "number": WHATSAPP_GROUP_ID,
-                "caption": texto,
-            }
-            r = requests.post(
-                f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
-                data=data, files=files, headers=headers_file, timeout=30
-            )
+        # Fallback: posta só o texto sem imagem
+        payload_txt = {
+            "number": WHATSAPP_GROUP_ID,
+            "text": texto,
+        }
+        r = requests.post(
+            f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}",
+            json=payload_txt, headers=headers, timeout=30
+        )
         if r.status_code in (200, 201):
-            log.info("✅ WhatsApp postado via arquivo!")
-            return
-        log.warning(f"WhatsApp arquivo falhou ({r.status_code}): {r.text[:150]}")
-
-        # Tenta 3: imgbb como último recurso
-        url_uploaded = fazer_upload_imagem(imagem_path)
-        if url_uploaded:
-            payload = {
-                "number": WHATSAPP_GROUP_ID,
-                "mediatype": "image",
-                "mimetype": "image/jpeg",
-                "caption": texto,
-                "media": url_uploaded,
-            }
-            r = requests.post(
-                f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
-                json=payload, headers=headers_json, timeout=30
-            )
-            if r.status_code in (200, 201):
-                log.info("✅ WhatsApp postado via imgbb!")
-                return
-            log.warning(f"WhatsApp imgbb falhou: {r.text[:100]}")
+            log.info("✅ WhatsApp postado (só texto)!")
+        else:
+            log.warning(f"WhatsApp texto falhou: {r.text[:150]}")
 
     except Exception as e:
         log.warning(f"WhatsApp exceção (ignorada): {e}")
