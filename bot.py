@@ -436,12 +436,13 @@ def postar_whatsapp(produto, imagem_path):
         return
 
     try:
-        nome   = produto.get("nome", "")
-        preco  = produto.get("preco", 0)
-        orig   = produto.get("preco_original", 0)
-        desc   = produto.get("desconto", 0)
-        link   = produto.get("link_afiliado", "")
-        loja   = produto.get("loja", "")
+        import base64
+        nome    = produto.get("nome", "")
+        preco   = produto.get("preco", 0)
+        orig    = produto.get("preco_original", 0)
+        desc    = produto.get("desconto", 0)
+        link    = produto.get("link_afiliado", "")
+        loja    = produto.get("loja", "")
         img_url = produto.get("imagem_url", "")
 
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
@@ -450,6 +451,7 @@ def postar_whatsapp(produto, imagem_path):
         def fmt(v):
             return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+        # Caption em formato WhatsApp (Markdown, sem HTML)
         texto  = f"👀 *OlhaissO* — {badge}\n"
         texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
         texto += f"*{nome}*\n\n"
@@ -457,10 +459,10 @@ def postar_whatsapp(produto, imagem_path):
             eco = round(orig - preco, 2)
             texto += f"🏷️ *{desc}% OFF*  |  Economia de *{fmt(eco)}*\n"
         if orig > preco:
-            texto += f"\n💵 De ~{fmt(orig)}~ por apenas\n"
+            texto += f"\n💵 De {fmt(orig)} por apenas\n"
         texto += f"💰 *{fmt(preco)}*\n\n"
         texto += f"{loja_label}\n"
-        texto += f"\n🛒 *COMPRAR AGORA:* {link}\n"
+        texto += f"\n🛒 *COMPRAR AGORA:*\n{link}\n"
         texto += f"\n━━━━━━━━━━━━━━━━━━━━\n"
         texto += f"👀 OlhaissoTech | Gadgets com o melhor preço"
 
@@ -468,9 +470,9 @@ def postar_whatsapp(produto, imagem_path):
             "apikey": EVOLUTION_APIKEY,
             "Content-Type": "application/json",
         }
-        url_base = f"{EVOLUTION_URL}/message"
+        endpoint = f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}"
 
-        # Tenta enviar com imagem via URL
+        # Tenta 1: imagem via URL
         if img_url:
             payload = {
                 "number": WHATSAPP_GROUP_ID,
@@ -479,18 +481,15 @@ def postar_whatsapp(produto, imagem_path):
                 "caption": texto,
                 "media": img_url,
             }
-            r = requests.post(
-                f"{url_base}/sendMedia/{EVOLUTION_INSTANCE}",
-                json=payload, headers=headers, timeout=30
-            )
-            if r.status_code == 201:
+            r = requests.post(endpoint, json=payload, headers=headers, timeout=30)
+            if r.status_code in (200, 201):
                 log.info("✅ WhatsApp postado!")
                 return
+            log.warning(f"WhatsApp URL falhou ({r.status_code}), tentando base64...")
 
-        # Tenta com imagem gerada (base64)
-        import base64
+        # Tenta 2: imagem gerada em base64 com prefixo data URI
         with open(imagem_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+            img_b64 = "data:image/jpeg;base64," + base64.b64encode(f.read()).decode("utf-8")
 
         payload = {
             "number": WHATSAPP_GROUP_ID,
@@ -499,11 +498,8 @@ def postar_whatsapp(produto, imagem_path):
             "caption": texto,
             "media": img_b64,
         }
-        r = requests.post(
-            f"{url_base}/sendMedia/{EVOLUTION_INSTANCE}",
-            json=payload, headers=headers, timeout=30
-        )
-        if r.status_code == 201:
+        r = requests.post(endpoint, json=payload, headers=headers, timeout=30)
+        if r.status_code in (200, 201):
             log.info("✅ WhatsApp postado!")
         else:
             log.warning(f"WhatsApp erro: {r.text[:200]}")
