@@ -3,6 +3,7 @@ AliExpress Affiliates API — integração oficial
 AppKey: 530504
 """
 
+import os
 import hashlib
 import time
 import requests
@@ -77,9 +78,9 @@ CATEGORIAS = [
     "philips smart lamp",
 ]
 
-PRECO_MINIMO    = 50.00
-PRECO_MAXIMO    = 800.00
-DESCONTO_MINIMO = 20
+PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
+PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "800.00"))
+DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
 # Preços em USD para filtro na API (R$50=~$9 / R$800=~$145)
 PRECO_MIN_USD = "9"

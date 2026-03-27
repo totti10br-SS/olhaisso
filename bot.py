@@ -42,7 +42,7 @@ AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
-HORARIOS         = ["08:00", "11:00", "14:00", "17:00", "20:00", "22:00"]
+HORARIOS         = ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "00:00"]
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
 # Quantos dias manter um produto no histórico antes de poder repetir

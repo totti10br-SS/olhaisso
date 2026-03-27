@@ -4,6 +4,7 @@ AppID: 18307831002
 Assinatura: SHA256(AppId + Timestamp + Payload + Secret)
 """
 
+import os
 import hashlib
 import time
 import json
@@ -58,9 +59,9 @@ CATEGORIAS = [
     "produto tendencia",
 ]
 
-PRECO_MINIMO    = 50.00
-PRECO_MAXIMO    = 800.00
-DESCONTO_MINIMO = 20
+PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
+PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "800.00"))
+DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
 PALAVRAS_BLOQUEADAS = [
     "separador de tela", "manutenção", "desmontagem", "reparo", "solda",
