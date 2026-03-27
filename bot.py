@@ -430,13 +430,33 @@ def postar_telegram(produto, imagem_path):
     return False
 
 
+def fazer_upload_imagem(imagem_path):
+    """Faz upload da imagem gerada para imgbb e retorna URL pública."""
+    IMGBB_KEY = os.getenv("IMGBB_KEY", "")
+    if not IMGBB_KEY:
+        return None
+    try:
+        import base64
+        with open(imagem_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+        r = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": IMGBB_KEY, "image": img_b64},
+            timeout=20
+        )
+        if r.status_code == 200:
+            return r.json()["data"]["url"]
+    except Exception as e:
+        log.warning(f"imgbb upload falhou: {e}")
+    return None
+
+
 def postar_whatsapp(produto, imagem_path):
     """Posta no grupo WhatsApp via Evolution API. Falha silenciosa — não afeta o Telegram."""
     if not EVOLUTION_URL or not WHATSAPP_GROUP_ID:
         return
 
     try:
-        import base64
         nome    = produto.get("nome", "")
         preco   = produto.get("preco", 0)
         orig    = produto.get("preco_original", 0)
@@ -451,7 +471,7 @@ def postar_whatsapp(produto, imagem_path):
         def fmt(v):
             return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-        # Caption em formato WhatsApp (Markdown, sem HTML)
+        # Caption em formato WhatsApp puro — sem HTML
         texto  = f"👀 *OlhaissO* — {badge}\n"
         texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
         texto += f"*{nome}*\n\n"
@@ -472,37 +492,35 @@ def postar_whatsapp(produto, imagem_path):
         }
         endpoint = f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}"
 
-        # Tenta 1: imagem via URL
-        if img_url:
+        # Determina melhor URL de imagem disponível
+        url_imagem = img_url or fazer_upload_imagem(imagem_path)
+
+        if url_imagem:
             payload = {
                 "number": WHATSAPP_GROUP_ID,
                 "mediatype": "image",
                 "mimetype": "image/jpeg",
                 "caption": texto,
-                "media": img_url,
+                "media": url_imagem,
             }
             r = requests.post(endpoint, json=payload, headers=headers, timeout=30)
             if r.status_code in (200, 201):
                 log.info("✅ WhatsApp postado!")
                 return
-            log.warning(f"WhatsApp URL falhou ({r.status_code}), tentando base64...")
+            log.warning(f"WhatsApp falhou ({r.status_code}): {r.text[:100]}")
 
-        # Tenta 2: imagem gerada em base64 com prefixo data URI
-        with open(imagem_path, "rb") as f:
-            img_b64 = "data:image/jpeg;base64," + base64.b64encode(f.read()).decode("utf-8")
-
-        payload = {
-            "number": WHATSAPP_GROUP_ID,
-            "mediatype": "image",
-            "mimetype": "image/jpeg",
-            "caption": texto,
-            "media": img_b64,
-        }
-        r = requests.post(endpoint, json=payload, headers=headers, timeout=30)
-        if r.status_code in (200, 201):
-            log.info("✅ WhatsApp postado!")
+            # Se img_url falhou, tenta upload para imgbb
+            if img_url:
+                url_uploaded = fazer_upload_imagem(imagem_path)
+                if url_uploaded:
+                    payload["media"] = url_uploaded
+                    r = requests.post(endpoint, json=payload, headers=headers, timeout=30)
+                    if r.status_code in (200, 201):
+                        log.info("✅ WhatsApp postado via imgbb!")
+                        return
+                    log.warning(f"WhatsApp imgbb falhou: {r.text[:100]}")
         else:
-            log.warning(f"WhatsApp erro: {r.text[:200]}")
+            log.warning("WhatsApp: sem imagem disponível, pulando")
 
     except Exception as e:
         log.warning(f"WhatsApp exceção (ignorada): {e}")
