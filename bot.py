@@ -45,6 +45,12 @@ POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
 HORARIOS         = ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "00:00"]
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
+# Evolution API — WhatsApp
+EVOLUTION_URL      = os.getenv("EVOLUTION_URL", "https://evolution-api-production-b1df.up.railway.app")
+EVOLUTION_APIKEY   = os.getenv("EVOLUTION_APIKEY", "A05E4CD20532-4B74-BA78-7FC09B26F2B0")
+EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE", "OlhaissOTech")
+WHATSAPP_GROUP_ID  = os.getenv("WHATSAPP_GROUP_ID", "120363409953330235@g.us")
+
 # Quantos dias manter um produto no histórico antes de poder repetir
 DIAS_SEM_REPETIR = int(os.getenv("DIAS_SEM_REPETIR", "2"))  # mantido por compatibilidade
 HORAS_SEM_REPETIR = int(os.getenv("HORAS_SEM_REPETIR", str(DIAS_SEM_REPETIR * 24)))
@@ -423,9 +429,136 @@ def postar_telegram(produto, imagem_path):
     log.warning(f"Produto pulado por falha de imagem: {produto.get('nome','')[:50]}")
     return False
 
-# ============================================================
-# FONTES DE TENDÊNCIA
-# ============================================================
+
+def postar_whatsapp(produto, imagem_path):
+    """Posta no grupo WhatsApp via Evolution API. Falha silenciosa — não afeta o Telegram."""
+    if not EVOLUTION_URL or not WHATSAPP_GROUP_ID:
+        return
+
+    try:
+        nome   = produto.get("nome", "")
+        preco  = produto.get("preco", 0)
+        orig   = produto.get("preco_original", 0)
+        desc   = produto.get("desconto", 0)
+        link   = produto.get("link_afiliado", "")
+        loja   = produto.get("loja", "")
+        img_url = produto.get("imagem_url", "")
+
+        loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
+        badge = "🔥 VIRAL AGORA" if produto.get("score", 0) >= 3 else "📈 TENDÊNCIA" if produto.get("score", 0) == 2 else "💰 OFERTA DO DIA"
+
+        def fmt(v):
+            return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        texto  = f"👀 *OlhaissO* — {badge}\n"
+        texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        texto += f"*{nome}*\n\n"
+        if desc > 0:
+            eco = round(orig - preco, 2)
+            texto += f"🏷️ *{desc}% OFF*  |  Economia de *{fmt(eco)}*\n"
+        if orig > preco:
+            texto += f"\n💵 De ~{fmt(orig)}~ por apenas\n"
+        texto += f"💰 *{fmt(preco)}*\n\n"
+        texto += f"{loja_label}\n"
+        texto += f"\n🛒 *COMPRAR AGORA:* {link}\n"
+        texto += f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        texto += f"👀 OlhaissoTech | Gadgets com o melhor preço"
+
+        headers = {
+            "apikey": EVOLUTION_APIKEY,
+            "Content-Type": "application/json",
+        }
+        url_base = f"{EVOLUTION_URL}/message"
+
+        # Tenta enviar com imagem via URL
+        if img_url:
+            payload = {
+                "number": WHATSAPP_GROUP_ID,
+                "mediatype": "image",
+                "mimetype": "image/jpeg",
+                "caption": texto,
+                "media": img_url,
+            }
+            r = requests.post(
+                f"{url_base}/sendMedia/{EVOLUTION_INSTANCE}",
+                json=payload, headers=headers, timeout=30
+            )
+            if r.status_code == 201:
+                log.info("✅ WhatsApp postado!")
+                return
+
+        # Tenta com imagem gerada (base64)
+        import base64
+        with open(imagem_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        payload = {
+            "number": WHATSAPP_GROUP_ID,
+            "mediatype": "image",
+            "mimetype": "image/jpeg",
+            "caption": texto,
+            "media": img_b64,
+        }
+        r = requests.post(
+            f"{url_base}/sendMedia/{EVOLUTION_INSTANCE}",
+            json=payload, headers=headers, timeout=30
+        )
+        if r.status_code == 201:
+            log.info("✅ WhatsApp postado!")
+        else:
+            log.warning(f"WhatsApp erro: {r.text[:200]}")
+
+    except Exception as e:
+        log.warning(f"WhatsApp exceção (ignorada): {e}")
+
+def postar_whatsapp(produto, imagem_path):
+    """Posta no grupo WhatsApp via Evolution API. Falha silenciosa — não afeta o Telegram."""
+    try:
+        caption = montar_caption(produto)
+        img_url = produto.get("imagem_url", "")
+        headers = {
+            "apikey": EVOLUTION_APIKEY,
+            "Content-Type": "application/json",
+        }
+
+        # Tenta enviar com imagem via URL
+        if img_url:
+            payload = {
+                "number": WHATSAPP_GROUP_ID,
+                "mediatype": "image",
+                "media": img_url,
+                "caption": caption,
+            }
+            r = requests.post(
+                f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
+                json=payload, headers=headers, timeout=30
+            )
+            if r.status_code == 200:
+                log.info("✅ WhatsApp postado!")
+                return True
+            log.warning(f"WhatsApp URL falhou ({r.status_code}), tentando imagem gerada...")
+
+        # Tenta enviar com imagem gerada (base64)
+        import base64
+        with open(imagem_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+        payload = {
+            "number": WHATSAPP_GROUP_ID,
+            "mediatype": "image",
+            "media": f"data:image/jpeg;base64,{img_b64}",
+            "caption": caption,
+        }
+        r = requests.post(
+            f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
+            json=payload, headers=headers, timeout=30
+        )
+        if r.status_code == 200:
+            log.info("✅ WhatsApp postado (imagem gerada)!")
+            return True
+        log.warning(f"WhatsApp falhou: {r.text[:100]}")
+    except Exception as e:
+        log.warning(f"WhatsApp exceção (não crítico): {e}")
+    return False
 
 def buscar_trends_google():
     try:
@@ -613,8 +746,8 @@ def montar_pipeline():
 
     # Rodizio entre lojas para garantir variedade
     ordem_lojas = ["ALIEXPRESS", "SHOPEE", "ALIEXPRESS", "SHOPEE",
-                   "ALIEXPRESS", "AMAZON", "ALIEXPRESS", "SHOPEE",
-                   "ALIEXPRESS", "SHOPEE", "ALIEXPRESS", "AMAZON"]
+                   "ALIEXPRESS", "SHOPEE", "ALIEXPRESS", "SHOPEE",
+                   "ALIEXPRESS", "ALIEXPRESS", "ALIEXPRESS", "ALIEXPRESS"]
     indices = {loja: 0 for loja in por_loja}
     fila = []
 
@@ -670,6 +803,8 @@ def ciclo():
             registrar_post(produto)
             postou += 1
             log.info("✅ Postado!")
+            # Posta no WhatsApp também (falha silenciosa)
+            postar_whatsapp(produto, imagem)
         else:
             registrar_post(produto)
             log.warning("⏭️ Pulado e registrado (falha de imagem)")
