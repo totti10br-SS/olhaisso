@@ -434,6 +434,7 @@ def fazer_upload_imagem(imagem_path):
     """Faz upload da imagem gerada para imgbb e retorna URL pública."""
     IMGBB_KEY = os.getenv("IMGBB_KEY", "")
     if not IMGBB_KEY:
+        log.warning("imgbb: IMGBB_KEY não configurada!")
         return None
     try:
         import base64
@@ -444,8 +445,12 @@ def fazer_upload_imagem(imagem_path):
             data={"key": IMGBB_KEY, "image": img_b64},
             timeout=20
         )
+        log.info(f"imgbb status: {r.status_code}")
         if r.status_code == 200:
-            return r.json()["data"]["url"]
+            url = r.json()["data"]["url"]
+            log.info(f"imgbb URL: {url}")
+            return url
+        log.warning(f"imgbb erro: {r.text[:200]}")
     except Exception as e:
         log.warning(f"imgbb upload falhou: {e}")
     return None
@@ -492,35 +497,38 @@ def postar_whatsapp(produto, imagem_path):
         }
         endpoint = f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}"
 
-        # Determina melhor URL de imagem disponível
-        url_imagem = img_url or fazer_upload_imagem(imagem_path)
-
-        if url_imagem:
+        # Tenta primeiro com URL do produto
+        if img_url:
             payload = {
                 "number": WHATSAPP_GROUP_ID,
                 "mediatype": "image",
                 "mimetype": "image/jpeg",
                 "caption": texto,
-                "media": url_imagem,
+                "media": img_url,
             }
             r = requests.post(endpoint, json=payload, headers=headers, timeout=30)
             if r.status_code in (200, 201):
                 log.info("✅ WhatsApp postado!")
                 return
-            log.warning(f"WhatsApp falhou ({r.status_code}): {r.text[:100]}")
+            log.warning(f"WhatsApp URL produto falhou ({r.status_code}), tentando imgbb...")
 
-            # Se img_url falhou, tenta upload para imgbb
-            if img_url:
-                url_uploaded = fazer_upload_imagem(imagem_path)
-                if url_uploaded:
-                    payload["media"] = url_uploaded
-                    r = requests.post(endpoint, json=payload, headers=headers, timeout=30)
-                    if r.status_code in (200, 201):
-                        log.info("✅ WhatsApp postado via imgbb!")
-                        return
-                    log.warning(f"WhatsApp imgbb falhou: {r.text[:100]}")
+        # Faz upload para imgbb e tenta com URL pública
+        url_uploaded = fazer_upload_imagem(imagem_path)
+        if url_uploaded:
+            payload = {
+                "number": WHATSAPP_GROUP_ID,
+                "mediatype": "image",
+                "mimetype": "image/jpeg",
+                "caption": texto,
+                "media": url_uploaded,
+            }
+            r = requests.post(endpoint, json=payload, headers=headers, timeout=30)
+            if r.status_code in (200, 201):
+                log.info("✅ WhatsApp postado via imgbb!")
+                return
+            log.warning(f"WhatsApp imgbb falhou: {r.text[:100]}")
         else:
-            log.warning("WhatsApp: sem imagem disponível, pulando")
+            log.warning("WhatsApp: imgbb não retornou URL, pulando")
 
     except Exception as e:
         log.warning(f"WhatsApp exceção (ignorada): {e}")
