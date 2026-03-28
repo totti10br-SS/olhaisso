@@ -61,6 +61,15 @@ CATEGORIAS = [
     "led jersey light fan",
     "stadium fan accessories",
     "world cup smart watch",
+    # Monitores
+    "gaming monitor 144hz",
+    "gaming monitor 165hz",
+    "monitor 4k ips",
+    "monitor ultrawide curved",
+    "portable monitor usb-c",
+    "monitor 27 inch 1440p",
+    "monitor 24 inch full hd",
+    "monitor 144hz 1ms",
     # Marcas premium
     "xiaomi earbuds",
     "xiaomi smartwatch band",
