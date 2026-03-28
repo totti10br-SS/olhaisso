@@ -412,13 +412,6 @@ async function publicarProduto() {
     document.getElementById('loader_pr').style.display = 'none';
   }
 }
-
-  await enviar(
-    { nome, preco, preco_orig, loja, link: linkFinal, imagem, telegram, whatsapp },
-    'btn_pr', 'loader_pr',
-    ['pr_link', 'pr_preco', 'pr_preco_orig', 'pr_imagem']
-  );
-}
 </script>
 {% endif %}
 </body>
