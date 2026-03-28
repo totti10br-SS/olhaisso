@@ -6,6 +6,9 @@ Fluxo 2: Link Shopee/AliExpress → extrai nome → publica Telegram + WhatsApp
 
 import os
 import re
+import json
+import hashlib
+import time
 import requests
 from urllib.parse import urlparse, unquote
 from flask import Flask, request, jsonify, session, redirect, render_template_string
@@ -20,6 +23,85 @@ from bot import (
 app = Flask(__name__)
 app.secret_key = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "olhaissoadmin")
+
+# Credenciais Shopee e AliExpress
+SHOPEE_APP_ID = "18307831002"
+SHOPEE_SECRET = "5TCZ4KND77VOJV5QNUX7PMYKTVPF23XT"
+SHOPEE_URL    = "https://open-api.affiliate.shopee.com.br/graphql"
+ALIEXPRESS_APP_KEY    = "530504"
+ALIEXPRESS_APP_SECRET = "ubsjVAWmokbBynXv0uYsQz2PJSwsshXP"
+ALIEXPRESS_TRACKING   = "default"
+
+
+def encurtar_link(url_longa):
+    try:
+        r = requests.get(f"https://tinyurl.com/api-create.php?url={url_longa}", timeout=5)
+        if r.status_code == 200 and r.text.startswith("https://"):
+            return r.text.strip()
+    except:
+        pass
+    return url_longa
+
+
+def gerar_link_afiliado_shopee(url_produto):
+    """Converte link de produto Shopee em link de afiliado via API GraphQL."""
+    try:
+        query = """mutation generateShortLink($input: GenerateShortLinkInput!) {
+  generateShortLink(input: $input) {
+    shortLink
+  }
+}"""
+        body = {
+            "query": query,
+            "operationName": "generateShortLink",
+            "variables": {"input": {"originUrl": url_produto}}
+        }
+        payload_str = json.dumps(body, separators=(",", ":"))
+        timestamp = int(time.time())
+        fator = SHOPEE_APP_ID + str(timestamp) + payload_str + SHOPEE_SECRET
+        sign = hashlib.sha256(fator.encode("utf-8")).hexdigest()
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"SHA256 Credential={SHOPEE_APP_ID},Timestamp={timestamp},Signature={sign}",
+        }
+        r = requests.post(SHOPEE_URL, data=payload_str, headers=headers, timeout=15)
+        data = r.json()
+        link = data.get("data", {}).get("generateShortLink", {}).get("shortLink", "")
+        if link:
+            return link
+    except Exception as e:
+        print(f"Shopee gerar link erro: {e}")
+    return encurtar_link(url_produto)
+
+
+def gerar_link_afiliado_aliexpress(url_produto):
+    """Converte link de produto AliExpress em link de afiliado via API."""
+    try:
+        timestamp = str(int(time.time() * 1000))
+        params = {
+            "app_key":     ALIEXPRESS_APP_KEY,
+            "timestamp":   timestamp,
+            "sign_method": "md5",
+            "method":      "aliexpress.affiliate.link.generate",
+            "promotion_link_type": "0",
+            "source_values": url_produto,
+            "tracking_id": ALIEXPRESS_TRACKING,
+        }
+        keys = sorted(params.keys())
+        base = ALIEXPRESS_APP_SECRET + "".join(f"{k}{params[k]}" for k in keys) + ALIEXPRESS_APP_SECRET
+        params["sign"] = hashlib.md5(base.encode("utf-8")).hexdigest().upper()
+
+        r = requests.post("https://api-sg.aliexpress.com/sync", data=params, timeout=15)
+        data = r.json()
+        resp = data.get("aliexpress_affiliate_link_generate_response", {}).get("resp_result", {})
+        if resp.get("resp_code") == 200:
+            links = resp.get("result", {}).get("promotion_links", {}).get("promotion_link", [])
+            if links:
+                return links[0].get("promotion_link", url_produto)
+    except Exception as e:
+        print(f"AliExpress gerar link erro: {e}")
+    return encurtar_link(url_produto)
 
 HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -300,12 +382,36 @@ async function publicarProduto() {
   if (!imagem) return alert('Cole a URL da imagem!');
   if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
 
-  const loja = detectarLoja(link);
-  const nome = extrairNomeDaUrl(link);
-  let linkFinal = link;
-  if (loja === 'AMAZON' && !link.includes('tag=')) {
-    linkFinal = link + (link.includes('?') ? '&' : '?') + 'tag={{ amazon_tag }}';
+  const btn = document.getElementById('btn_pr');
+  btn.disabled = true;
+  document.getElementById('loader_pr').style.display = 'block';
+  document.getElementById('loader_pr').textContent = '⏳ Gerando link de afiliado...';
+
+  try {
+    // Gera link de afiliado via backend
+    const respLink = await fetch('/gerar_link', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url: link })
+    });
+    const dataLink = await respLink.json();
+    const linkFinal = dataLink.link || link;
+    const loja = dataLink.loja || detectarLoja(link);
+    const nome = extrairNomeDaUrl(link);
+
+    document.getElementById('loader_pr').textContent = '⏳ Gerando imagem e publicando...';
+
+    await enviar(
+      { nome, preco, preco_orig, loja, link: linkFinal, imagem, telegram, whatsapp },
+      'btn_pr', 'loader_pr',
+      ['pr_link', 'pr_preco', 'pr_preco_orig', 'pr_imagem']
+    );
+  } catch(e) {
+    mostrarMsg(`<div class="msg msg-err">❌ Erro: ${e.message}</div>`);
+    btn.disabled = false;
+    document.getElementById('loader_pr').style.display = 'none';
   }
+}
 
   await enviar(
     { nome, preco, preco_orig, loja, link: linkFinal, imagem, telegram, whatsapp },
@@ -317,6 +423,35 @@ async function publicarProduto() {
 {% endif %}
 </body>
 </html>"""
+
+@app.route("/gerar_link", methods=["POST"])
+def gerar_link():
+    if not session.get("logged_in"):
+        return jsonify({"erro": "Não autorizado"}), 401
+
+    url = request.json.get("url", "").strip()
+    if not url:
+        return jsonify({"link": url, "loja": "OUTRO"})
+
+    loja = "OUTRO"
+    if "aliexpress.com" in url:
+        loja = "ALIEXPRESS"
+        link = gerar_link_afiliado_aliexpress(url)
+    elif "shopee.com.br" in url:
+        loja = "SHOPEE"
+        link = gerar_link_afiliado_shopee(url)
+    elif "amazon.com.br" in url or "amzn.to" in url:
+        loja = "AMAZON"
+        link = url
+        if AMAZON_TAG not in url:
+            link = url + ("&" if "?" in url else "?") + f"tag={AMAZON_TAG}"
+        link = encurtar_link(link)
+    else:
+        loja = "OUTRO"
+        link = encurtar_link(url)
+
+    return jsonify({"link": link, "loja": loja})
+
 
 @app.route("/")
 def index():
