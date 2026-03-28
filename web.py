@@ -1,6 +1,7 @@
 """
 OlhaissoTech — Painel de Publicação Manual
-Fluxo: Cola link → preenche Preço + Imagem → Publica direto
+Fluxo 1: Link de afiliado pronto → preenche dados → publica Telegram + WhatsApp
+Fluxo 2: Link Shopee/AliExpress → extrai nome → publica Telegram + WhatsApp
 """
 
 import os
@@ -12,18 +13,13 @@ from flask import Flask, request, jsonify, session, redirect, render_template_st
 from bot import (
     gerar_imagem,
     postar_telegram,
-    TELEGRAM_TOKEN,
-    TELEGRAM_CHANNEL,
+    postar_whatsapp,
     AMAZON_TAG,
 )
 
 app = Flask(__name__)
 app.secret_key = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "olhaissoadmin")
-
-# ============================================================
-# HTML
-# ============================================================
 
 HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -34,41 +30,41 @@ HTML = """<!DOCTYPE html>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #111; color: #fff; font-family: -apple-system, sans-serif; min-height: 100vh; }
-
   .header { background: #FF6B1A; padding: 16px 20px; display: flex; align-items: center; gap: 10px; }
   .header h1 { font-size: 20px; font-weight: 800; }
-
-  .container { max-width: 580px; margin: 0 auto; padding: 20px; }
-
-  .card { background: #1a1a1a; border-radius: 16px; padding: 22px; margin-bottom: 16px; }
+  .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab { flex: 1; padding: 12px; border-radius: 10px; border: 2px solid #333; background: #1a1a1a;
+         color: #aaa; font-size: 14px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.2s; }
+  .tab.active { border-color: #FF6B1A; color: #FF6B1A; background: #1f1510; }
+  .card { background: #1a1a1a; border-radius: 16px; padding: 22px; margin-bottom: 16px; display: none; }
+  .card.active { display: block; }
   .card h2 { font-size: 15px; color: #FF6B1A; margin-bottom: 16px; font-weight: 700; }
-
   label { display: block; color: #aaa; font-size: 13px; margin-bottom: 5px; }
   input, select {
     width: 100%; background: #2a2a2a; border: 1px solid #333; border-radius: 10px;
     color: #fff; padding: 12px; font-size: 15px; margin-bottom: 14px; outline: none;
   }
-  input:focus { border-color: #FF6B1A; }
-
+  input:focus, select:focus { border-color: #FF6B1A; }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
   .btn { width: 100%; padding: 15px; border-radius: 12px; border: none; font-size: 16px;
          font-weight: 700; cursor: pointer; margin-bottom: 10px; transition: opacity 0.2s; }
   .btn:active { opacity: 0.8; }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-green { background: #00BB44; color: #fff; }
   .btn-orange { background: #FF6B1A; color: #fff; }
-  .btn-green  { background: #00BB44; color: #fff; }
-
+  .destinos { display: flex; gap: 10px; margin-bottom: 14px; }
+  .destino { flex: 1; display: flex; align-items: center; gap: 8px; background: #2a2a2a;
+             border: 2px solid #333; border-radius: 10px; padding: 10px 14px; cursor: pointer; }
+  .destino.on { border-color: #00BB44; background: #0d2a0d; }
+  .destino input[type=checkbox] { width: 18px; height: 18px; accent-color: #00BB44; cursor: pointer; }
+  .destino span { font-size: 14px; font-weight: 600; }
   .msg { padding: 13px 16px; border-radius: 10px; margin-bottom: 14px; font-size: 14px; }
   .msg-ok  { background: #003d1a; color: #00ee66; border: 1px solid #00BB44; }
   .msg-err { background: #3d0000; color: #ff6666; border: 1px solid #ff4444; }
-
   .info { background: #1e2a1e; border: 1px solid #2a4a2a; border-radius: 10px;
           padding: 10px 14px; font-size: 13px; color: #88cc88; margin-bottom: 14px; }
-
   .loader { text-align: center; padding: 14px; color: #FF6B1A; font-size: 14px; display: none; }
-
-  /* Login */
   .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
   .login-box { background: #1a1a1a; border-radius: 20px; padding: 36px 28px; width: 340px; text-align: center; }
   .login-box .logo { font-size: 52px; margin-bottom: 8px; }
@@ -102,44 +98,121 @@ HTML = """<!DOCTYPE html>
 <div class="container">
   <div id="msg_area"></div>
 
-  <div class="card">
-    <h2>🚀 Publicar produto direto no grupo</h2>
+  <div class="tabs">
+    <div class="tab active" onclick="trocarAba('afiliado')">🔗 Link de Afiliado Pronto</div>
+    <div class="tab" onclick="trocarAba('produto')">🛍️ Link de Produto</div>
+  </div>
+
+  <!-- FLUXO 1: Link de afiliado pronto -->
+  <div class="card active" id="card_afiliado">
+    <h2>🔗 Publicar com link de afiliado pronto</h2>
+    <div class="info">💡 Use para Amazon, Hotmart ou qualquer link já com afiliado gerado</div>
+
+    <label>📎 Link de afiliado</label>
+    <div style="display:flex; gap:10px; margin-bottom:14px;">
+      <input type="url" id="af_link" placeholder="https://amzn.to/... ou qualquer link de afiliado" style="margin-bottom:0; flex:1;">
+      <button onclick="abrirLink('af_link')" style="background:#2a2a2a; border:1px solid #444; border-radius:10px; color:#FF6B1A; font-size:22px; padding:0 16px; cursor:pointer;" title="Abrir em nova aba">🔗</button>
+    </div>
+
+    <label>📝 Nome do produto *</label>
+    <input type="text" id="af_nome" placeholder="Ex: Fone Bluetooth JBL Tune 510BT">
+
+    <div class="row2">
+      <div>
+        <label>💰 Preço atual (R$) *</label>
+        <input type="number" id="af_preco" step="0.01" placeholder="Ex: 89.90">
+      </div>
+      <div>
+        <label>💵 Preço original (R$)</label>
+        <input type="number" id="af_preco_orig" step="0.01" placeholder="Ex: 149.90">
+      </div>
+    </div>
+
+    <label>🏪 Loja</label>
+    <select id="af_loja">
+      <option value="AMAZON">Amazon</option>
+      <option value="SHOPEE">Shopee</option>
+      <option value="ALIEXPRESS">AliExpress</option>
+      <option value="OUTRO">Outro</option>
+    </select>
+
+    <label>🖼️ URL da imagem *</label>
+    <input type="url" id="af_imagem" placeholder="Cole a URL da imagem do produto">
+
+    <label style="margin-bottom:8px;">📢 Publicar em:</label>
+    <div class="destinos">
+      <label class="destino on" id="dest_tg_af">
+        <input type="checkbox" id="af_telegram" checked onchange="toggleDestino('dest_tg_af', this)">
+        <span>✈️ Telegram</span>
+      </label>
+      <label class="destino on" id="dest_wa_af">
+        <input type="checkbox" id="af_whatsapp" checked onchange="toggleDestino('dest_wa_af', this)">
+        <span>📱 WhatsApp</span>
+      </label>
+    </div>
+
+    <button class="btn btn-green" id="btn_af" onclick="publicarAfiliado()">📢 Publicar agora</button>
+    <div class="loader" id="loader_af">⏳ Gerando imagem e publicando...</div>
+  </div>
+
+  <!-- FLUXO 2: Link de produto Shopee/AliExpress -->
+  <div class="card" id="card_produto">
+    <h2>🛍️ Publicar com link de produto (Shopee / AliExpress)</h2>
+    <div class="info">💡 Cole o link do produto — nome e loja detectados automaticamente</div>
 
     <label>📎 Link do produto</label>
     <div style="display:flex; gap:10px; margin-bottom:14px;">
-      <input type="url" id="url_input" placeholder="https://shopee.com.br/... ou aliexpress.com/..." style="margin-bottom:0; flex:1;">
-      <button onclick="abrirLink()" style="background:#2a2a2a; border:1px solid #444; border-radius:10px; color:#FF6B1A; font-size:22px; padding:0 16px; cursor:pointer;" title="Abrir produto em nova aba">🔗</button>
+      <input type="url" id="pr_link" placeholder="https://shopee.com.br/... ou aliexpress.com/..." style="margin-bottom:0; flex:1;">
+      <button onclick="abrirLink('pr_link')" style="background:#2a2a2a; border:1px solid #444; border-radius:10px; color:#FF6B1A; font-size:22px; padding:0 16px; cursor:pointer;" title="Abrir em nova aba">🔗</button>
     </div>
 
     <div class="row2">
       <div>
         <label>💰 Preço atual (R$) *</label>
-        <input type="number" id="preco" step="0.01" placeholder="Ex: 89.90">
+        <input type="number" id="pr_preco" step="0.01" placeholder="Ex: 89.90">
       </div>
       <div>
         <label>💵 Preço original (R$)</label>
-        <input type="number" id="preco_orig" step="0.01" placeholder="Ex: 149.90">
+        <input type="number" id="pr_preco_orig" step="0.01" placeholder="Ex: 149.90">
       </div>
     </div>
 
-    <label>🖼️ URL da imagem do produto *</label>
-    <input type="url" id="imagem_url" placeholder="Cole a URL da imagem do produto">
+    <label>🖼️ URL da imagem *</label>
+    <input type="url" id="pr_imagem" placeholder="Cole a URL da imagem do produto">
 
-    <div class="info">
-      💡 Nome e loja são detectados automaticamente pelo link. Preço e imagem você preenche.
+    <label style="margin-bottom:8px;">📢 Publicar em:</label>
+    <div class="destinos">
+      <label class="destino on" id="dest_tg_pr">
+        <input type="checkbox" id="pr_telegram" checked onchange="toggleDestino('dest_tg_pr', this)">
+        <span>✈️ Telegram</span>
+      </label>
+      <label class="destino on" id="dest_wa_pr">
+        <input type="checkbox" id="pr_whatsapp" checked onchange="toggleDestino('dest_wa_pr', this)">
+        <span>📱 WhatsApp</span>
+      </label>
     </div>
 
-    <button class="btn btn-green" id="btn_pub" onclick="publicar()">
-      📢 Publicar no grupo agora
-    </button>
-    <div class="loader" id="loader">⏳ Gerando imagem e publicando no grupo...</div>
+    <button class="btn btn-green" id="btn_pr" onclick="publicarProduto()">📢 Publicar agora</button>
+    <div class="loader" id="loader_pr">⏳ Gerando imagem e publicando...</div>
   </div>
 </div>
 
 <script>
-function abrirLink() {
-  const url = document.getElementById('url_input').value.trim();
-  if (!url) return alert('Cole o link do produto primeiro!');
+function trocarAba(aba) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', (aba === 'afiliado' && i === 0) || (aba === 'produto' && i === 1));
+  });
+  document.getElementById('card_afiliado').classList.toggle('active', aba === 'afiliado');
+  document.getElementById('card_produto').classList.toggle('active', aba === 'produto');
+}
+
+function toggleDestino(id, checkbox) {
+  document.getElementById(id).classList.toggle('on', checkbox.checked);
+}
+
+function abrirLink(inputId) {
+  const url = document.getElementById(inputId).value.trim();
+  if (!url) return alert('Cole o link primeiro!');
   window.open(url, '_blank');
 }
 
@@ -157,75 +230,97 @@ function extrairNomeDaUrl(url) {
     slug = slug.replace(/-i\.\d+\.\d+$/, '');
     slug = decodeURIComponent(slug).replace(/-/g, ' ');
     return slug.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ').trim();
-  } catch(e) { return ''; }
+  } catch(e) { return 'Produto em Oferta'; }
 }
 
-async function publicar() {
-  const url    = document.getElementById('url_input').value.trim();
-  const preco  = parseFloat(document.getElementById('preco').value) || 0;
-  const preco_orig = parseFloat(document.getElementById('preco_orig').value) || 0;
-  const imagem = document.getElementById('imagem_url').value.trim();
+function mostrarMsg(html) {
+  const area = document.getElementById('msg_area');
+  area.innerHTML = html;
+  setTimeout(() => area.innerHTML = '', 6000);
+}
 
-  if (!url)   return alert('Cole o link do produto!');
-  if (!preco) return alert('Preencha o preço atual!');
-  if (!imagem) return alert('Cole a URL da imagem do produto!');
-
-  const btn = document.getElementById('btn_pub');
+async function enviar(payload, btnId, loaderId, camposParaLimpar) {
+  const btn = document.getElementById(btnId);
   btn.disabled = true;
-  document.getElementById('loader').style.display = 'block';
-
-  const loja = detectarLoja(url);
-  const nome = extrairNomeDaUrl(url) || 'Produto em Oferta';
-
-  let link = url;
-  if (loja === 'AMAZON' && !url.includes('tag=')) {
-    link = url + (url.includes('?') ? '&' : '?') + 'tag={{ amazon_tag }}';
-  }
-
+  document.getElementById(loaderId).style.display = 'block';
   try {
     const resp = await fetch('/publicar', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ nome, preco, preco_orig, loja, link, imagem })
+      body: JSON.stringify(payload)
     });
     const data = await resp.json();
-    const area = document.getElementById('msg_area');
-
     if (data.ok) {
-      area.innerHTML = '<div class="msg msg-ok">✅ Publicado com sucesso no grupo!</div>';
-      document.getElementById('url_input').value = '';
-      document.getElementById('preco').value = '';
-      document.getElementById('preco_orig').value = '';
-      document.getElementById('imagem_url').value = '';
-      setTimeout(() => area.innerHTML = '', 5000);
+      mostrarMsg('<div class="msg msg-ok">✅ ' + data.msg + '</div>');
+      camposParaLimpar.forEach(id => document.getElementById(id).value = '');
     } else {
-      area.innerHTML = `<div class="msg msg-err">❌ Erro: ${data.erro}</div>`;
+      mostrarMsg(`<div class="msg msg-err">❌ Erro: ${data.erro}</div>`);
     }
   } catch(e) {
-    document.getElementById('msg_area').innerHTML = `<div class="msg msg-err">❌ Erro: ${e.message}</div>`;
+    mostrarMsg(`<div class="msg msg-err">❌ Erro: ${e.message}</div>`);
   } finally {
     btn.disabled = false;
-    document.getElementById('loader').style.display = 'none';
+    document.getElementById(loaderId).style.display = 'none';
   }
+}
+
+async function publicarAfiliado() {
+  const link      = document.getElementById('af_link').value.trim();
+  const nome      = document.getElementById('af_nome').value.trim();
+  const preco     = parseFloat(document.getElementById('af_preco').value) || 0;
+  const preco_orig= parseFloat(document.getElementById('af_preco_orig').value) || 0;
+  const loja      = document.getElementById('af_loja').value;
+  const imagem    = document.getElementById('af_imagem').value.trim();
+  const telegram  = document.getElementById('af_telegram').checked;
+  const whatsapp  = document.getElementById('af_whatsapp').checked;
+
+  if (!link)   return alert('Cole o link de afiliado!');
+  if (!nome)   return alert('Preencha o nome do produto!');
+  if (!preco)  return alert('Preencha o preço atual!');
+  if (!imagem) return alert('Cole a URL da imagem!');
+  if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
+
+  await enviar(
+    { nome, preco, preco_orig, loja, link, imagem, telegram, whatsapp },
+    'btn_af', 'loader_af',
+    ['af_link', 'af_nome', 'af_preco', 'af_preco_orig', 'af_imagem']
+  );
+}
+
+async function publicarProduto() {
+  const link      = document.getElementById('pr_link').value.trim();
+  const preco     = parseFloat(document.getElementById('pr_preco').value) || 0;
+  const preco_orig= parseFloat(document.getElementById('pr_preco_orig').value) || 0;
+  const imagem    = document.getElementById('pr_imagem').value.trim();
+  const telegram  = document.getElementById('pr_telegram').checked;
+  const whatsapp  = document.getElementById('pr_whatsapp').checked;
+
+  if (!link)   return alert('Cole o link do produto!');
+  if (!preco)  return alert('Preencha o preço atual!');
+  if (!imagem) return alert('Cole a URL da imagem!');
+  if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
+
+  const loja = detectarLoja(link);
+  const nome = extrairNomeDaUrl(link);
+  let linkFinal = link;
+  if (loja === 'AMAZON' && !link.includes('tag=')) {
+    linkFinal = link + (link.includes('?') ? '&' : '?') + 'tag={{ amazon_tag }}';
+  }
+
+  await enviar(
+    { nome, preco, preco_orig, loja, link: linkFinal, imagem, telegram, whatsapp },
+    'btn_pr', 'loader_pr',
+    ['pr_link', 'pr_preco', 'pr_preco_orig', 'pr_imagem']
+  );
 }
 </script>
 {% endif %}
 </body>
 </html>"""
 
-# ============================================================
-# ROTAS
-# ============================================================
-
 @app.route("/")
 def index():
-    return render_template_string(
-        HTML,
-        logged_in=session.get("logged_in", False),
-        error=None,
-        amazon_tag=AMAZON_TAG,
-    )
-
+    return render_template_string(HTML, logged_in=session.get("logged_in", False), error=None, amazon_tag=AMAZON_TAG)
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -234,12 +329,10 @@ def login():
         return redirect("/")
     return render_template_string(HTML, logged_in=False, error="Senha incorreta!", amazon_tag=AMAZON_TAG)
 
-
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/")
-
 
 @app.route("/publicar", methods=["POST"])
 def publicar():
@@ -253,6 +346,8 @@ def publicar():
     loja       = data.get("loja", "OUTRO")
     link       = data.get("link", "")
     imagem     = data.get("imagem", "")
+    pub_tg     = data.get("telegram", True)
+    pub_wa     = data.get("whatsapp", True)
 
     if not nome or not preco or not link:
         return jsonify({"ok": False, "erro": "Dados incompletos"})
@@ -274,11 +369,21 @@ def publicar():
 
     try:
         imagem_path = gerar_imagem(produto)
-        ok = postar_telegram(produto, imagem_path)
-        return jsonify({"ok": ok, "erro": "" if ok else "Falha ao enviar pro Telegram"})
+        resultados = []
+
+        if pub_tg:
+            ok_tg = postar_telegram(produto, imagem_path)
+            resultados.append("Telegram ✅" if ok_tg else "Telegram ❌")
+
+        if pub_wa:
+            postar_whatsapp(produto, imagem_path)
+            resultados.append("WhatsApp ✅")
+
+        msg = "Publicado em: " + " | ".join(resultados)
+        return jsonify({"ok": True, "msg": msg})
+
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
-
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
