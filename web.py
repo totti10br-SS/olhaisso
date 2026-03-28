@@ -499,16 +499,16 @@ def publicar():
         # Gera imagem 1080x1080 com a foto do produto
         imagem_path = gerar_imagem(produto)
 
-        # Zera imagem_url para forçar uso da imagem gerada (igual bot automático)
-        produto["imagem_url"] = ""
-
         resultados = []
 
         if pub_tg:
-            ok_tg = postar_telegram(produto, imagem_path)
+            # Força imagem gerada 1080x1080 no Telegram
+            produto_tg = {**produto, "imagem_url": ""}
+            ok_tg = postar_telegram(produto_tg, imagem_path)
             resultados.append("Telegram ✅" if ok_tg else "Telegram ❌")
 
         if pub_wa:
+            # WhatsApp usa URL original do produto (funciona melhor)
             postar_whatsapp(produto, imagem_path)
             resultados.append("WhatsApp ✅")
 
