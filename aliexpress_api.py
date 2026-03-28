@@ -18,7 +18,6 @@ CATEGORIAS = [
     "gaming controller hall effect",
     "gaming mouse rgb wireless",
     "gaming headset surround",
-    "monitor gaming stand",
     # Áudio e mobile
     "wireless earbuds noise cancelling anc",
     "smartwatch health monitor",
@@ -28,15 +27,27 @@ CATEGORIAS = [
     # Casa inteligente
     "robot vacuum mop wifi",
     "smart led strip rgb",
-    "security camera wifi outdoor",
     "air fryer digital",
     "mini projector portable 1080p",
+    # Câmera — apenas uma keyword
+    "security camera wifi outdoor",
     # Informática e upgrade
     "ssd portable external",
     "usb hub docking station",
     "webcam streaming 1080p",
     "laptop cooling stand",
     "electric desk lamp led",
+    # Monitores — prioridade alta
+    "gaming monitor 144hz",
+    "gaming monitor 165hz",
+    "gaming monitor 240hz",
+    "monitor 4k ips",
+    "monitor ultrawide curved",
+    "portable monitor usb-c",
+    "monitor 27 inch 1440p",
+    "monitor 24 inch full hd",
+    "monitor 144hz 1ms",
+    "monitor 2k gaming",
     # Gadgets direcionados
     "gadget smart home 2025",
     "cool gadget men gift",
@@ -61,15 +72,6 @@ CATEGORIAS = [
     "led jersey light fan",
     "stadium fan accessories",
     "world cup smart watch",
-    # Monitores
-    "gaming monitor 144hz",
-    "gaming monitor 165hz",
-    "monitor 4k ips",
-    "monitor ultrawide curved",
-    "portable monitor usb-c",
-    "monitor 27 inch 1440p",
-    "monitor 24 inch full hd",
-    "monitor 144hz 1ms",
     # Marcas premium
     "xiaomi earbuds",
     "xiaomi smartwatch band",

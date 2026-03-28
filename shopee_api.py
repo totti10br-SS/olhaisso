@@ -30,20 +30,23 @@ CATEGORIAS = [
     "fritadeira airfryer",
     "tomada inteligente",
     "luminaria led",
-    "camera seguranca wifi",
     "fita led rgb",
     "headset gamer",
     "suporte notebook",
     "relogio inteligente",
     "controle gamer",
-    # Monitores
+    # Monitores — prioridade alta
     "monitor gamer 144hz",
+    "monitor gamer 165hz",
     "monitor 4k",
     "monitor ultrawide",
     "monitor portatil",
     "monitor 27 polegadas",
     "monitor 24 polegadas full hd",
     "monitor curvo gamer",
+    "monitor led",
+    # Câmera — apenas uma keyword
+    "camera seguranca wifi",
     # Marcas premium
     "xiaomi fone",
     "xiaomi smartwatch",
