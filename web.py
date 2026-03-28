@@ -496,7 +496,12 @@ def publicar():
     }
 
     try:
+        # Gera imagem 1080x1080 com a foto do produto
         imagem_path = gerar_imagem(produto)
+
+        # Zera imagem_url para forçar uso da imagem gerada (igual bot automático)
+        produto["imagem_url"] = ""
+
         resultados = []
 
         if pub_tg:
