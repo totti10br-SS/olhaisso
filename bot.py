@@ -531,55 +531,6 @@ def postar_whatsapp(produto, imagem_path):
     except Exception as e:
         log.warning(f"WhatsApp exceção (ignorada): {e}")
 
-def postar_whatsapp(produto, imagem_path):
-    """Posta no grupo WhatsApp via Evolution API. Falha silenciosa — não afeta o Telegram."""
-    try:
-        caption = montar_caption(produto)
-        img_url = produto.get("imagem_url", "")
-        headers = {
-            "apikey": EVOLUTION_APIKEY,
-            "Content-Type": "application/json",
-        }
-
-        # Tenta enviar com imagem via URL
-        if img_url:
-            payload = {
-                "number": WHATSAPP_GROUP_ID,
-                "mediatype": "image",
-                "media": img_url,
-                "caption": caption,
-            }
-            r = requests.post(
-                f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
-                json=payload, headers=headers, timeout=30
-            )
-            if r.status_code == 200:
-                log.info("✅ WhatsApp postado!")
-                return True
-            log.warning(f"WhatsApp URL falhou ({r.status_code}), tentando imagem gerada...")
-
-        # Tenta enviar com imagem gerada (base64)
-        import base64
-        with open(imagem_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode("utf-8")
-        payload = {
-            "number": WHATSAPP_GROUP_ID,
-            "mediatype": "image",
-            "media": f"data:image/jpeg;base64,{img_b64}",
-            "caption": caption,
-        }
-        r = requests.post(
-            f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
-            json=payload, headers=headers, timeout=30
-        )
-        if r.status_code == 200:
-            log.info("✅ WhatsApp postado (imagem gerada)!")
-            return True
-        log.warning(f"WhatsApp falhou: {r.text[:100]}")
-    except Exception as e:
-        log.warning(f"WhatsApp exceção (não crítico): {e}")
-    return False
-
 def buscar_trends_google():
     try:
         from pytrends.request import TrendReq
