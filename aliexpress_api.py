@@ -23,14 +23,11 @@ CATEGORIAS = [
     "smartwatch health monitor",
     "power bank magnetic fast charge",
     "bluetooth speaker portable",
-    "dash cam 4k car",
     # Casa inteligente
     "robot vacuum mop wifi",
     "smart led strip rgb",
     "air fryer digital",
     "mini projector portable 1080p",
-    # Câmera — apenas uma keyword
-    "security camera wifi outdoor",
     # Informática e upgrade
     "ssd portable external",
     "usb hub docking station",

@@ -45,8 +45,6 @@ CATEGORIAS = [
     "monitor 24 polegadas full hd",
     "monitor curvo gamer",
     "monitor led",
-    # Câmera — apenas uma keyword
-    "camera seguranca wifi",
     # Marcas premium
     "xiaomi fone",
     "xiaomi smartwatch",
