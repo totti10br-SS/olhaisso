@@ -34,17 +34,10 @@ CATEGORIAS = [
     "webcam streaming 1080p",
     "laptop cooling stand",
     "electric desk lamp led",
-    # Monitores — prioridade alta
-    "gaming monitor 144hz",
-    "gaming monitor 165hz",
-    "gaming monitor 240hz",
+    # Monitores
+    "gaming monitor",
     "monitor 4k ips",
-    "monitor ultrawide curved",
     "portable monitor usb-c",
-    "monitor 27 inch 1440p",
-    "monitor 24 inch full hd",
-    "monitor 144hz 1ms",
-    "monitor 2k gaming",
     # Gadgets direcionados
     "gadget smart home 2025",
     "cool gadget men gift",

@@ -35,16 +35,10 @@ CATEGORIAS = [
     "suporte notebook",
     "relogio inteligente",
     "controle gamer",
-    # Monitores — prioridade alta
-    "monitor gamer 144hz",
-    "monitor gamer 165hz",
+    # Monitores
+    "monitor gamer",
     "monitor 4k",
-    "monitor ultrawide",
     "monitor portatil",
-    "monitor 27 polegadas",
-    "monitor 24 polegadas full hd",
-    "monitor curvo gamer",
-    "monitor led",
     # Marcas premium
     "xiaomi fone",
     "xiaomi smartwatch",
