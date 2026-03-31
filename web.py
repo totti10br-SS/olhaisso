@@ -474,6 +474,7 @@ def publicar():
     loja       = data.get("loja", "OUTRO")
     link       = data.get("link", "")
     imagem     = data.get("imagem", "")
+    destaque   = data.get("destaque", "").strip()
     pub_tg     = data.get("telegram", True)
     pub_wa     = data.get("whatsapp", True)
 
@@ -482,8 +483,11 @@ def publicar():
 
     desc = int((1 - preco / preco_orig) * 100) if preco_orig > preco else 0
 
+    # Se tem destaque, inclui no início do nome
+    nome_final = f"⭐ {destaque.upper()}\n{nome}" if destaque else nome
+
     produto = {
-        "nome":           nome,
+        "nome":           nome_final,
         "preco":          preco,
         "preco_original": preco_orig,
         "desconto":       desc,
@@ -496,19 +500,15 @@ def publicar():
     }
 
     try:
-        # Gera imagem 1080x1080 com a foto do produto
         imagem_path = gerar_imagem(produto)
-
         resultados = []
 
         if pub_tg:
-            # Força imagem gerada 1080x1080 no Telegram
             produto_tg = {**produto, "imagem_url": ""}
             ok_tg = postar_telegram(produto_tg, imagem_path)
             resultados.append("Telegram ✅" if ok_tg else "Telegram ❌")
 
         if pub_wa:
-            # WhatsApp usa URL original do produto (funciona melhor)
             postar_whatsapp(produto, imagem_path)
             resultados.append("WhatsApp ✅")
 
@@ -517,6 +517,63 @@ def publicar():
 
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/buscar_induzido", methods=["POST"])
+def buscar_induzido():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Não autorizado"}), 401
+
+    data     = request.json
+    keyword  = data.get("keyword", "").strip()
+    destaque = data.get("destaque", "").strip()
+    pub_tg   = data.get("telegram", True)
+    pub_wa   = data.get("whatsapp", True)
+
+    if not keyword:
+        return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
+
+    try:
+        from shopee_api import buscar_produtos_shopee
+        from aliexpress_api import buscar_produtos_aliexpress
+
+        produtos = []
+        produtos += buscar_produtos_shopee(keyword, limit=5)
+        produtos += buscar_produtos_aliexpress(keyword, limit=5)
+
+        # Ordena por maior desconto
+        produtos.sort(key=lambda p: p.get("desconto", 0), reverse=True)
+
+        posts_por_ciclo = int(os.getenv("POSTS_POR_CICLO", "6"))
+        produtos = produtos[:posts_por_ciclo]
+
+        if not produtos:
+            return jsonify({"ok": False, "erro": f"Nenhum produto encontrado para '{keyword}'"})
+
+        publicados = 0
+        for produto in produtos:
+            if destaque:
+                produto["nome"] = f"⭐ {destaque.upper()}\n{produto['nome']}"
+
+            try:
+                imagem_path = gerar_imagem(produto)
+                if pub_tg:
+                    produto_tg = {**produto, "imagem_url": ""}
+                    postar_telegram(produto_tg, imagem_path)
+                if pub_wa:
+                    postar_whatsapp(produto, imagem_path)
+                publicados += 1
+                import time as _t
+                _t.sleep(8)
+            except Exception as e:
+                print(f"Erro ao publicar produto induzido: {e}")
+                continue
+
+        return jsonify({"ok": True, "msg": f"{publicados} oferta(s) publicadas para '{keyword}'"})
+
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
