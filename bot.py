@@ -766,7 +766,21 @@ def ciclo():
     limpar_historico_antigo()
     produtos = montar_pipeline()
     postou = 0
-    for produto in produtos:
+    tentativas = 0
+    max_tentativas = 3  # tenta até 3 vezes buscar mais produtos se faltar
+
+    while postou < POSTS_POR_CICLO and tentativas < max_tentativas:
+        if not produtos:
+            tentativas += 1
+            if tentativas < max_tentativas:
+                log.warning(f"Sem produtos disponíveis, buscando novamente (tentativa {tentativas})...")
+                produtos = montar_pipeline()
+                continue
+            else:
+                log.warning("Sem produtos suficientes após 3 tentativas.")
+                break
+
+        produto = produtos.pop(0)
         log.info(f"Postando [{produto['score']}pts]: {produto['nome'][:50]}")
         imagem = gerar_imagem(produto)
         ok = postar_telegram(produto, imagem)
@@ -774,14 +788,12 @@ def ciclo():
             registrar_post(produto)
             postou += 1
             log.info("✅ Postado!")
-            # Posta no WhatsApp também (falha silenciosa)
             postar_whatsapp(produto, imagem)
         else:
             registrar_post(produto)
             log.warning("⏭️ Pulado e registrado (falha de imagem)")
-        if postou >= POSTS_POR_CICLO:
-            break
         time.sleep(10)
+
     log.info(f"Ciclo concluído — {postou} post(s)\n")
 
 

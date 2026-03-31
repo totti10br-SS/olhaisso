@@ -4,6 +4,7 @@ AppKey: 530504
 """
 
 import os
+import random
 import hashlib
 import time
 import requests
@@ -107,6 +108,10 @@ PALAVRAS_BLOQUEADAS = [
     "fishing", "hunting", "bait", "hook",
     "medical", "surgical", "clinical", "dental",
     "diaper", "baby formula", "pet food",
+    # Eletrônica DIY / fora do nicho
+    "arduino", "esp32", "esp8266", "raspberry pi", "diy kit",
+    "servo motor", "sensor module", "breadboard", "robot kit",
+    "open source robot", "programmable robot", "sg90",
 ]
 
 
@@ -148,7 +153,7 @@ def buscar_produtos_aliexpress(keyword, limit=10):
             "sign_method":     "md5",
             "method":          "aliexpress.affiliate.product.query",
             "keywords":        keyword,
-            "page_no":         "1",
+            "page_no":         str(random.randint(1, 3)),
             "page_size":       str(limit),
             "sort":            "LAST_VOLUME_DESC",
             "min_sale_price":  PRECO_MIN_USD,

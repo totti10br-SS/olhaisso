@@ -5,6 +5,7 @@ Assinatura: SHA256(AppId + Timestamp + Payload + Secret)
 """
 
 import os
+import random
 import hashlib
 import time
 import json
@@ -77,6 +78,10 @@ PALAVRAS_BLOQUEADAS = [
     "wholesale", "bulk", "lot of", "pcs lot", "oem", "odm",
     "wig", "hair extension", "nail art", "eyelash",
     "fishing", "hunting", "medical", "surgical", "dental",
+    # Eletrônica DIY / fora do nicho
+    "arduino", "esp32", "esp8266", "raspberry", "diy kit",
+    "servo motor", "sensor module", "breadboard", "robô kit",
+    "robot kit", "open source", "programavel", "programmable robot",
 ]
 
 
@@ -132,7 +137,7 @@ def buscar_produtos_shopee(keyword, limit=10):
   }
 }"""
 
-        variables = {"keyword": keyword, "limit": limit, "page": 1}
+        variables = {"keyword": keyword, "limit": limit, "page": random.randint(1, 3)}
         body = {
             "query": query,
             "operationName": "getProducts",
