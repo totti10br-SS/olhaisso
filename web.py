@@ -183,6 +183,7 @@ HTML = """<!DOCTYPE html>
   <div class="tabs">
     <div class="tab active" onclick="trocarAba('afiliado')">🔗 Link de Afiliado Pronto</div>
     <div class="tab" onclick="trocarAba('produto')">🛍️ Link de Produto</div>
+    <div class="tab" onclick="trocarAba('busca')">🔍 Busca Induzida</div>
   </div>
 
   <!-- FLUXO 1: Link de afiliado pronto -->
@@ -213,6 +214,7 @@ HTML = """<!DOCTYPE html>
     <label>🏪 Loja</label>
     <select id="af_loja">
       <option value="AMAZON">Amazon</option>
+      <option value="MERCADOLIVRE">Mercado Livre</option>
       <option value="SHOPEE">Shopee</option>
       <option value="ALIEXPRESS">AliExpress</option>
       <option value="OUTRO">Outro</option>
@@ -220,6 +222,9 @@ HTML = """<!DOCTYPE html>
 
     <label>🖼️ URL da imagem *</label>
     <input type="url" id="af_imagem" placeholder="Cole a URL da imagem do produto">
+
+    <label>⭐ Texto em destaque (opcional)</label>
+    <input type="text" id="af_destaque" placeholder="Ex: CAMPEÃO DE VENDAS, IMPERDÍVEL...">
 
     <label style="margin-bottom:8px;">📢 Publicar em:</label>
     <div class="destinos">
@@ -262,6 +267,9 @@ HTML = """<!DOCTYPE html>
     <label>🖼️ URL da imagem *</label>
     <input type="url" id="pr_imagem" placeholder="Cole a URL da imagem do produto">
 
+    <label>⭐ Texto em destaque (opcional)</label>
+    <input type="text" id="pr_destaque" placeholder="Ex: CAMPEÃO DE VENDAS, IMPERDÍVEL...">
+
     <label style="margin-bottom:8px;">📢 Publicar em:</label>
     <div class="destinos">
       <label class="destino on" id="dest_tg_pr">
@@ -277,15 +285,43 @@ HTML = """<!DOCTYPE html>
     <button class="btn btn-green" id="btn_pr" onclick="publicarProduto()">📢 Publicar agora</button>
     <div class="loader" id="loader_pr">⏳ Gerando imagem e publicando...</div>
   </div>
+
+  <!-- FLUXO 3: Busca Induzida -->
+  <div class="card" id="card_busca">
+    <h2>🔍 Busca Induzida por Palavra-chave</h2>
+    <div class="info">💡 Busca em Shopee + AliExpress pela keyword — sem verificar repetição</div>
+
+    <label>🔑 Palavra-chave</label>
+    <input type="text" id="bk_keyword" placeholder="Ex: headset gamer, carregador wireless, monitor...">
+
+    <label>⭐ Texto em destaque (opcional)</label>
+    <input type="text" id="bk_destaque" placeholder="Ex: ACHADO DO DIA, IMPERDÍVEL...">
+
+    <label style="margin-bottom:8px;">📢 Publicar em:</label>
+    <div class="destinos">
+      <label class="destino on" id="dest_tg_bk">
+        <input type="checkbox" id="bk_telegram" checked onchange="toggleDestino('dest_tg_bk', this)">
+        <span>✈️ Telegram</span>
+      </label>
+      <label class="destino on" id="dest_wa_bk">
+        <input type="checkbox" id="bk_whatsapp" checked onchange="toggleDestino('dest_wa_bk', this)">
+        <span>📱 WhatsApp</span>
+      </label>
+    </div>
+
+    <button class="btn btn-orange" id="btn_bk" onclick="buscarInduzido()">🔍 Buscar e publicar melhores ofertas</button>
+    <div class="loader" id="loader_bk">⏳ Buscando ofertas...</div>
+  </div>
 </div>
 
 <script>
 function trocarAba(aba) {
-  document.querySelectorAll('.tab').forEach((t, i) => {
-    t.classList.toggle('active', (aba === 'afiliado' && i === 0) || (aba === 'produto' && i === 1));
+  const abas = ['afiliado', 'produto', 'busca'];
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', aba === abas[i]));
+  abas.forEach(a => {
+    const card = document.getElementById('card_' + a);
+    if (card) card.classList.toggle('active', aba === a);
   });
-  document.getElementById('card_afiliado').classList.toggle('active', aba === 'afiliado');
-  document.getElementById('card_produto').classList.toggle('active', aba === 'produto');
 }
 
 function toggleDestino(id, checkbox) {
@@ -353,6 +389,7 @@ async function publicarAfiliado() {
   const preco_orig= parseFloat(document.getElementById('af_preco_orig').value) || 0;
   const loja      = document.getElementById('af_loja').value;
   const imagem    = document.getElementById('af_imagem').value.trim();
+  const destaque  = document.getElementById('af_destaque').value.trim();
   const telegram  = document.getElementById('af_telegram').checked;
   const whatsapp  = document.getElementById('af_whatsapp').checked;
 
@@ -363,9 +400,9 @@ async function publicarAfiliado() {
   if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
 
   await enviar(
-    { nome, preco, preco_orig, loja, link, imagem, telegram, whatsapp },
+    { nome, preco, preco_orig, loja, link, imagem, destaque, telegram, whatsapp },
     'btn_af', 'loader_af',
-    ['af_link', 'af_nome', 'af_preco', 'af_preco_orig', 'af_imagem']
+    ['af_link', 'af_nome', 'af_preco', 'af_preco_orig', 'af_imagem', 'af_destaque']
   );
 }
 
@@ -374,6 +411,7 @@ async function publicarProduto() {
   const preco     = parseFloat(document.getElementById('pr_preco').value) || 0;
   const preco_orig= parseFloat(document.getElementById('pr_preco_orig').value) || 0;
   const imagem    = document.getElementById('pr_imagem').value.trim();
+  const destaque  = document.getElementById('pr_destaque').value.trim();
   const telegram  = document.getElementById('pr_telegram').checked;
   const whatsapp  = document.getElementById('pr_whatsapp').checked;
 
@@ -388,7 +426,6 @@ async function publicarProduto() {
   document.getElementById('loader_pr').textContent = '⏳ Gerando link de afiliado...';
 
   try {
-    // Gera link de afiliado via backend
     const respLink = await fetch('/gerar_link', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -402,14 +439,50 @@ async function publicarProduto() {
     document.getElementById('loader_pr').textContent = '⏳ Gerando imagem e publicando...';
 
     await enviar(
-      { nome, preco, preco_orig, loja, link: linkFinal, imagem, telegram, whatsapp },
+      { nome, preco, preco_orig, loja, link: linkFinal, imagem, destaque, telegram, whatsapp },
       'btn_pr', 'loader_pr',
-      ['pr_link', 'pr_preco', 'pr_preco_orig', 'pr_imagem']
+      ['pr_link', 'pr_preco', 'pr_preco_orig', 'pr_imagem', 'pr_destaque']
     );
   } catch(e) {
     mostrarMsg(`<div class="msg msg-err">❌ Erro: ${e.message}</div>`);
     btn.disabled = false;
     document.getElementById('loader_pr').style.display = 'none';
+  }
+}
+
+async function buscarInduzido() {
+  const keyword  = document.getElementById('bk_keyword').value.trim();
+  const destaque = document.getElementById('bk_destaque').value.trim();
+  const telegram = document.getElementById('bk_telegram').checked;
+  const whatsapp = document.getElementById('bk_whatsapp').checked;
+
+  if (!keyword) return alert('Digite uma palavra-chave!');
+  if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
+
+  const btn = document.getElementById('btn_bk');
+  btn.disabled = true;
+  document.getElementById('loader_bk').style.display = 'block';
+  document.getElementById('loader_bk').textContent = '⏳ Buscando ofertas em Shopee + AliExpress...';
+
+  try {
+    const resp = await fetch('/buscar_induzido', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ keyword, destaque, telegram, whatsapp })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      mostrarMsg(`<div class="msg msg-ok">✅ ${data.msg}</div>`);
+      document.getElementById('bk_keyword').value = '';
+      document.getElementById('bk_destaque').value = '';
+    } else {
+      mostrarMsg(`<div class="msg msg-err">❌ Erro: ${data.erro}</div>`);
+    }
+  } catch(e) {
+    mostrarMsg(`<div class="msg msg-err">❌ Erro: ${e.message}</div>`);
+  } finally {
+    btn.disabled = false;
+    document.getElementById('loader_bk').style.display = 'none';
   }
 }
 </script>
@@ -483,7 +556,7 @@ def publicar():
 
     desc = int((1 - preco / preco_orig) * 100) if preco_orig > preco else 0
 
-    # Se tem destaque, inclui no início do nome
+    # Inclui destaque no início do nome se preenchido
     nome_final = f"⭐ {destaque.upper()}\n{nome}" if destaque else nome
 
     produto = {
@@ -554,7 +627,6 @@ def buscar_induzido():
         for produto in produtos:
             if destaque:
                 produto["nome"] = f"⭐ {destaque.upper()}\n{produto['nome']}"
-
             try:
                 imagem_path = gerar_imagem(produto)
                 if pub_tg:
@@ -566,7 +638,7 @@ def buscar_induzido():
                 import time as _t
                 _t.sleep(8)
             except Exception as e:
-                print(f"Erro ao publicar produto induzido: {e}")
+                print(f"Erro ao publicar: {e}")
                 continue
 
         return jsonify({"ok": True, "msg": f"{publicados} oferta(s) publicadas para '{keyword}'"})
