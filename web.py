@@ -635,44 +635,35 @@ def buscar_induzido():
     if not keyword:
         return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
 
-    preco_min_busca = preco_min if preco_min > 0 else 50.0
-    preco_max_busca = preco_max if preco_max > 0 else 99999.0
-
     try:
-        from shopee_api import buscar_produtos_shopee, PRECO_MINIMO, PRECO_MAXIMO
+        from shopee_api import buscar_produtos_shopee
         from aliexpress_api import buscar_produtos_aliexpress
-        import os as _os
 
-        # Usa parâmetros do usuário — ignora Railway
-        _os.environ["PRECO_MINIMO"]    = str(preco_min_busca)
-        _os.environ["PRECO_MAXIMO"]    = str(preco_max_busca)
-        _os.environ["DESCONTO_MINIMO"] = str(desc_min)
+        # Busca sem filtro de preço/desconto (limit alto para ter mais opções)
+        produtos_raw = []
+        produtos_raw += buscar_produtos_shopee(keyword, limit=10)
+        produtos_raw += buscar_produtos_aliexpress(keyword, limit=10)
 
+        # Aplica filtros informados pelo usuário
         produtos = []
-        produtos += buscar_produtos_shopee(keyword, limit=5)
-        produtos += buscar_produtos_aliexpress(keyword, limit=5)
-
-        # Restaura variáveis originais do Railway
-        _os.environ["PRECO_MINIMO"]    = str(PRECO_MINIMO)
-        _os.environ["PRECO_MAXIMO"]    = str(PRECO_MAXIMO)
-        _os.environ["DESCONTO_MINIMO"] = _os.getenv("DESCONTO_MINIMO", "20")
-
-        # Filtra pelo preço informado manualmente (garantia extra)
-        if preco_min > 0:
-            produtos = [p for p in produtos if p["preco"] >= preco_min]
-        if preco_max > 0:
-            produtos = [p for p in produtos if p["preco"] <= preco_max]
+        for p in produtos_raw:
+            if preco_min > 0 and p["preco"] < preco_min:
+                continue
+            if preco_max > 0 and p["preco"] > preco_max:
+                continue
+            if desc_min > 0 and p.get("desconto", 0) < desc_min:
+                continue
+            produtos.append(p)
 
         # Ordena por maior desconto
         produtos.sort(key=lambda p: p.get("desconto", 0), reverse=True)
         produtos = produtos[:6]
 
         if not produtos:
-            return jsonify({"ok": False, "erro": f"Nenhum produto encontrado para '{keyword}'"})
+            return jsonify({"ok": False, "erro": f"Nenhum produto encontrado para '{keyword}' com os filtros informados"})
 
         publicados = 0
         for produto in produtos:
-            # Destaque fixo "OFERTA PREMIUM DO CANAL"
             produto["nome"] = f"🏆 OFERTA PREMIUM DO CANAL\n{produto['nome']}"
             try:
                 imagem_path = gerar_imagem(produto)
