@@ -288,14 +288,28 @@ HTML = """<!DOCTYPE html>
 
   <!-- FLUXO 3: Busca Induzida -->
   <div class="card" id="card_busca">
-    <h2>🔍 Busca Induzida por Palavra-chave</h2>
-    <div class="info">💡 Busca em Shopee + AliExpress pela keyword — sem verificar repetição</div>
+    <h2>🔍 Busca Induzida — Oferta Premium</h2>
+    <div class="info">💡 Busca em Shopee + AliExpress com seus próprios filtros — ignora variáveis do Railway</div>
 
-    <label>🔑 Palavra-chave</label>
-    <input type="text" id="bk_keyword" placeholder="Ex: headset gamer, carregador wireless, monitor...">
+    <label>🔑 Palavra-chave *</label>
+    <input type="text" id="bk_keyword" placeholder="Ex: headset gamer, monitor dell, notebook acer...">
 
-    <label>⭐ Texto em destaque (opcional)</label>
-    <input type="text" id="bk_destaque" placeholder="Ex: ACHADO DO DIA, IMPERDÍVEL...">
+    <label>🏷️ Marca (opcional)</label>
+    <input type="text" id="bk_marca" placeholder="Ex: DELL, ACER, INTEL, SAMSUNG, PHILIPS...">
+
+    <div class="row2">
+      <div>
+        <label>💰 Preço mínimo (R$)</label>
+        <input type="number" id="bk_preco_min" step="0.01" placeholder="Ex: 100">
+      </div>
+      <div>
+        <label>💵 Preço máximo (R$)</label>
+        <input type="number" id="bk_preco_max" step="0.01" placeholder="Ex: 5000">
+      </div>
+    </div>
+
+    <label>🏷️ Desconto mínimo (%)</label>
+    <input type="number" id="bk_desconto_min" step="1" min="0" max="99" placeholder="Ex: 20 (deixe vazio para sem limite)">
 
     <label style="margin-bottom:8px;">📢 Publicar em:</label>
     <div class="destinos">
@@ -309,7 +323,7 @@ HTML = """<!DOCTYPE html>
       </label>
     </div>
 
-    <button class="btn btn-orange" id="btn_bk" onclick="buscarInduzido()">🔍 Buscar e publicar melhores ofertas</button>
+    <button class="btn btn-orange" id="btn_bk" onclick="buscarInduzido()">🔍 Buscar e publicar Oferta Premium</button>
     <div class="loader" id="loader_bk">⏳ Buscando ofertas...</div>
   </div>
 </div>
@@ -451,13 +465,19 @@ async function publicarProduto() {
 }
 
 async function buscarInduzido() {
-  const keyword  = document.getElementById('bk_keyword').value.trim();
-  const destaque = document.getElementById('bk_destaque').value.trim();
-  const telegram = document.getElementById('bk_telegram').checked;
-  const whatsapp = document.getElementById('bk_whatsapp').checked;
+  const keyword   = document.getElementById('bk_keyword').value.trim();
+  const marca     = document.getElementById('bk_marca').value.trim();
+  const preco_min    = parseFloat(document.getElementById('bk_preco_min').value) || 0;
+  const preco_max    = parseFloat(document.getElementById('bk_preco_max').value) || 0;
+  const desconto_min = parseInt(document.getElementById('bk_desconto_min').value) || 0;
+  const telegram  = document.getElementById('bk_telegram').checked;
+  const whatsapp  = document.getElementById('bk_whatsapp').checked;
 
   if (!keyword) return alert('Digite uma palavra-chave!');
   if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
+
+  // Monta keyword final com marca se informada
+  const keyword_final = marca ? `${keyword} ${marca}` : keyword;
 
   const btn = document.getElementById('btn_bk');
   btn.disabled = true;
@@ -468,13 +488,16 @@ async function buscarInduzido() {
     const resp = await fetch('/buscar_induzido', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ keyword, destaque, telegram, whatsapp })
+      body: JSON.stringify({ keyword: keyword_final, preco_min, preco_max, desconto_min, telegram, whatsapp })
     });
     const data = await resp.json();
     if (data.ok) {
       mostrarMsg(`<div class="msg msg-ok">✅ ${data.msg}</div>`);
       document.getElementById('bk_keyword').value = '';
-      document.getElementById('bk_destaque').value = '';
+      document.getElementById('bk_marca').value = '';
+      document.getElementById('bk_preco_min').value = '';
+      document.getElementById('bk_preco_max').value = '';
+      document.getElementById('bk_desconto_min').value = '';
     } else {
       mostrarMsg(`<div class="msg msg-err">❌ Erro: ${data.erro}</div>`);
     }
@@ -597,36 +620,57 @@ def buscar_induzido():
     if not session.get("logged_in"):
         return jsonify({"ok": False, "erro": "Não autorizado"}), 401
 
-    data     = request.json
-    keyword  = data.get("keyword", "").strip()
-    destaque = data.get("destaque", "").strip()
-    pub_tg   = data.get("telegram", True)
-    pub_wa   = data.get("whatsapp", True)
+    data      = request.json
+    keyword   = data.get("keyword", "").strip()
+    preco_min = float(data.get("preco_min", 0) or 0)
+    preco_max = float(data.get("preco_max", 0) or 0)
+    desc_min  = int(data.get("desconto_min", 0) or 0)
+    pub_tg    = data.get("telegram", True)
+    pub_wa    = data.get("whatsapp", True)
 
     if not keyword:
         return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
 
+    # Usa preços informados pelo usuário — ignora variáveis do Railway
+    preco_min_busca = preco_min if preco_min > 0 else 50.0
+    preco_max_busca = preco_max if preco_max > 0 else 99999.0
+
     try:
-        from shopee_api import buscar_produtos_shopee
+        from shopee_api import buscar_produtos_shopee, PRECO_MINIMO, PRECO_MAXIMO
         from aliexpress_api import buscar_produtos_aliexpress
+        import os as _os
+
+        # Sobrescreve temporariamente os env vars para essa busca
+        _os.environ["PRECO_MINIMO"] = str(preco_min_busca)
+        _os.environ["PRECO_MAXIMO"] = str(preco_max_busca)
+        _os.environ["DESCONTO_MINIMO"] = str(desc_min)  # usa o informado pelo usuário
 
         produtos = []
         produtos += buscar_produtos_shopee(keyword, limit=5)
         produtos += buscar_produtos_aliexpress(keyword, limit=5)
 
+        # Restaura variáveis originais
+        _os.environ["PRECO_MINIMO"] = str(PRECO_MINIMO)
+        _os.environ["PRECO_MAXIMO"] = str(PRECO_MAXIMO)
+        _os.environ["DESCONTO_MINIMO"] = _os.getenv("DESCONTO_MINIMO", "20")
+
+        # Filtra pelo preço informado manualmente (garantia extra)
+        if preco_min > 0:
+            produtos = [p for p in produtos if p["preco"] >= preco_min]
+        if preco_max > 0:
+            produtos = [p for p in produtos if p["preco"] <= preco_max]
+
         # Ordena por maior desconto
         produtos.sort(key=lambda p: p.get("desconto", 0), reverse=True)
-
-        posts_por_ciclo = int(os.getenv("POSTS_POR_CICLO", "6"))
-        produtos = produtos[:posts_por_ciclo]
+        produtos = produtos[:6]
 
         if not produtos:
             return jsonify({"ok": False, "erro": f"Nenhum produto encontrado para '{keyword}'"})
 
         publicados = 0
         for produto in produtos:
-            if destaque:
-                produto["nome"] = f"⭐ {destaque.upper()}\n{produto['nome']}"
+            # Destaque fixo "OFERTA PREMIUM DO CANAL"
+            produto["nome"] = f"🏆 OFERTA PREMIUM DO CANAL\n{produto['nome']}"
             try:
                 imagem_path = gerar_imagem(produto)
                 if pub_tg:
@@ -641,7 +685,7 @@ def buscar_induzido():
                 print(f"Erro ao publicar: {e}")
                 continue
 
-        return jsonify({"ok": True, "msg": f"{publicados} oferta(s) publicadas para '{keyword}'"})
+        return jsonify({"ok": True, "msg": f"{publicados} Oferta(s) Premium publicadas para '{keyword}'"})
 
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
