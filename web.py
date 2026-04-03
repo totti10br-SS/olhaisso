@@ -658,6 +658,8 @@ async function buscarInternet() {
             <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px;line-height:1.3;">${r.nome}</div>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
               ${r.preco ? `<span style="color:#FF6B1A;font-weight:800;font-size:15px;">${r.preco}</span>` : ''}
+              ${r.preco_orig ? `<span style="color:#666;font-size:12px;text-decoration:line-through;">${r.preco_orig}</span>` : ''}
+              ${r.desconto > 0 ? `<span style="background:#00BB44;color:#fff;padding:2px 7px;border-radius:6px;font-size:12px;font-weight:700;">-${r.desconto}%</span>` : ''}
               ${r.loja  ? `<span style="color:#aaa;font-size:12px;">🏪 ${r.loja}</span>` : ''}
             </div>
             <div style="display:flex;gap:6px;">
@@ -897,17 +899,46 @@ def buscar_internet():
             loja   = item.get("source", "")
             imagem = item.get("thumbnail", "")
 
-            # Preço — pode vir como float ou string
+            # Preço atual
             preco_raw = item.get("price", "")
             preco_num = 0.0
             preco_str = ""
             if preco_raw:
                 preco_str = str(preco_raw).strip()
                 try:
-                    # Remove R$, pontos de milhar, troca vírgula por ponto
                     preco_num = float(re.sub(r'[^\d,]', '', preco_str).replace(',', '.'))
                 except:
                     pass
+
+            # Preço original (antes do desconto)
+            preco_orig_str = ""
+            preco_orig_num = 0.0
+            desconto_pct   = 0
+
+            # Tenta pegar preço original de vários campos possíveis
+            for campo in ["extracted_price", "old_price", "was_price"]:
+                val = item.get(campo)
+                if val:
+                    try:
+                        preco_orig_num = float(str(val).replace(",", "."))
+                        break
+                    except:
+                        pass
+
+            # Se não encontrou via campo direto, tenta via "price_details"
+            if preco_orig_num == 0:
+                price_details = item.get("price_details", "")
+                if price_details:
+                    match = re.search(r'R\$\s*([\d\.,]+)', str(price_details))
+                    if match:
+                        try:
+                            preco_orig_num = float(match.group(1).replace('.', '').replace(',', '.'))
+                        except:
+                            pass
+
+            if preco_orig_num > 0 and preco_orig_num > preco_num:
+                preco_orig_str = f"R$ {preco_orig_num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                desconto_pct = int((1 - preco_num / preco_orig_num) * 100)
 
             if not nome or not link:
                 continue
@@ -917,11 +948,13 @@ def buscar_internet():
                 continue
 
             resultados.append({
-                "nome":   nome,
-                "preco":  preco_str,
-                "loja":   loja,
-                "link":   link,
-                "imagem": imagem,
+                "nome":        nome,
+                "preco":       preco_str,
+                "preco_orig":  preco_orig_str,
+                "desconto":    desconto_pct,
+                "loja":        loja,
+                "link":        link,
+                "imagem":      imagem,
             })
 
             if len(resultados) >= 10:
