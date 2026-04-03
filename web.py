@@ -103,6 +103,102 @@ def gerar_link_afiliado_aliexpress(url_produto):
         print(f"AliExpress gerar link erro: {e}")
     return encurtar_link(url_produto)
 
+
+def busca_shopee_sem_filtro(keyword, limit=10):
+    """Busca Shopee sem filtros — para busca induzida do painel."""
+    try:
+        query = """query getProducts($keyword: String!, $limit: Int!, $page: Int!) {
+  productOfferV2(listType: 0, sortType: 2, keyword: $keyword, limit: $limit, page: $page) {
+    nodes {
+      productName priceMin priceDiscountRate imageUrl offerLink productLink
+    }
+  }
+}"""
+        body = {"query": query, "operationName": "getProducts",
+                "variables": {"keyword": keyword, "limit": limit, "page": 1}}
+        payload_str = json.dumps(body, separators=(",", ":"))
+        timestamp = int(time.time())
+        fator = SHOPEE_APP_ID + str(timestamp) + payload_str + SHOPEE_SECRET
+        sign = hashlib.sha256(fator.encode("utf-8")).hexdigest()
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"SHA256 Credential={SHOPEE_APP_ID},Timestamp={timestamp},Signature={sign}",
+        }
+        r = requests.post(SHOPEE_URL, data=payload_str, headers=headers, timeout=15)
+        data = r.json()
+        nodes = data.get("data", {}).get("productOfferV2", {}).get("nodes", []) or []
+        produtos = []
+        for item in nodes:
+            try:
+                preco = float(str(item.get("priceMin", "0")).replace(",", "."))
+                desc_raw = item.get("priceDiscountRate", "0") or "0"
+                desconto = int(str(desc_raw).replace("%", "").strip() or 0)
+            except:
+                continue
+            nome = item.get("productName", "")
+            link_original = item.get("offerLink") or item.get("productLink", "")
+            imagem = item.get("imageUrl", "")
+            if not nome or not link_original:
+                continue
+            preco_orig = round(preco / (1 - desconto / 100), 2) if desconto > 0 else round(preco * 1.3, 2)
+            produtos.append({
+                "nome": nome, "preco": round(preco, 2), "preco_original": preco_orig,
+                "desconto": desconto, "loja": "SHOPEE", "frete": "✅ Frete grátis",
+                "link_afiliado": encurtar_link(link_original), "imagem_url": imagem,
+                "score": 1, "fontes": [],
+            })
+        return produtos
+    except Exception as e:
+        print(f"busca_shopee_sem_filtro erro: {e}")
+        return []
+
+
+def busca_aliexpress_sem_filtro(keyword, limit=10):
+    """Busca AliExpress sem filtros — para busca induzida do painel."""
+    try:
+        timestamp = str(int(time.time() * 1000))
+        params = {
+            "app_key": ALIEXPRESS_APP_KEY, "timestamp": timestamp,
+            "sign_method": "md5", "method": "aliexpress.affiliate.product.query",
+            "keywords": keyword, "page_no": "1", "page_size": str(limit),
+            "sort": "LAST_VOLUME_DESC", "target_currency": "BRL",
+            "target_language": "PT", "tracking_id": ALIEXPRESS_TRACKING,
+            "ship_to_country": "BR",
+            "fields": "product_id,product_title,target_sale_price,target_original_price,discount,product_main_image_url,promotion_link",
+        }
+        keys = sorted(params.keys())
+        base = ALIEXPRESS_APP_SECRET + "".join(f"{k}{params[k]}" for k in keys) + ALIEXPRESS_APP_SECRET
+        params["sign"] = hashlib.md5(base.encode("utf-8")).hexdigest().upper()
+        r = requests.post("https://api-sg.aliexpress.com/sync", data=params, timeout=15)
+        data = r.json()
+        resp = data.get("aliexpress_affiliate_product_query_response", {}).get("resp_result", {})
+        if resp.get("resp_code") != 200:
+            return []
+        items = resp.get("result", {}).get("products", {}).get("product", [])
+        produtos = []
+        for item in items:
+            try:
+                preco = float(str(item.get("target_sale_price", "0")).replace(",", "."))
+                preco_orig = float(str(item.get("target_original_price", "0")).replace(",", "."))
+            except:
+                continue
+            desconto = int((1 - preco / preco_orig) * 100) if preco_orig > preco else 0
+            nome = item.get("product_title", "")
+            link = item.get("promotion_link", "")
+            imagem = item.get("product_main_image_url", "")
+            if not nome or not link:
+                continue
+            produtos.append({
+                "nome": nome, "preco": round(preco, 2), "preco_original": round(preco_orig, 2),
+                "desconto": desconto, "loja": "ALIEXPRESS", "frete": "🚢 Frete grátis",
+                "link_afiliado": encurtar_link(link), "imagem_url": imagem,
+                "score": 1, "fontes": [],
+            })
+        return produtos
+    except Exception as e:
+        print(f"busca_aliexpress_sem_filtro erro: {e}")
+        return []
+
 HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -636,13 +732,10 @@ def buscar_induzido():
         return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
 
     try:
-        from shopee_api import buscar_produtos_shopee
-        from aliexpress_api import buscar_produtos_aliexpress
-
-        # Busca sem filtro de preço/desconto (limit alto para ter mais opções)
+        # Usa funções próprias SEM filtros do Railway
         produtos_raw = []
-        produtos_raw += buscar_produtos_shopee(keyword, limit=10)
-        produtos_raw += buscar_produtos_aliexpress(keyword, limit=10)
+        produtos_raw += busca_shopee_sem_filtro(keyword, limit=10)
+        produtos_raw += busca_aliexpress_sem_filtro(keyword, limit=10)
 
         # Aplica filtros informados pelo usuário
         produtos = []
