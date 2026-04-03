@@ -292,24 +292,24 @@ HTML = """<!DOCTYPE html>
     <div class="info">💡 Busca em Shopee + AliExpress com seus próprios filtros — ignora variáveis do Railway</div>
 
     <label>🔑 Palavra-chave *</label>
-    <input type="text" id="bk_keyword" placeholder="Ex: headset gamer, monitor dell, notebook acer...">
+    <input type="text" id="bk_keyword" placeholder="Ex: monitor curvo, headset gamer, notebook...">
 
     <label>🏷️ Marca (opcional)</label>
-    <input type="text" id="bk_marca" placeholder="Ex: DELL, ACER, INTEL, SAMSUNG, PHILIPS...">
+    <input type="text" id="bk_marca" placeholder="Ex: DELL, ACER, INTEL, SAMSUNG... (opcional)">
 
     <div class="row2">
       <div>
-        <label>💰 Preço mínimo (R$)</label>
+        <label>💰 Preço mínimo (R$) *</label>
         <input type="number" id="bk_preco_min" step="0.01" placeholder="Ex: 100">
       </div>
       <div>
-        <label>💵 Preço máximo (R$)</label>
+        <label>💵 Preço máximo (R$) *</label>
         <input type="number" id="bk_preco_max" step="0.01" placeholder="Ex: 5000">
       </div>
     </div>
 
-    <label>🏷️ Desconto mínimo (%)</label>
-    <input type="number" id="bk_desconto_min" step="1" min="0" max="99" placeholder="Ex: 20 (deixe vazio para sem limite)">
+    <label>🏷️ Desconto mínimo (%) *</label>
+    <input type="number" id="bk_desconto_min" step="1" min="0" max="99" placeholder="Ex: 20 (use 0 para sem limite)">
 
     <label style="margin-bottom:8px;">📢 Publicar em:</label>
     <div class="destinos">
@@ -465,18 +465,22 @@ async function publicarProduto() {
 }
 
 async function buscarInduzido() {
-  const keyword   = document.getElementById('bk_keyword').value.trim();
-  const marca     = document.getElementById('bk_marca').value.trim();
+  const keyword      = document.getElementById('bk_keyword').value.trim();
+  const marca        = document.getElementById('bk_marca').value.trim();
   const preco_min    = parseFloat(document.getElementById('bk_preco_min').value) || 0;
   const preco_max    = parseFloat(document.getElementById('bk_preco_max').value) || 0;
-  const desconto_min = parseInt(document.getElementById('bk_desconto_min').value) || 0;
-  const telegram  = document.getElementById('bk_telegram').checked;
-  const whatsapp  = document.getElementById('bk_whatsapp').checked;
+  const desconto_min = document.getElementById('bk_desconto_min').value;
+  const telegram     = document.getElementById('bk_telegram').checked;
+  const whatsapp     = document.getElementById('bk_whatsapp').checked;
 
-  if (!keyword) return alert('Digite uma palavra-chave!');
+  if (!keyword)  return alert('Digite uma palavra-chave!');
+  if (!preco_min) return alert('Informe o preço mínimo!');
+  if (!preco_max) return alert('Informe o preço máximo!');
+  if (preco_max <= preco_min) return alert('Preço máximo deve ser maior que o mínimo!');
+  if (desconto_min === '') return alert('Informe o desconto mínimo (use 0 para sem limite)!');
   if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
 
-  // Monta keyword final com marca se informada
+  // Monta keyword final — marca é opcional
   const keyword_final = marca ? `${keyword} ${marca}` : keyword;
 
   const btn = document.getElementById('btn_bk');
@@ -488,7 +492,7 @@ async function buscarInduzido() {
     const resp = await fetch('/buscar_induzido', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ keyword: keyword_final, preco_min, preco_max, desconto_min, telegram, whatsapp })
+      body: JSON.stringify({ keyword: keyword_final, preco_min, preco_max, desconto_min: parseInt(desconto_min), telegram, whatsapp })
     });
     const data = await resp.json();
     if (data.ok) {
@@ -620,18 +624,17 @@ def buscar_induzido():
     if not session.get("logged_in"):
         return jsonify({"ok": False, "erro": "Não autorizado"}), 401
 
-    data      = request.json
-    keyword   = data.get("keyword", "").strip()
-    preco_min = float(data.get("preco_min", 0) or 0)
-    preco_max = float(data.get("preco_max", 0) or 0)
-    desc_min  = int(data.get("desconto_min", 0) or 0)
-    pub_tg    = data.get("telegram", True)
-    pub_wa    = data.get("whatsapp", True)
+    data       = request.json
+    keyword    = data.get("keyword", "").strip()
+    preco_min  = float(data.get("preco_min", 0) or 0)
+    preco_max  = float(data.get("preco_max", 0) or 0)
+    desc_min   = int(data.get("desconto_min", 0) or 0)
+    pub_tg     = data.get("telegram", True)
+    pub_wa     = data.get("whatsapp", True)
 
     if not keyword:
         return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
 
-    # Usa preços informados pelo usuário — ignora variáveis do Railway
     preco_min_busca = preco_min if preco_min > 0 else 50.0
     preco_max_busca = preco_max if preco_max > 0 else 99999.0
 
@@ -640,18 +643,18 @@ def buscar_induzido():
         from aliexpress_api import buscar_produtos_aliexpress
         import os as _os
 
-        # Sobrescreve temporariamente os env vars para essa busca
-        _os.environ["PRECO_MINIMO"] = str(preco_min_busca)
-        _os.environ["PRECO_MAXIMO"] = str(preco_max_busca)
-        _os.environ["DESCONTO_MINIMO"] = str(desc_min)  # usa o informado pelo usuário
+        # Usa parâmetros do usuário — ignora Railway
+        _os.environ["PRECO_MINIMO"]    = str(preco_min_busca)
+        _os.environ["PRECO_MAXIMO"]    = str(preco_max_busca)
+        _os.environ["DESCONTO_MINIMO"] = str(desc_min)
 
         produtos = []
         produtos += buscar_produtos_shopee(keyword, limit=5)
         produtos += buscar_produtos_aliexpress(keyword, limit=5)
 
-        # Restaura variáveis originais
-        _os.environ["PRECO_MINIMO"] = str(PRECO_MINIMO)
-        _os.environ["PRECO_MAXIMO"] = str(PRECO_MAXIMO)
+        # Restaura variáveis originais do Railway
+        _os.environ["PRECO_MINIMO"]    = str(PRECO_MINIMO)
+        _os.environ["PRECO_MAXIMO"]    = str(PRECO_MAXIMO)
         _os.environ["DESCONTO_MINIMO"] = _os.getenv("DESCONTO_MINIMO", "20")
 
         # Filtra pelo preço informado manualmente (garantia extra)
