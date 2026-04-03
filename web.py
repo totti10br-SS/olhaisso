@@ -657,11 +657,13 @@ async function buscarInternet() {
     const area = document.getElementById('wb_resultados');
 
     if (data.ok && data.resultados && data.resultados.length > 0) {
-      let html = `<div style="color:#aaa;font-size:13px;margin-bottom:12px;">✅ ${data.resultados.length} ofertas encontradas — clique em "Copiar Link" para usar nas outras abas</div>`;
+      let html = `<div style="color:#aaa;font-size:13px;margin-bottom:12px;">✅ ${data.resultados.length} resultados via Google Search — clique em "Copiar Link" para usar nas outras abas</div>`;
       data.resultados.forEach((r, i) => {
+        const linkSafe = r.link.replace(/'/g, "\\'");
         html += `
         <div style="background:#222;border-radius:12px;padding:14px;margin-bottom:12px;border:1px solid #333;">
           <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:6px;">${r.nome}</div>
+          ${r.snippet ? `<div style="font-size:12px;color:#888;margin-bottom:8px;line-height:1.4;">${r.snippet}</div>` : ''}
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
             ${r.preco ? `<span style="color:#FF6B1A;font-weight:700;font-size:15px;">${r.preco}</span>` : ''}
             ${r.desconto ? `<span style="background:#00BB44;color:#fff;padding:2px 8px;border-radius:6px;font-size:13px;">${r.desconto}</span>` : ''}
@@ -669,10 +671,14 @@ async function buscarInternet() {
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
             <input type="text" value="${r.link}" readonly style="flex:1;font-size:12px;padding:8px;background:#1a1a1a;border:1px solid #444;border-radius:8px;color:#88cc88;">
-            <button onclick="navigator.clipboard.writeText('${r.link}').then(()=>this.textContent='✅ Copiado!').catch(()=>this.textContent='Erro')"
+            <button onclick="navigator.clipboard.writeText('${linkSafe}').then(()=>this.textContent='✅ Copiado!').catch(()=>this.textContent='Erro')"
               style="background:#0088cc;color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;white-space:nowrap;">
               📋 Copiar Link
             </button>
+            <a href="${r.link}" target="_blank"
+              style="background:#333;color:#aaa;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:16px;text-decoration:none;">
+              🔗
+            </a>
           </div>
         </div>`;
       });
@@ -870,94 +876,104 @@ def buscar_internet():
     if not keyword:
         return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
 
+    GOOGLE_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY", "")
+    GOOGLE_CX      = os.getenv("GOOGLE_SEARCH_CX", "")
+
+    if not GOOGLE_API_KEY or not GOOGLE_CX:
+        return jsonify({"ok": False, "erro": "GOOGLE_SEARCH_API_KEY ou GOOGLE_SEARCH_CX não configurados no Railway"})
+
     try:
-        # Monta prompt para o Claude buscar ofertas na internet
-        filtros = []
-        if preco_max > 0:
-            filtros.append(f"preço máximo R${preco_max:.0f}")
-        if desc_min > 0:
-            filtros.append(f"desconto mínimo {desc_min}%")
-        filtros_txt = f" com {', '.join(filtros)}" if filtros else ""
+        # Monta query de busca para marketplaces BR
+        query = f"{keyword} oferta site:amazon.com.br OR site:mercadolivre.com.br OR site:magazineluiza.com.br OR site:americanas.com.br OR site:shopee.com.br"
 
-        prompt = f"""Pesquise na internet as melhores ofertas atuais de "{keyword}"{filtros_txt} nos principais marketplaces brasileiros (Amazon, Mercado Livre, Magalu, Americanas, Casas Bahia, Shopee, AliExpress).
+        params = {
+            "key": GOOGLE_API_KEY,
+            "cx":  GOOGLE_CX,
+            "q":   query,
+            "num": 10,
+            "gl":  "br",
+            "hl":  "pt",
+        }
 
-Retorne APENAS um JSON válido, sem texto extra, sem markdown, sem explicações. Formato exato:
-{{
-  "resultados": [
-    {{
-      "nome": "Nome completo do produto",
-      "preco": "R$ 1.299,00",
-      "desconto": "35% OFF",
-      "loja": "Amazon",
-      "link": "https://..."
-    }}
-  ]
-}}
-
-Traga até 6 ofertas reais com links funcionais. Se não encontrar, retorne {{"resultados": []}}."""
-
-        ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-        if not ANTHROPIC_KEY:
-            return jsonify({"ok": False, "erro": "ANTHROPIC_API_KEY não configurada no Railway"})
-
-        r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": ANTHROPIC_KEY,
-                "anthropic-version": "2023-06-01",
-            },
-            json={
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 2000,
-                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                "messages": [{"role": "user", "content": prompt}]
-            },
-            timeout=60
-        )
+        r = requests.get("https://www.googleapis.com/customsearch/v1", params=params, timeout=15)
 
         if r.status_code != 200:
-            return jsonify({"ok": False, "erro": f"Erro na API: {r.status_code} — {r.text[:200]}"})
+            return jsonify({"ok": False, "erro": f"Erro Google Search: {r.status_code} — {r.text[:200]}"})
 
-        resp_data = r.json()
+        items = r.json().get("items", [])
 
-        # Extrai texto de todos os blocos (text e tool_result)
-        import re as _re
-        texto = ""
-        for block in resp_data.get("content", []):
-            if block.get("type") == "text":
-                texto += block.get("text", "")
-            elif block.get("type") == "tool_result":
-                for sub in block.get("content", []):
-                    if sub.get("type") == "text":
-                        texto += sub.get("text", "")
+        if not items:
+            return jsonify({"ok": False, "erro": f"Nenhum resultado encontrado para '{keyword}'"})
 
-        print(f"[buscar_internet] texto bruto: {texto[:500]}")
+        # Mapa de domínio → nome da loja
+        LOJAS = {
+            "amazon.com.br":       "Amazon",
+            "mercadolivre.com.br": "Mercado Livre",
+            "magazineluiza.com.br":"Magalu",
+            "americanas.com.br":   "Americanas",
+            "shopee.com.br":       "Shopee",
+        }
 
-        # Tenta extrair JSON — aceita com ou sem markdown
-        texto_limpo = texto.replace("```json", "").replace("```", "").strip()
+        def detectar_loja(url):
+            for dominio, nome in LOJAS.items():
+                if dominio in url:
+                    return nome
+            return "Marketplace"
 
-        # Tenta parse direto
-        resultado = None
-        try:
-            resultado = json.loads(texto_limpo)
-        except:
-            # Tenta encontrar JSON dentro do texto
-            json_match = _re.search(r'\{[\s\S]*"resultados"[\s\S]*\}', texto_limpo)
-            if json_match:
+        def extrair_preco(snippet):
+            """Tenta extrair preço do snippet do Google."""
+            match = re.search(r'R\$\s*[\d\.,]+', snippet or "")
+            return match.group(0).strip() if match else ""
+
+        def extrair_desconto(snippet):
+            """Tenta extrair desconto do snippet."""
+            match = re.search(r'(\d{1,2})\s*%\s*(off|desc|de desconto)', snippet or "", re.IGNORECASE)
+            return f"{match.group(1)}% OFF" if match else ""
+
+        resultados = []
+        for item in items:
+            link  = item.get("link", "")
+            nome  = item.get("title", "").strip()
+            snip  = item.get("snippet", "")
+            loja  = detectar_loja(link)
+            preco = extrair_preco(snip)
+            desc  = extrair_desconto(snip)
+
+            if not link or not nome:
+                continue
+
+            # Filtro por preço máximo (só aplica se tiver preço extraído)
+            if preco_max > 0 and preco:
                 try:
-                    resultado = json.loads(json_match.group())
+                    val = float(re.sub(r'[^\d,]', '', preco).replace(',', '.'))
+                    if val > preco_max:
+                        continue
                 except:
                     pass
 
-        if not resultado:
-            # Última tentativa — pede sem web_search, só com conhecimento
-            return jsonify({"ok": False, "erro": f"Não foi possível estruturar os resultados. Resposta: {texto[:200]}"})
+            # Filtro desconto mínimo (só aplica se tiver desconto extraído)
+            if desc_min > 0 and desc:
+                try:
+                    val_desc = int(re.search(r'\d+', desc).group())
+                    if val_desc < desc_min:
+                        continue
+                except:
+                    pass
 
-        resultados = resultado.get("resultados", [])
+            resultados.append({
+                "nome":     nome,
+                "preco":    preco,
+                "desconto": desc,
+                "loja":     loja,
+                "link":     link,
+                "snippet":  snip,
+            })
+
+            if len(resultados) >= 6:
+                break
 
         if not resultados:
-            return jsonify({"ok": False, "erro": f"Nenhuma oferta encontrada para '{keyword}'"})
+            return jsonify({"ok": False, "erro": f"Nenhuma oferta encontrada para '{keyword}' com os filtros informados."})
 
         return jsonify({"ok": True, "resultados": resultados})
 
