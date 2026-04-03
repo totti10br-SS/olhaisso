@@ -53,14 +53,11 @@ CATEGORIAS = [
     "logitech mouse",
     "philips luminaria",
     "mondial fritadeira",
-    # Virais e tendência
+    # Virais e tendência — tech apenas
     "gadget criativo",
     "gadget util dia a dia",
-    "produto viral cozinha",
-    "organizador casa",
     "setup gamer barato",
-    "item viral tiktok",
-    "produto tendencia",
+    "produto tendencia tech",
 ]
 
 PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
@@ -82,6 +79,20 @@ PALAVRAS_BLOQUEADAS = [
     "arduino", "esp32", "esp8266", "raspberry", "diy kit",
     "servo motor", "sensor module", "breadboard", "robô kit",
     "robot kit", "open source", "programavel", "programmable robot",
+    # Moda e vestuário
+    "blazer", "vestido", "camisa", "camiseta", "blusa", "calça",
+    "saia", "shorts", "jaqueta", "casaco", "moletom", "agasalho",
+    "roupa", "roupas", "moda", "fashion", "clothing", "dress",
+    "shirt", "pants", "jacket", "coat", "sweater", "hoodie",
+    "t-shirt", "jeans", "legging", "bermuda", "pijama", "lingerie",
+    "sutiã", "calcinha", "cueca", "meia calça", "underwear",
+    "feminino retrô", "manga longa", "gola alta", "abotoamento",
+    "coleção primavera", "coleção verão", "coleção outono",
+    "estilo napoleão", "assimétrico", "decote", "tecido",
+    "sapato", "sandália", "chinelo", "calçado",
+    "bolsa feminina", "carteira feminina", "cinto moda",
+    "chapéu moda", "boné fashion", "óculos de sol moda",
+    "peruca", "extensão cabelo", "aplique cabelo",
 ]
 
 

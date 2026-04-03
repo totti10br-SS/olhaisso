@@ -45,15 +45,11 @@ CATEGORIAS = [
     "gadget kitchen electric",
     "neck fan hands free",
     "gadget office productivity",
-    # Virais
+    # Virais — tech apenas
     "viral gadget tiktok 2025",
     "trending gadget 2025",
-    "viral product tiktok bought",
-    "gadget viral instagram",
     "best selling gadget 2025",
-    "tiktok made me buy gadget",
     "viral tech product",
-    "gadget that went viral",
     # Copa do Mundo 2026
     "world cup 2026 gadget",
     "soccer fan gadget",
@@ -112,6 +108,20 @@ PALAVRAS_BLOQUEADAS = [
     "arduino", "esp32", "esp8266", "raspberry pi", "diy kit",
     "servo motor", "sensor module", "breadboard", "robot kit",
     "open source robot", "programmable robot", "sg90",
+    # Moda e vestuário
+    "blazer", "vestido", "camisa", "camiseta", "blusa", "calça",
+    "saia", "shorts", "jaqueta", "casaco", "moletom", "agasalho",
+    "roupa", "roupas", "moda", "fashion", "clothing", "dress",
+    "shirt", "pants", "jacket", "coat", "sweater", "hoodie",
+    "t-shirt", "jeans", "legging", "bermuda", "pijama", "lingerie",
+    "sutiã", "calcinha", "cueca", "meia", "sock", "underwear",
+    "feminino retrô", "manga longa", "gola alta", "abotoamento",
+    "coleção primavera", "coleção verão", "coleção outono",
+    "estilo napoleão", "assimétrico", "decote", "tecido",
+    "shoe", "sapato", "tênis de moda", "sandália", "chinelo",
+    "bolsa", "carteira", "cinto", "chapéu", "boné fashion",
+    "óculos de sol", "sunglasses", "acessório moda",
+    "peruca", "extensão cabelo", "cabelo", "hair",
 ]
 
 
