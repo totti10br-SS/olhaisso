@@ -42,7 +42,7 @@ AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
-HORARIOS         = ["09:00", "10:30", "12:00", "13:30", "15:00", "16:30", "18:00", "19:30", "21:00", "22:30", "00:00", "01:30", "03:00", "04:30"]
+HORARIOS         = ["10:30", "13:00", "15:30", "18:00", "20:30", "23:00", "01:30", "04:00"]
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
 # Evolution API — WhatsApp
