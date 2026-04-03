@@ -280,7 +280,30 @@ def gerar_imagem(produto):
     # Nome do produto
     f_nome = carregar_fonte(48, negrito=True)
     nome = produto.get("nome", "")
-    linhas = textwrap.wrap(nome, width=32)[:2]
+
+    # Detecta se é Oferta Premium do Canal — banner especial
+    PREFIXO_PREMIUM = "🏆 OFERTA PREMIUM DO CANAL"
+    if nome.startswith(PREFIXO_PREMIUM):
+        # Banner vermelho com texto azul negrito
+        COR_VERMELHO    = (200, 20, 20)
+        COR_AZUL_BRIGHT = (30, 120, 255)
+        f_premium = carregar_fonte(46, negrito=True)
+        banner_txt = "🏆 OFERTA PREMIUM DO CANAL"
+        bb_p = draw.textbbox((0, 0), banner_txt, font=f_premium)
+        bw_p = bb_p[2] - bb_p[0]
+        bh_p = bb_p[3] - bb_p[1]
+        pad_x, pad_y = 30, 12
+        rx1 = (W - bw_p) // 2 - pad_x
+        rx2 = (W + bw_p) // 2 + pad_x
+        draw.rounded_rectangle([rx1, y, rx2, y + bh_p + pad_y * 2], radius=16, fill=COR_VERMELHO)
+        draw.text(((W - bw_p) // 2, y + pad_y), banner_txt, font=f_premium, fill=COR_AZUL_BRIGHT)
+        y += bh_p + pad_y * 2 + 10
+        # Resto do nome sem o prefixo
+        nome_real = nome[len(PREFIXO_PREMIUM):].strip().lstrip("\n").strip()
+        linhas = textwrap.wrap(nome_real, width=32)[:2]
+    else:
+        linhas = textwrap.wrap(nome, width=32)[:2]
+
     for linha in linhas:
         bb = draw.textbbox((0,0), linha, font=f_nome)
         draw.text(((W-(bb[2]-bb[0]))//2, y), linha, font=f_nome, fill=COR_BRANCO)
