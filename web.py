@@ -896,9 +896,17 @@ Retorne APENAS um JSON válido, sem texto extra, sem markdown, sem explicações
 
 Traga até 6 ofertas reais com links funcionais. Se não encontrar, retorne {{"resultados": []}}."""
 
+        ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+        if not ANTHROPIC_KEY:
+            return jsonify({"ok": False, "erro": "ANTHROPIC_API_KEY não configurada no Railway"})
+
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01",
+            },
             json={
                 "model": "claude-sonnet-4-20250514",
                 "max_tokens": 2000,
