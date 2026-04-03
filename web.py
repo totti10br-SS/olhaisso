@@ -435,6 +435,17 @@ HTML = """<!DOCTYPE html>
     <label>💰 Preço máximo (R$) — opcional</label>
     <input type="number" id="wb_preco_max" step="0.01" placeholder="Ex: 2000 (deixe vazio para sem limite)" style="margin-bottom:14px;">
 
+    <div class="row2">
+      <div>
+        <label>💵 Preço mínimo (R$) — opcional</label>
+        <input type="number" id="wb_preco_min" step="0.01" placeholder="Ex: 500">
+      </div>
+      <div>
+        <label>💰 Preço máximo (R$) — opcional</label>
+        <input type="number" id="wb_preco_max" step="0.01" placeholder="Ex: 2000">
+      </div>
+    </div>
+
     <button class="btn" id="btn_wb" onclick="buscarInternet()" style="background:#0088cc;color:#fff;">🌐 Buscar agora</button>
     <div class="loader" id="loader_wb">⏳ Pesquisando no Google Shopping...</div>
 
@@ -629,6 +640,7 @@ async function buscarInduzido() {
 
 async function buscarInternet() {
   const keyword   = document.getElementById('wb_keyword').value.trim();
+  const preco_min = parseFloat(document.getElementById('wb_preco_min').value) || 0;
   const preco_max = parseFloat(document.getElementById('wb_preco_max').value) || 0;
 
   if (!keyword) return alert('Digite o que está procurando!');
@@ -642,7 +654,7 @@ async function buscarInternet() {
     const resp = await fetch('/buscar_internet', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ keyword, preco_max })
+      body: JSON.stringify({ keyword, preco_min, preco_max })
     });
     const data = await resp.json();
     const area = document.getElementById('wb_resultados');
@@ -863,6 +875,7 @@ def buscar_internet():
 
     data      = request.json
     keyword   = data.get("keyword", "").strip()
+    preco_min = float(data.get("preco_min", 0) or 0)
     preco_max = float(data.get("preco_max", 0) or 0)
 
     if not keyword:
@@ -941,6 +954,10 @@ def buscar_internet():
                 desconto_pct = int((1 - preco_num / preco_orig_num) * 100)
 
             if not nome or not link:
+                continue
+
+            # Filtro preço mínimo
+            if preco_min > 0 and preco_num > 0 and preco_num < preco_min:
                 continue
 
             # Filtro preço máximo
