@@ -426,25 +426,14 @@ HTML = """<!DOCTYPE html>
 
   <!-- FLUXO 4: Busca na Internet -->
   <div class="card" id="card_web">
-    <h2>🌐 Busca de Ofertas na Internet</h2>
-    <div class="info">💡 Busca em Amazon, Mercado Livre e outros — traz links crus para você trabalhar manualmente</div>
+    <h2>🌐 Busca Livre na Internet</h2>
+    <div class="info">💡 Busca qualquer coisa no Google — traz os 10 melhores resultados com links para você clicar e avaliar</div>
 
     <label>🔑 O que você está procurando? *</label>
-    <input type="text" id="wb_keyword" placeholder="Ex: notebook Dell, iPhone 15, monitor Samsung...">
+    <input type="text" id="wb_keyword" placeholder="Ex: fralda descartável, notebook Dell, iPhone 15..." onkeydown="if(event.key==='Enter') buscarInternet()">
 
-    <div class="row2">
-      <div>
-        <label>💰 Preço máximo (R$)</label>
-        <input type="number" id="wb_preco_max" step="0.01" placeholder="Ex: 2000 (opcional)">
-      </div>
-      <div>
-        <label>🏷️ Desconto mínimo (%)</label>
-        <input type="number" id="wb_desconto_min" step="1" min="0" max="99" placeholder="Ex: 10 (opcional)">
-      </div>
-    </div>
-
-    <button class="btn btn-blue" id="btn_wb" onclick="buscarInternet()" style="background:#0088cc;">🌐 Buscar ofertas agora</button>
-    <div class="loader" id="loader_wb">⏳ Pesquisando na internet...</div>
+    <button class="btn" id="btn_wb" onclick="buscarInternet()" style="background:#0088cc;color:#fff;">🌐 Buscar agora</button>
+    <div class="loader" id="loader_wb">⏳ Pesquisando no Google...</div>
 
     <div id="wb_resultados" style="margin-top:16px;"></div>
   </div>
@@ -636,9 +625,7 @@ async function buscarInduzido() {
 }
 
 async function buscarInternet() {
-  const keyword     = document.getElementById('wb_keyword').value.trim();
-  const preco_max   = parseFloat(document.getElementById('wb_preco_max').value) || 0;
-  const desc_min    = parseInt(document.getElementById('wb_desconto_min').value) || 0;
+  const keyword = document.getElementById('wb_keyword').value.trim();
 
   if (!keyword) return alert('Digite o que está procurando!');
 
@@ -651,40 +638,38 @@ async function buscarInternet() {
     const resp = await fetch('/buscar_internet', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ keyword, preco_max, desc_min })
+      body: JSON.stringify({ keyword })
     });
     const data = await resp.json();
     const area = document.getElementById('wb_resultados');
 
     if (data.ok && data.resultados && data.resultados.length > 0) {
-      let html = `<div style="color:#aaa;font-size:13px;margin-bottom:12px;">✅ ${data.resultados.length} resultados via Google Search — clique em "Copiar Link" para usar nas outras abas</div>`;
+      let html = `<div style="color:#aaa;font-size:13px;margin-bottom:12px;">✅ ${data.resultados.length} resultados encontrados — clique em 🔗 para abrir ou 📋 para copiar o link</div>`;
       data.resultados.forEach((r, i) => {
         const linkSafe = r.link.replace(/'/g, "\\'");
         html += `
-        <div style="background:#222;border-radius:12px;padding:14px;margin-bottom:12px;border:1px solid #333;">
-          <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:6px;">${r.nome}</div>
+        <div style="background:#222;border-radius:12px;padding:14px;margin-bottom:10px;border:1px solid #333;">
+          <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px;">${r.nome}</div>
           ${r.snippet ? `<div style="font-size:12px;color:#888;margin-bottom:8px;line-height:1.4;">${r.snippet}</div>` : ''}
-          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-            ${r.preco ? `<span style="color:#FF6B1A;font-weight:700;font-size:15px;">${r.preco}</span>` : ''}
-            ${r.desconto ? `<span style="background:#00BB44;color:#fff;padding:2px 8px;border-radius:6px;font-size:13px;">${r.desconto}</span>` : ''}
-            ${r.loja ? `<span style="color:#aaa;font-size:13px;">🏪 ${r.loja}</span>` : ''}
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <input type="text" value="${r.link}" readonly style="flex:1;font-size:12px;padding:8px;background:#1a1a1a;border:1px solid #444;border-radius:8px;color:#88cc88;">
-            <button onclick="navigator.clipboard.writeText('${linkSafe}').then(()=>this.textContent='✅ Copiado!').catch(()=>this.textContent='Erro')"
-              style="background:#0088cc;color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;white-space:nowrap;">
-              📋 Copiar Link
-            </button>
-            <a href="${r.link}" target="_blank"
-              style="background:#333;color:#aaa;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:16px;text-decoration:none;">
-              🔗
-            </a>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            ${r.preco ? `<span style="color:#FF6B1A;font-weight:700;font-size:14px;">${r.preco}</span>` : ''}
+            <span style="color:#aaa;font-size:12px;">${r.loja}</span>
+            <div style="display:flex;gap:6px;margin-left:auto;">
+              <button onclick="navigator.clipboard.writeText('${linkSafe}').then(()=>this.textContent='✅').catch(()=>this.textContent='❌');setTimeout(()=>this.textContent='📋',2000)"
+                style="background:#0088cc;color:#fff;border:none;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:14px;">
+                📋
+              </button>
+              <a href="${r.link}" target="_blank"
+                style="background:#333;color:#fff;border-radius:8px;padding:7px 12px;font-size:14px;text-decoration:none;display:inline-block;">
+                🔗
+              </a>
+            </div>
           </div>
         </div>`;
       });
       area.innerHTML = html;
     } else {
-      area.innerHTML = `<div class="msg msg-err">❌ ${data.erro || 'Nenhuma oferta encontrada'}</div>`;
+      area.innerHTML = `<div class="msg msg-err">❌ ${data.erro || 'Nenhum resultado encontrado'}</div>`;
     }
   } catch(e) {
     document.getElementById('wb_resultados').innerHTML = `<div class="msg msg-err">❌ Erro: ${e.message}</div>`;
@@ -868,67 +853,58 @@ def buscar_internet():
     if not session.get("logged_in"):
         return jsonify({"ok": False, "erro": "Não autorizado"}), 401
 
-    data      = request.json
-    keyword   = data.get("keyword", "").strip()
-    preco_max = float(data.get("preco_max", 0) or 0)
-    desc_min  = int(data.get("desc_min", 0) or 0)
+    data    = request.json
+    keyword = data.get("keyword", "").strip()
 
     if not keyword:
         return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
 
-    GOOGLE_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY", "")
-    GOOGLE_CX      = os.getenv("GOOGLE_SEARCH_CX", "")
-
-    if not GOOGLE_API_KEY or not GOOGLE_CX:
-        return jsonify({"ok": False, "erro": "GOOGLE_SEARCH_API_KEY ou GOOGLE_SEARCH_CX não configurados no Railway"})
+    SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
+    if not SERPAPI_KEY:
+        return jsonify({"ok": False, "erro": "SERPAPI_KEY não configurada no Railway"})
 
     try:
-        # Monta query de busca para marketplaces BR
-        query = f"{keyword} oferta site:amazon.com.br OR site:mercadolivre.com.br OR site:magazineluiza.com.br OR site:americanas.com.br OR site:shopee.com.br"
-
         params = {
-            "key": GOOGLE_API_KEY,
-            "cx":  GOOGLE_CX,
-            "q":   query,
-            "num": 10,
-            "gl":  "br",
-            "hl":  "pt",
+            "engine":  "google",
+            "q":       keyword,
+            "gl":      "br",
+            "hl":      "pt",
+            "num":     10,
+            "api_key": SERPAPI_KEY,
         }
 
-        r = requests.get("https://www.googleapis.com/customsearch/v1", params=params, timeout=15)
+        r = requests.get("https://serpapi.com/search", params=params, timeout=20)
 
         if r.status_code != 200:
-            return jsonify({"ok": False, "erro": f"Erro Google Search: {r.status_code} — {r.text[:200]}"})
+            return jsonify({"ok": False, "erro": f"Erro SerpApi: {r.status_code} — {r.text[:200]}"})
 
-        items = r.json().get("items", [])
+        items = r.json().get("organic_results", [])
 
         if not items:
             return jsonify({"ok": False, "erro": f"Nenhum resultado encontrado para '{keyword}'"})
 
-        # Mapa de domínio → nome da loja
+        # Detecta loja pelo domínio
         LOJAS = {
-            "amazon.com.br":       "Amazon",
-            "mercadolivre.com.br": "Mercado Livre",
-            "magazineluiza.com.br":"Magalu",
-            "americanas.com.br":   "Americanas",
-            "shopee.com.br":       "Shopee",
+            "amazon.com.br":        "🟠 Amazon",
+            "mercadolivre.com.br":  "🟡 Mercado Livre",
+            "magazineluiza.com.br": "🔵 Magalu",
+            "americanas.com.br":    "🔴 Americanas",
+            "shopee.com.br":        "🟠 Shopee",
+            "aliexpress.com":       "🔴 AliExpress",
+            "casasbahia.com.br":    "🔵 Casas Bahia",
+            "submarino.com.br":     "🔵 Submarino",
+            "kabum.com.br":         "🟢 Kabum",
         }
 
         def detectar_loja(url):
             for dominio, nome in LOJAS.items():
                 if dominio in url:
                     return nome
-            return "Marketplace"
+            return "🌐 Web"
 
         def extrair_preco(snippet):
-            """Tenta extrair preço do snippet do Google."""
             match = re.search(r'R\$\s*[\d\.,]+', snippet or "")
             return match.group(0).strip() if match else ""
-
-        def extrair_desconto(snippet):
-            """Tenta extrair desconto do snippet."""
-            match = re.search(r'(\d{1,2})\s*%\s*(off|desc|de desconto)', snippet or "", re.IGNORECASE)
-            return f"{match.group(1)}% OFF" if match else ""
 
         resultados = []
         for item in items:
@@ -937,43 +913,23 @@ def buscar_internet():
             snip  = item.get("snippet", "")
             loja  = detectar_loja(link)
             preco = extrair_preco(snip)
-            desc  = extrair_desconto(snip)
 
             if not link or not nome:
                 continue
 
-            # Filtro por preço máximo (só aplica se tiver preço extraído)
-            if preco_max > 0 and preco:
-                try:
-                    val = float(re.sub(r'[^\d,]', '', preco).replace(',', '.'))
-                    if val > preco_max:
-                        continue
-                except:
-                    pass
-
-            # Filtro desconto mínimo (só aplica se tiver desconto extraído)
-            if desc_min > 0 and desc:
-                try:
-                    val_desc = int(re.search(r'\d+', desc).group())
-                    if val_desc < desc_min:
-                        continue
-                except:
-                    pass
-
             resultados.append({
-                "nome":     nome,
-                "preco":    preco,
-                "desconto": desc,
-                "loja":     loja,
-                "link":     link,
-                "snippet":  snip,
+                "nome":    nome,
+                "preco":   preco,
+                "loja":    loja,
+                "link":    link,
+                "snippet": snip,
             })
 
-            if len(resultados) >= 6:
+            if len(resultados) >= 10:
                 break
 
         if not resultados:
-            return jsonify({"ok": False, "erro": f"Nenhuma oferta encontrada para '{keyword}' com os filtros informados."})
+            return jsonify({"ok": False, "erro": f"Nenhum resultado encontrado para '{keyword}'"})
 
         return jsonify({"ok": True, "resultados": resultados})
 
