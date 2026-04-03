@@ -280,6 +280,7 @@ HTML = """<!DOCTYPE html>
     <div class="tab active" onclick="trocarAba('afiliado')">🔗 Link de Afiliado Pronto</div>
     <div class="tab" onclick="trocarAba('produto')">🛍️ Link de Produto</div>
     <div class="tab" onclick="trocarAba('busca')">🔍 Busca Induzida</div>
+    <div class="tab" onclick="trocarAba('web')">🌐 Busca na Internet</div>
   </div>
 
   <!-- FLUXO 1: Link de afiliado pronto -->
@@ -422,11 +423,36 @@ HTML = """<!DOCTYPE html>
     <button class="btn btn-orange" id="btn_bk" onclick="buscarInduzido()">🔍 Buscar e publicar Oferta Premium</button>
     <div class="loader" id="loader_bk">⏳ Buscando ofertas...</div>
   </div>
+
+  <!-- FLUXO 4: Busca na Internet -->
+  <div class="card" id="card_web">
+    <h2>🌐 Busca de Ofertas na Internet</h2>
+    <div class="info">💡 Busca em Amazon, Mercado Livre e outros — traz links crus para você trabalhar manualmente</div>
+
+    <label>🔑 O que você está procurando? *</label>
+    <input type="text" id="wb_keyword" placeholder="Ex: notebook Dell, iPhone 15, monitor Samsung...">
+
+    <div class="row2">
+      <div>
+        <label>💰 Preço máximo (R$)</label>
+        <input type="number" id="wb_preco_max" step="0.01" placeholder="Ex: 2000 (opcional)">
+      </div>
+      <div>
+        <label>🏷️ Desconto mínimo (%)</label>
+        <input type="number" id="wb_desconto_min" step="1" min="0" max="99" placeholder="Ex: 10 (opcional)">
+      </div>
+    </div>
+
+    <button class="btn btn-blue" id="btn_wb" onclick="buscarInternet()" style="background:#0088cc;">🌐 Buscar ofertas agora</button>
+    <div class="loader" id="loader_wb">⏳ Pesquisando na internet...</div>
+
+    <div id="wb_resultados" style="margin-top:16px;"></div>
+  </div>
 </div>
 
 <script>
 function trocarAba(aba) {
-  const abas = ['afiliado', 'produto', 'busca'];
+  const abas = ['afiliado', 'produto', 'busca', 'web'];
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', aba === abas[i]));
   abas.forEach(a => {
     const card = document.getElementById('card_' + a);
@@ -608,6 +634,59 @@ async function buscarInduzido() {
     document.getElementById('loader_bk').style.display = 'none';
   }
 }
+
+async function buscarInternet() {
+  const keyword     = document.getElementById('wb_keyword').value.trim();
+  const preco_max   = parseFloat(document.getElementById('wb_preco_max').value) || 0;
+  const desc_min    = parseInt(document.getElementById('wb_desconto_min').value) || 0;
+
+  if (!keyword) return alert('Digite o que está procurando!');
+
+  const btn = document.getElementById('btn_wb');
+  btn.disabled = true;
+  document.getElementById('loader_wb').style.display = 'block';
+  document.getElementById('wb_resultados').innerHTML = '';
+
+  try {
+    const resp = await fetch('/buscar_internet', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ keyword, preco_max, desc_min })
+    });
+    const data = await resp.json();
+    const area = document.getElementById('wb_resultados');
+
+    if (data.ok && data.resultados && data.resultados.length > 0) {
+      let html = `<div style="color:#aaa;font-size:13px;margin-bottom:12px;">✅ ${data.resultados.length} ofertas encontradas — clique em "Copiar Link" para usar nas outras abas</div>`;
+      data.resultados.forEach((r, i) => {
+        html += `
+        <div style="background:#222;border-radius:12px;padding:14px;margin-bottom:12px;border:1px solid #333;">
+          <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:6px;">${r.nome}</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+            ${r.preco ? `<span style="color:#FF6B1A;font-weight:700;font-size:15px;">${r.preco}</span>` : ''}
+            ${r.desconto ? `<span style="background:#00BB44;color:#fff;padding:2px 8px;border-radius:6px;font-size:13px;">${r.desconto}</span>` : ''}
+            ${r.loja ? `<span style="color:#aaa;font-size:13px;">🏪 ${r.loja}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" value="${r.link}" readonly style="flex:1;font-size:12px;padding:8px;background:#1a1a1a;border:1px solid #444;border-radius:8px;color:#88cc88;">
+            <button onclick="navigator.clipboard.writeText('${r.link}').then(()=>this.textContent='✅ Copiado!').catch(()=>this.textContent='Erro')"
+              style="background:#0088cc;color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;white-space:nowrap;">
+              📋 Copiar Link
+            </button>
+          </div>
+        </div>`;
+      });
+      area.innerHTML = html;
+    } else {
+      area.innerHTML = `<div class="msg msg-err">❌ ${data.erro || 'Nenhuma oferta encontrada'}</div>`;
+    }
+  } catch(e) {
+    document.getElementById('wb_resultados').innerHTML = `<div class="msg msg-err">❌ Erro: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    document.getElementById('loader_wb').style.display = 'none';
+  }
+}
 </script>
 {% endif %}
 </body>
@@ -753,7 +832,7 @@ def buscar_induzido():
         produtos = produtos[:6]
 
         if not produtos:
-            return jsonify({"ok": False, "erro": f"Nenhum produto encontrado para '{keyword}' com os filtros informados"})
+            return jsonify({"ok": False, "erro": f"Nenhum produto encontrado para '{keyword}' com os filtros informados. Tente reduzir o preço mínimo, aumentar o preço máximo ou diminuir o desconto mínimo. Shopee e AliExpress raramente têm produtos acima de R$1.500."})
 
         publicados = 0
         for produto in produtos:
@@ -773,6 +852,86 @@ def buscar_induzido():
                 continue
 
         return jsonify({"ok": True, "msg": f"{publicados} Oferta(s) Premium publicadas para '{keyword}'"})
+
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/buscar_internet", methods=["POST"])
+def buscar_internet():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Não autorizado"}), 401
+
+    data      = request.json
+    keyword   = data.get("keyword", "").strip()
+    preco_max = float(data.get("preco_max", 0) or 0)
+    desc_min  = int(data.get("desc_min", 0) or 0)
+
+    if not keyword:
+        return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
+
+    try:
+        # Monta prompt para o Claude buscar ofertas na internet
+        filtros = []
+        if preco_max > 0:
+            filtros.append(f"preço máximo R${preco_max:.0f}")
+        if desc_min > 0:
+            filtros.append(f"desconto mínimo {desc_min}%")
+        filtros_txt = f" com {', '.join(filtros)}" if filtros else ""
+
+        prompt = f"""Pesquise na internet as melhores ofertas atuais de "{keyword}"{filtros_txt} nos principais marketplaces brasileiros (Amazon, Mercado Livre, Magalu, Americanas, Casas Bahia, Shopee, AliExpress).
+
+Retorne APENAS um JSON válido, sem texto extra, sem markdown, sem explicações. Formato exato:
+{{
+  "resultados": [
+    {{
+      "nome": "Nome completo do produto",
+      "preco": "R$ 1.299,00",
+      "desconto": "35% OFF",
+      "loja": "Amazon",
+      "link": "https://..."
+    }}
+  ]
+}}
+
+Traga até 6 ofertas reais com links funcionais. Se não encontrar, retorne {{"resultados": []}}."""
+
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 2000,
+                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            timeout=60
+        )
+
+        if r.status_code != 200:
+            return jsonify({"ok": False, "erro": f"Erro na API: {r.status_code}"})
+
+        resp_data = r.json()
+
+        # Extrai texto da resposta
+        texto = ""
+        for block in resp_data.get("content", []):
+            if block.get("type") == "text":
+                texto += block.get("text", "")
+
+        # Parse do JSON retornado
+        import re as _re
+        json_match = _re.search(r'\{.*\}', texto, _re.DOTALL)
+        if not json_match:
+            return jsonify({"ok": False, "erro": "Não foi possível obter resultados da busca"})
+
+        resultado = json.loads(json_match.group())
+        resultados = resultado.get("resultados", [])
+
+        if not resultados:
+            return jsonify({"ok": False, "erro": f"Nenhuma oferta encontrada para '{keyword}'"})
+
+        return jsonify({"ok": True, "resultados": resultados})
 
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
