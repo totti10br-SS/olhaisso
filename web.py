@@ -917,23 +917,43 @@ Traga até 6 ofertas reais com links funcionais. Se não encontrar, retorne {{"r
         )
 
         if r.status_code != 200:
-            return jsonify({"ok": False, "erro": f"Erro na API: {r.status_code}"})
+            return jsonify({"ok": False, "erro": f"Erro na API: {r.status_code} — {r.text[:200]}"})
 
         resp_data = r.json()
 
-        # Extrai texto da resposta
+        # Extrai texto de todos os blocos (text e tool_result)
+        import re as _re
         texto = ""
         for block in resp_data.get("content", []):
             if block.get("type") == "text":
                 texto += block.get("text", "")
+            elif block.get("type") == "tool_result":
+                for sub in block.get("content", []):
+                    if sub.get("type") == "text":
+                        texto += sub.get("text", "")
 
-        # Parse do JSON retornado
-        import re as _re
-        json_match = _re.search(r'\{.*\}', texto, _re.DOTALL)
-        if not json_match:
-            return jsonify({"ok": False, "erro": "Não foi possível obter resultados da busca"})
+        print(f"[buscar_internet] texto bruto: {texto[:500]}")
 
-        resultado = json.loads(json_match.group())
+        # Tenta extrair JSON — aceita com ou sem markdown
+        texto_limpo = texto.replace("```json", "").replace("```", "").strip()
+
+        # Tenta parse direto
+        resultado = None
+        try:
+            resultado = json.loads(texto_limpo)
+        except:
+            # Tenta encontrar JSON dentro do texto
+            json_match = _re.search(r'\{[\s\S]*"resultados"[\s\S]*\}', texto_limpo)
+            if json_match:
+                try:
+                    resultado = json.loads(json_match.group())
+                except:
+                    pass
+
+        if not resultado:
+            # Última tentativa — pede sem web_search, só com conhecimento
+            return jsonify({"ok": False, "erro": f"Não foi possível estruturar os resultados. Resposta: {texto[:200]}"})
+
         resultados = resultado.get("resultados", [])
 
         if not resultados:
