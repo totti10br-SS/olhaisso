@@ -44,6 +44,7 @@ DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
 HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "17:30", "20:00", "22:30", "01:00"]
 HORARIOS_SMARTPHONE = ["12:30", "20:00"]
+HORARIOS_MONITOR    = ["15:00"]
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
 # Evolution API — WhatsApp
@@ -733,23 +734,50 @@ def permitir_smartphone():
     return hora in HORARIOS_SMARTPHONE
 
 def filtrar_smartphones(produtos):
-    """Remove produtos de smartphone/telefone fora dos horários permitidos."""
+    """
+    Horários normais   → remove smartphones do ciclo.
+    Horários dedicados → mantém APENAS smartphones (ciclo exclusivo).
+    """
     if permitir_smartphone():
-        log.info("✅ Horário liberado para smartphones")
-        return produtos
-    antes = len(produtos)
-    resultado = []
-    for p in produtos:
-        nome_lower = p.get("nome", "").lower()
-        if any(kw in nome_lower for kw in KEYWORDS_SMARTPHONE):
-            continue
-        resultado.append(p)
-    removidos = antes - len(resultado)
-    if removidos > 0:
-        log.info(f"📱 {removidos} smartphone(s) filtrado(s) — fora do horário permitido")
-    return resultado
+        log.info("📱 CICLO DEDICADO — apenas Smartphones e Telefones")
+        resultado = [p for p in produtos if any(kw in p.get("nome", "").lower() for kw in KEYWORDS_SMARTPHONE)]
+        log.info(f"📱 {len(resultado)} smartphone(s) disponíveis para o ciclo")
+        return resultado
+    else:
+        antes = len(produtos)
+        resultado = [p for p in produtos if not any(kw in p.get("nome", "").lower() for kw in KEYWORDS_SMARTPHONE)]
+        removidos = antes - len(resultado)
+        if removidos > 0:
+            log.info(f"📱 {removidos} smartphone(s) filtrado(s) — fora do horário dedicado")
+        return resultado
 
-def detectar_tema(nome):
+KEYWORDS_MONITOR = [
+    "monitor ", "monitor gamer", "monitor 4k", "monitor ips",
+    "monitor curvo", "monitor portatil", "monitor led",
+    "monitor 144hz", "monitor 165hz", "monitor 240hz",
+    "tela monitor", "display monitor",
+]
+
+def permitir_monitor():
+    return hora_atual_str() in HORARIOS_MONITOR
+
+def filtrar_monitores(produtos):
+    """
+    Horário normal  → remove monitores do ciclo.
+    Horário 15:00   → mantém APENAS monitores (ciclo exclusivo).
+    """
+    if permitir_monitor():
+        log.info("🖥️ CICLO DEDICADO — apenas Monitores")
+        resultado = [p for p in produtos if any(kw in p.get("nome", "").lower() for kw in KEYWORDS_MONITOR)]
+        log.info(f"🖥️ {len(resultado)} monitor(es) disponíveis para o ciclo")
+        return resultado
+    else:
+        antes = len(produtos)
+        resultado = [p for p in produtos if not any(kw in p.get("nome", "").lower() for kw in KEYWORDS_MONITOR)]
+        removidos = antes - len(resultado)
+        if removidos > 0:
+            log.info(f"🖥️ {removidos} monitor(es) filtrado(s) — fora do horário dedicado")
+        return resultado
     nome_lower = nome.lower()
     for tema, keywords in TEMAS:
         if any(kw in nome_lower for kw in keywords):
@@ -795,6 +823,9 @@ def montar_pipeline():
 
     # Filtra smartphones fora dos horários permitidos
     produtos = filtrar_smartphones(produtos)
+
+    # Filtra monitores fora do horário dedicado
+    produtos = filtrar_monitores(produtos)
 
     # Filtra por preço e desconto
     produtos = [p for p in produtos if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
