@@ -42,7 +42,8 @@ AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
-HORARIOS         = ["10:30", "13:00", "15:30", "18:00", "20:30", "23:00", "01:30", "04:00"]
+HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "17:30", "20:00", "22:30", "01:00"]
+HORARIOS_SMARTPHONE = ["12:30", "20:00"]
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
 # Evolution API — WhatsApp
@@ -696,6 +697,82 @@ def produtos_mock():
     ]
 
 
+
+KEYWORDS_SMARTPHONE = [
+    "smartphone", "telefone", "celular", "iphone", "samsung galaxy",
+    "redmi", "poco", "motorola moto", "realme", "xiaomi mi",
+]
+
+MAX_POR_TEMA = int(os.getenv("MAX_POR_TEMA", "2"))
+
+TEMAS = [
+    ("smartphone",   ["smartphone", "celular", "iphone", "redmi", "poco", "motorola moto", "realme", "samsung galaxy"]),
+    ("notebook",     ["notebook", "laptop"]),
+    ("fone",         ["fone", "earbuds", "earphone", "headset", "headphone"]),
+    ("smartwatch",   ["smartwatch", "smart watch", "relogio inteligente", "band "]),
+    ("carregador",   ["carregador", "power bank", "powerbank", "gan charger"]),
+    ("mouse",        ["mouse "]),
+    ("teclado",      ["teclado", "keyboard"]),
+    ("caixa de som", ["caixa de som", "bluetooth speaker"]),
+    ("monitor",      ["monitor "]),
+    ("aspirador",    ["aspirador", "robot vacuum"]),
+    ("fritadeira",   ["fritadeira", "air fryer", "airfryer"]),
+    ("projetor",     ["projetor", "projector"]),
+    ("hub usb",      ["hub usb", "docking station"]),
+    ("ssd",          ["ssd", "hd externo", "pendrive"]),
+    ("webcam",       ["webcam"]),
+    ("led",          ["fita led", "led strip", "luminaria", "lampada"]),
+]
+
+def hora_atual_str():
+    return datetime.now().strftime("%H:%M")
+
+def permitir_smartphone():
+    """Retorna True apenas nos 2 horários permitidos para smartphone."""
+    hora = hora_atual_str()
+    return hora in HORARIOS_SMARTPHONE
+
+def filtrar_smartphones(produtos):
+    """Remove produtos de smartphone/telefone fora dos horários permitidos."""
+    if permitir_smartphone():
+        log.info("✅ Horário liberado para smartphones")
+        return produtos
+    antes = len(produtos)
+    resultado = []
+    for p in produtos:
+        nome_lower = p.get("nome", "").lower()
+        if any(kw in nome_lower for kw in KEYWORDS_SMARTPHONE):
+            continue
+        resultado.append(p)
+    removidos = antes - len(resultado)
+    if removidos > 0:
+        log.info(f"📱 {removidos} smartphone(s) filtrado(s) — fora do horário permitido")
+    return resultado
+
+def detectar_tema(nome):
+    nome_lower = nome.lower()
+    for tema, keywords in TEMAS:
+        if any(kw in nome_lower for kw in keywords):
+            return tema
+    return "outros"
+
+def limitar_por_tema(produtos):
+    """Limita MAX_POR_TEMA produtos por tema no ciclo."""
+    contagem = {}
+    resultado = []
+    pulados = []
+    for p in produtos:
+        tema = detectar_tema(p.get("nome", ""))
+        count = contagem.get(tema, 0)
+        if tema == "outros" or count < MAX_POR_TEMA:
+            contagem[tema] = count + 1
+            resultado.append(p)
+        else:
+            pulados.append(tema)
+    if pulados:
+        log.info(f"🎯 Limite por tema ({MAX_POR_TEMA}/tema): {len(pulados)} removido(s) — {', '.join(set(pulados))}")
+    return resultado
+
 def montar_pipeline():
     log.info("=== Pipeline v6.0 iniciado ===")
     tg = buscar_trends_google()
@@ -715,6 +792,9 @@ def montar_pipeline():
     if not produtos:
         log.warning("Sem produtos — usando mock")
         produtos = produtos_mock()
+
+    # Filtra smartphones fora dos horários permitidos
+    produtos = filtrar_smartphones(produtos)
 
     # Filtra por preço e desconto
     produtos = [p for p in produtos if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
@@ -767,6 +847,9 @@ def montar_pipeline():
         if chave not in vistos:
             vistos.add(chave)
             resultado.append(p)
+
+    # Limita MAX_POR_TEMA produtos por tema no ciclo
+    resultado = limitar_por_tema(resultado)
 
     lojas_log = {}
     for p in resultado[:POSTS_POR_CICLO]:
@@ -826,6 +909,7 @@ def main():
     log.info(f"📢 Canal: {TELEGRAM_CHANNEL}")
     log.info(f"⏰ Horários: {', '.join(HORARIOS)}")
     log.info(f"📦 Posts por ciclo: {POSTS_POR_CICLO}")
+    log.info(f"🎯 Máx por tema: {MAX_POR_TEMA}")
     log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
