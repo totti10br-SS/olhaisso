@@ -40,6 +40,24 @@ CATEGORIAS = [
     "monitor gamer",
     "monitor 4k",
     "monitor portatil",
+    # Celulares e Smartphones
+    "smartphone android",
+    "smartphone 5g",
+    "celular xiaomi",
+    "celular samsung",
+    "celular motorola",
+    "poco smartphone",
+    "redmi smartphone",
+    "celular barato bom",
+    "smartphone camera 108mp",
+    "celular gamer",
+    # Acessórios de celular
+    "capinha celular",
+    "pelicula celular",
+    "carregador rapido celular",
+    "cabo usb-c",
+    "suporte celular carro",
+    "selfie ring light",
     # Marcas premium
     "xiaomi fone",
     "xiaomi smartwatch",
@@ -61,7 +79,7 @@ CATEGORIAS = [
 ]
 
 PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
-PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "800.00"))
+PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
 PALAVRAS_BLOQUEADAS = [
@@ -79,6 +97,24 @@ PALAVRAS_BLOQUEADAS = [
     "arduino", "esp32", "esp8266", "raspberry", "diy kit",
     "servo motor", "sensor module", "breadboard", "robô kit",
     "robot kit", "open source", "programavel", "programmable robot",
+    # Esportes e artigos esportivos fora do nicho
+    "football net", "soccer net", "goal net", "training net", "sport net",
+    "quarterback", "arremesso", "rede de futebol", "rede esportiva",
+    "chute a gol", "trave de futebol", "gol de futebol",
+    "football target", "throwing target", "pitching net",
+    "tennis net", "volleyball net", "badminton net",
+    "boxing glove", "luva de boxe", "saco de pancada",
+    "bicicleta", "bike", "cycling", "ciclismo",
+    "skate", "patins", "roller skate",
+    "equipamento esportivo", "sport equipment",
+    "yoga mat", "tapete yoga", "colchonete",
+    "haltere", "dumbbell", "kettlebell", "barbell",
+    "elastico musculacao", "resistance band",
+    "corda de pular", "jump rope",
+    "mochila esportiva", "sport backpack",
+    "golfe", "golf", "taco de golfe",
+    "raquete", "racket", "racquet",
+    "capacete bike", "joelheira", "cotoveleira",
     # Moda e vestuário
     "blazer", "vestido", "camisa", "camiseta", "blusa", "calça",
     "saia", "shorts", "jaqueta", "casaco", "moletom", "agasalho",

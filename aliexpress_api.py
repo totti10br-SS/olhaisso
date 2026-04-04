@@ -59,6 +59,26 @@ CATEGORIAS = [
     "led jersey light fan",
     "stadium fan accessories",
     "world cup smart watch",
+    # Celulares e Smartphones
+    "smartphone android",
+    "smartphone 5g",
+    "xiaomi smartphone",
+    "samsung galaxy",
+    "motorola smartphone",
+    "poco smartphone",
+    "redmi smartphone",
+    "realme smartphone",
+    "iphone case cover",
+    "smartphone 108mp camera",
+    "smartphone gaming",
+    "telefone celular barato",
+    # Acessórios de celular
+    "capinha celular",
+    "pelicula celular",
+    "carregador celular rapido",
+    "cabo usb-c celular",
+    "suporte celular carro",
+    "selfie stick bluetooth",
     # Marcas premium
     "xiaomi earbuds",
     "xiaomi smartwatch band",
@@ -77,12 +97,12 @@ CATEGORIAS = [
 ]
 
 PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
-PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "800.00"))
+PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
-# Preços em USD para filtro na API (R$50=~$9 / R$800=~$145)
+# Precos em USD para filtro na API (R$50=~$9 / R$3000=~$550)
 PRECO_MIN_USD = "9"
-PRECO_MAX_USD = "145"
+PRECO_MAX_USD = "550"
 
 # Palavras que indicam produto técnico, fora do nicho ou indesejado
 PALAVRAS_BLOQUEADAS = [
@@ -108,8 +128,25 @@ PALAVRAS_BLOQUEADAS = [
     "arduino", "esp32", "esp8266", "raspberry pi", "diy kit",
     "servo motor", "sensor module", "breadboard", "robot kit",
     "open source robot", "programmable robot", "sg90",
-    # Moda e vestuário
-    "blazer", "vestido", "camisa", "camiseta", "blusa", "calça",
+    # Esportes e artigos esportivos fora do nicho
+    "football net", "soccer net", "goal net", "training net", "sport net",
+    "quarterback", "arremesso", "rede de futebol", "rede esportiva",
+    "chute a gol", "trave de futebol", "gol de futebol",
+    "football target", "throwing target", "pitching net",
+    "tennis net", "volleyball net", "badminton net",
+    "boxing glove", "luva de boxe", "saco de pancada",
+    "bicicleta", "bike", "cycling", "ciclismo",
+    "skate", "patins", "roller skate",
+    "equipamento esportivo", "sport equipment",
+    "yoga mat", "tapete yoga", "colchonete",
+    "haltere", "dumbbell", "kettlebell", "barbell",
+    "elástico musculação", "resistance band",
+    "corda de pular", "jump rope",
+    "mochila esportiva", "sport backpack",
+    "golfe", "golf", "taco de golfe",
+    "raquete", "racket", "racquet",
+    "capacete bike", "joelheira", "cotoveleira",
+
     "saia", "shorts", "jaqueta", "casaco", "moletom", "agasalho",
     "roupa", "roupas", "moda", "fashion", "clothing", "dress",
     "shirt", "pants", "jacket", "coat", "sweater", "hoodie",
