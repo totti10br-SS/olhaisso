@@ -778,6 +778,8 @@ def filtrar_monitores(produtos):
         if removidos > 0:
             log.info(f"🖥️ {removidos} monitor(es) filtrado(s) — fora do horário dedicado")
         return resultado
+
+def detectar_tema(nome):
     nome_lower = nome.lower()
     for tema, keywords in TEMAS:
         if any(kw in nome_lower for kw in keywords):
