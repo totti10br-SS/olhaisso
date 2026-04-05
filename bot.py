@@ -42,8 +42,8 @@ AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
-HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "17:30", "20:00", "22:30", "01:00"]
-HORARIOS_SMARTPHONE = ["12:30", "20:00"]
+HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "17:30", "20:30", "22:30", "01:00"]
+HORARIOS_SMARTPHONE = ["12:30", "20:30"]
 HORARIOS_MONITOR    = ["15:00"]
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
