@@ -156,6 +156,16 @@ PALAVRAS_BLOQUEADAS = [
     "raquete", "racket", "racquet",
     "capacete bike", "joelheira", "cotoveleira",
 
+    # Moda e vestuário — BLOQUEIO TOTAL
+    "suéter", "sueter", "pulôver", "pulover", "blusa", "blusão",
+    "malha", "tricô", "tricot", "knit", "knitwear",
+    "algodão macio", "algodao macio", "bordado de urso", "bordado floral",
+    "gola redonda", "gola v", "gola alta", "decote v",
+    "manga longa", "manga curta", "manga 3/4",
+    "top feminino", "top de", "para mulheres", "para homens",
+    "feminino", "masculino", "unissex moda",
+    "casual confortável", "casual confortavel",
+    "blazer", "vestido", "camisa", "camiseta", "blusa", "calça",
     "saia", "shorts", "jaqueta", "casaco", "moletom", "agasalho",
     "roupa", "roupas", "moda", "fashion", "clothing", "dress",
     "shirt", "pants", "jacket", "coat", "sweater", "hoodie",
