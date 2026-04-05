@@ -744,6 +744,8 @@ def permitir_smartphone():
 
 def permitir_monitor():
     return horario_dentro_de(HORARIOS_MONITOR)
+
+def filtrar_smartphones(produtos):
     """
     Horários normais   → remove smartphones do ciclo.
     Horários dedicados → mantém APENAS smartphones (ciclo exclusivo).
