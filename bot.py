@@ -728,12 +728,22 @@ TEMAS = [
 def hora_atual_str():
     return datetime.now().strftime("%H:%M")
 
-def permitir_smartphone():
-    """Retorna True apenas nos 2 horários permitidos para smartphone."""
-    hora = hora_atual_str()
-    return hora in HORARIOS_SMARTPHONE
+def horario_dentro_de(horarios, tolerancia_min=30):
+    """Verifica se a hora atual está dentro da tolerância de algum horário da lista."""
+    agora = datetime.now()
+    for h in horarios:
+        hh, mm = map(int, h.split(":"))
+        alvo = agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        diff = abs((agora - alvo).total_seconds() / 60)
+        if diff <= tolerancia_min:
+            return True
+    return False
 
-def filtrar_smartphones(produtos):
+def permitir_smartphone():
+    return horario_dentro_de(HORARIOS_SMARTPHONE)
+
+def permitir_monitor():
+    return horario_dentro_de(HORARIOS_MONITOR)
     """
     Horários normais   → remove smartphones do ciclo.
     Horários dedicados → mantém APENAS smartphones (ciclo exclusivo).
@@ -757,9 +767,6 @@ KEYWORDS_MONITOR = [
     "monitor 144hz", "monitor 165hz", "monitor 240hz",
     "tela monitor", "display monitor",
 ]
-
-def permitir_monitor():
-    return hora_atual_str() in HORARIOS_MONITOR
 
 def filtrar_monitores(produtos):
     """
