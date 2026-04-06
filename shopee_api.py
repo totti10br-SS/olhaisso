@@ -123,6 +123,18 @@ PALAVRAS_BLOQUEADAS = [
     "golfe", "golf", "taco de golfe",
     "raquete", "racket", "racquet",
     "capacete bike", "joelheira", "cotoveleira",
+    # Fogo, churrasqueira, camping fora do nicho
+    "fogueira", "fogão", "fogao", "churrasqueira", "churrasco",
+    "fire pit", "campfire", "fireplace", "lareira",
+    "suporte para fogueira", "base para fogueira", "queimador",
+    "grelha", "espeto", "carvão", "carvaoo", "braseiro",
+    "camping stove", "camp fire", "outdoor fire",
+    "retrátil ajustável aço inoxidável", "retratil ajustavel",
+    "fogão solo", "ranger yukon", "fogueira solo",
+    # Jardinagem e ao ar livre
+    "cortador de grama", "podadora", "regador",
+    "vaso de planta", "adubo", "fertilizante",
+    "mangueira jardim", "aspersor",
     # Moda e vestuário — BLOQUEIO TOTAL
     "suéter", "sueter", "pulôver", "pulover", "blusa", "blusão",
     "malha", "tricô", "tricot", "knit", "knitwear",
