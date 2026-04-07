@@ -40,8 +40,15 @@ CATEGORIAS = [
     "relogio inteligente",
     "controle gamer",
     # Monitores
-    "monitor gamer",
+    "monitor gamer 144hz",
+    "monitor gamer 165hz",
+    "monitor gamer 240hz",
     "monitor 4k",
+    "monitor curvo",
+    "monitor 27 polegadas",
+    "monitor 24 polegadas",
+    "monitor led full hd",
+    "monitor ultrawide",
     "monitor portatil",
     # Celulares e Smartphones
     "smartphone android",
@@ -296,6 +303,7 @@ def buscar_todos_produtos():
     import hashlib as _h
     todos = []
     vistos = set()
+    monitor_portatil_count = 0
 
     for keyword in CATEGORIAS:
         try:
@@ -303,6 +311,13 @@ def buscar_todos_produtos():
             for p in produtos:
                 chave = _h.md5(p["nome"].encode()).hexdigest()
                 if chave not in vistos:
+                    # Limita monitor portátil a 1 por rodada
+                    nome_lower = p["nome"].lower()
+                    eh_portatil = any(kw in nome_lower for kw in ["monitor portátil", "monitor portatil", "portable monitor", "monitor usb-c"])
+                    if eh_portatil:
+                        if monitor_portatil_count >= 1:
+                            continue
+                        monitor_portatil_count += 1
                     vistos.add(chave)
                     todos.append(p)
             time.sleep(1)

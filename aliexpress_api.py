@@ -40,8 +40,15 @@ CATEGORIAS = [
     "laptop cooling stand",
     "electric desk lamp led",
     # Monitores
-    "gaming monitor",
+    "gaming monitor 144hz",
+    "gaming monitor 165hz",
+    "gaming monitor 240hz",
     "monitor 4k ips",
+    "monitor curvo gamer",
+    "monitor 27 polegadas",
+    "monitor 24 polegadas",
+    "monitor led full hd",
+    "monitor ultrawide",
     "portable monitor usb-c",
     # Gadgets direcionados
     "gadget smart home 2025",
@@ -313,6 +320,7 @@ def buscar_produtos_aliexpress(keyword, limit=10):
 def buscar_todos_produtos():
     todos = []
     vistos = set()
+    monitor_portatil_count = 0
 
     for keyword in CATEGORIAS:
         try:
@@ -320,6 +328,12 @@ def buscar_todos_produtos():
             for p in produtos:
                 chave = hashlib.md5(p["nome"].encode()).hexdigest()
                 if chave not in vistos:
+                    nome_lower = p["nome"].lower()
+                    eh_portatil = any(kw in nome_lower for kw in ["monitor portátil", "monitor portatil", "portable monitor", "monitor usb-c"])
+                    if eh_portatil:
+                        if monitor_portatil_count >= 1:
+                            continue
+                        monitor_portatil_count += 1
                     vistos.add(chave)
                     todos.append(p)
             time.sleep(1)
