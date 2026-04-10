@@ -2,13 +2,13 @@
 OlhaissoTech Bot v6.0
 - AliExpress API oficial (AppKey: 530504)
 - Shopee API oficial (AppID: 18307831002)
+- Mercado Livre API pública (Publisher: ot20260326074822)
 - Amazon Best Sellers
 - Google Trends BR
 - TikTok Creative Center
 - Reddit gadgets
 - Score inteligente por cruzamento de fontes
 - Imagem 1080x1080 com logo
-- 8 posts por ciclo
 - SQLite para evitar repetição de produtos
 """
 
@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
 from shopee_api import buscar_todos_produtos as buscar_shopee
+from mercadolivre_api import buscar_todos_produtos as buscar_ml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -709,20 +710,27 @@ MAX_POR_TEMA = int(os.getenv("MAX_POR_TEMA", "2"))
 TEMAS = [
     ("smartphone",   ["smartphone", "celular", "iphone", "redmi", "poco", "motorola moto", "realme", "samsung galaxy"]),
     ("notebook",     ["notebook", "laptop"]),
-    ("fone",         ["fone", "earbuds", "earphone", "headset", "headphone"]),
-    ("smartwatch",   ["smartwatch", "smart watch", "relogio inteligente", "band "]),
-    ("carregador",   ["carregador", "power bank", "powerbank", "gan charger"]),
-    ("mouse",        ["mouse "]),
+    ("fone",         ["fone", "earbuds", "earphone", "headset", "headphone", "auricular", "fone de ouvido"]),
+    ("smartwatch",   ["smartwatch", "smart watch", "relogio inteligente", "band ", "relógio inteligente"]),
+    ("carregador",   ["carregador", "power bank", "powerbank", "gan charger", "carregador rapido"]),
+    ("mouse",        ["mouse gamer", "mouse sem fio", "mouse wireless", "gaming mouse"]),
     ("teclado",      ["teclado", "keyboard"]),
-    ("caixa de som", ["caixa de som", "bluetooth speaker"]),
+    ("caixa de som", ["caixa de som", "bluetooth speaker", "speaker portátil", "speaker portatil",
+                      "caixinha bluetooth", "caixinha de som", "som bluetooth", "speaker bluetooth",
+                      "caixa bluetooth", "jbl speaker", "jbl flip", "jbl charge", "jbl go",
+                      "portable speaker", "alto-falante", "alto falante"]),
     ("monitor",      ["monitor "]),
-    ("aspirador",    ["aspirador", "robot vacuum"]),
+    ("tv",           ["smart tv", "tv 4k", "tv qled", "tv oled", "televisão", "televisao"]),
+    ("videogame",    ["playstation", "xbox", "nintendo switch", "ps5", "ps4", "game console", "video game"]),
+    ("aspirador",    ["aspirador", "robot vacuum", "robo aspirador"]),
     ("fritadeira",   ["fritadeira", "air fryer", "airfryer"]),
     ("projetor",     ["projetor", "projector"]),
     ("hub usb",      ["hub usb", "docking station"]),
     ("ssd",          ["ssd", "hd externo", "pendrive"]),
     ("webcam",       ["webcam"]),
     ("led",          ["fita led", "led strip", "luminaria", "lampada"]),
+    ("ram",          ["memoria ram", "ram ddr", "ram 4gb", "ram 8gb", "ram 16gb", "ram 32gb"]),
+    ("processador",  ["processador", "processor", "intel core", "amd ryzen"]),
 ]
 
 def hora_atual_str():
@@ -836,63 +844,80 @@ def montar_pipeline():
     log.info(f"Tendências — Google: {len(tg)} | TikTok: {len(tt)} | Reddit: {len(tr)}")
 
     log.info("Buscando AliExpress API...")
-    produtos = buscar_aliexpress()
+    produtos_ali = buscar_aliexpress()
 
     log.info("Buscando Shopee API...")
-    produtos += buscar_shopee()
+    produtos_shopee = buscar_shopee()
+
+    log.info("Buscando Mercado Livre API...")
+    try:
+        produtos_ml = buscar_ml()
+        log.info(f"Mercado Livre: {len(produtos_ml)} produtos carregados no pipeline")
+    except Exception as e:
+        log.error(f"Mercado Livre erro: {e}")
+        produtos_ml = []
 
     log.info("Buscando Amazon Best Sellers...")
-    produtos += buscar_amazon_best_sellers()
+    produtos_amazon = buscar_amazon_best_sellers()
 
-    if not produtos:
-        log.warning("Sem produtos — usando mock")
-        produtos = produtos_mock()
+    # Calcula cota proporcional por fonte (33% cada)
+    cota = POSTS_POR_CICLO // 3
+    sobra = POSTS_POR_CICLO - (cota * 3)  # ex: 6//3=2, sobra=0; 8//3=2, sobra=2
 
-    # Filtra/organiza produtos por ciclo especial ou normal
-    produtos = filtrar_ciclo_especial(produtos)
+    log.info(f"Rodízio proporcional: {cota} AliExpress | {cota} Shopee | {cota + sobra} ML (+ sobra)")
 
-    # Filtra por preço e desconto
-    produtos = [p for p in produtos if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
-
-    # Calcula score de tendência
-    for p in produtos:
+    # Aplica score em todos
+    todos_raw = produtos_ali + produtos_shopee + produtos_ml + produtos_amazon
+    for p in todos_raw:
         calcular_score(p, tg, tt, tr)
 
-    # Remove produtos já postados recentemente (SQLite)
-    antes = len(produtos)
-    produtos = [p for p in produtos if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
-    filtrados = antes - len(produtos)
+    if not todos_raw:
+        log.warning("Sem produtos — usando mock")
+        todos_raw = produtos_mock()
+
+    # Filtra/organiza por ciclo especial ou normal
+    todos_raw = filtrar_ciclo_especial(todos_raw)
+
+    # Filtra por preço e desconto
+    todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
+
+    # Remove já postados
+    antes = len(todos_raw)
+    todos_raw = [p for p in todos_raw if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+    filtrados = antes - len(todos_raw)
     if filtrados > 0:
         log.info(f"SQLite: {filtrados} produtos já postados recentemente removidos")
 
-    # Separa por loja e ordena cada grupo por score
-    por_loja = {}
-    for p in produtos:
-        loja = p.get("loja", "OUTRO")
-        por_loja.setdefault(loja, []).append(p)
-    for loja in por_loja:
-        por_loja[loja].sort(key=lambda x: x.get("score", 0), reverse=True)
+    # Separa por fonte e ordena por score
+    def filtrar_fonte(lista, loja):
+        return sorted([p for p in lista if p.get("loja") == loja], key=lambda x: x.get("score", 0), reverse=True)
 
-    # Rodizio entre lojas para garantir variedade
-    ordem_lojas = ["ALIEXPRESS", "SHOPEE", "ALIEXPRESS", "SHOPEE",
-                   "ALIEXPRESS", "SHOPEE", "ALIEXPRESS", "SHOPEE",
-                   "ALIEXPRESS", "ALIEXPRESS", "ALIEXPRESS", "ALIEXPRESS"]
-    indices = {loja: 0 for loja in por_loja}
+    pool_ali    = filtrar_fonte(todos_raw, "ALIEXPRESS")
+    pool_shopee = filtrar_fonte(todos_raw, "SHOPEE")
+    pool_ml     = filtrar_fonte(todos_raw, "MERCADOLIVRE")
+    pool_outros = [p for p in todos_raw if p.get("loja") not in ("ALIEXPRESS", "SHOPEE", "MERCADOLIVRE")]
+
+    # Monta fila proporcional — intercala as fontes
     fila = []
+    idx_ali = idx_shopee = idx_ml = 0
 
-    for loja_alvo in ordem_lojas:
+    # Intercala: 1 Ali, 1 Shopee, 1 ML repetindo
+    ordem = ["ALIEXPRESS", "SHOPEE", "MERCADOLIVRE"] * (POSTS_POR_CICLO + 3)
+    for loja_alvo in ordem:
         if len(fila) >= POSTS_POR_CICLO * 2:
             break
-        if loja_alvo in por_loja and indices.get(loja_alvo, 0) < len(por_loja[loja_alvo]):
-            fila.append(por_loja[loja_alvo][indices[loja_alvo]])
-            indices[loja_alvo] += 1
-        else:
-            for loja, lista in por_loja.items():
-                idx = indices.get(loja, 0)
-                if idx < len(lista):
-                    fila.append(lista[idx])
-                    indices[loja] = idx + 1
-                    break
+        if loja_alvo == "ALIEXPRESS" and idx_ali < len(pool_ali):
+            fila.append(pool_ali[idx_ali]); idx_ali += 1
+        elif loja_alvo == "SHOPEE" and idx_shopee < len(pool_shopee):
+            fila.append(pool_shopee[idx_shopee]); idx_shopee += 1
+        elif loja_alvo == "MERCADOLIVRE" and idx_ml < len(pool_ml):
+            fila.append(pool_ml[idx_ml]); idx_ml += 1
+
+    # Completa com outros se faltar
+    for p in pool_outros:
+        if len(fila) >= POSTS_POR_CICLO * 2:
+            break
+        fila.append(p)
 
     # Remove duplicatas mantendo ordem
     vistos = set()
@@ -968,6 +993,8 @@ def main():
     log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
+    log.info("🚀 Disparando ciclo imediato ao iniciar...")
+    ciclo()
     log.info("⏳ Aguardando próximo horário agendado...")
     while True:
         schedule.run_pending()
