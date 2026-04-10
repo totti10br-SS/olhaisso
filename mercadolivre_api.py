@@ -138,9 +138,10 @@ def buscar_por_categoria(categoria_id, limit=10):
             f"{ML_BASE_URL}/sites/MLB/search",
             params=params,
             timeout=15,
-            headers={"User-Agent": "OlhaissoTechBot/1.0"}
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         )
         if r.status_code != 200:
+            print(f"ML categoria {categoria_id} status: {r.status_code} — {r.text[:100]}")
             return []
         return r.json().get("results", [])
     except Exception as e:
@@ -161,9 +162,10 @@ def buscar_por_keyword(keyword, limit=10):
             f"{ML_BASE_URL}/sites/MLB/search",
             params=params,
             timeout=15,
-            headers={"User-Agent": "OlhaissoTechBot/1.0"}
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         )
         if r.status_code != 200:
+            print(f"ML keyword '{keyword}' status: {r.status_code} — {r.text[:100]}")
             return []
         return r.json().get("results", [])
     except Exception as e:
@@ -254,6 +256,17 @@ def buscar_todos_produtos():
     todos       = []
     vistos      = set()
     total_bruto = 0
+
+    # Teste de conectividade
+    try:
+        r = requests.get(
+            f"{ML_BASE_URL}/sites/MLB/search?q=notebook&limit=1",
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        )
+        print(f"ML teste conectividade: status={r.status_code} total={r.json().get('paging', {}).get('total', 0)}")
+    except Exception as e:
+        print(f"ML teste conectividade erro: {e}")
 
     # Busca por categorias
     for cat_id, cat_nome in CATEGORIAS:
