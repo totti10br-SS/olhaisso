@@ -145,12 +145,23 @@ def processar_item(item):
         if not isinstance(item, dict):
             return None
 
-        nome = item.get("title", "").strip()
+        # Dados reais estão dentro de "card"
+        card = item.get("card", item)
+        if not card or not isinstance(card, dict):
+            return None
+
+        # Debug do primeiro card
+        if not getattr(processar_item, '_logged', False):
+            processar_item._logged = True
+            log(f"  -> Campos do card: {list(card.keys())[:15]}")
+            log(f"  -> card sample: {str(card)[:300]}")
+
+        nome = (card.get("title") or card.get("name") or "").strip()
         if not nome or not produto_valido(nome):
             return None
 
-        preco      = float(item.get("price", 0) or 0)
-        preco_orig = float(item.get("original_price") or 0)
+        preco      = float(card.get("price", 0) or card.get("sale_price", 0) or 0)
+        preco_orig = float(card.get("original_price", 0) or card.get("regular_price", 0) or 0)
 
         if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
             return None
@@ -158,22 +169,24 @@ def processar_item(item):
         desconto = 0
         if preco_orig > preco:
             desconto = int((1 - preco / preco_orig) * 100)
+        elif card.get("discount_percentage"):
+            desconto = int(float(card.get("discount_percentage", 0)))
 
         if desconto < DESCONTO_MINIMO:
             return None
 
-        permalink = item.get("permalink", "")
+        permalink = card.get("permalink") or card.get("url") or card.get("link") or ""
         if not permalink:
             return None
 
-        tags = [t.get("id", "") for t in item.get("tags", [])]
+        tags = [t.get("id", "") for t in card.get("tags", [])]
         mais_vendido = "best_seller" in tags
 
-        shipping     = item.get("shipping", {}) or {}
+        shipping     = card.get("shipping", {}) or {}
         frete_gratis = shipping.get("free_shipping", False)
         frete_txt    = "✅ Frete grátis" if frete_gratis else "🚚 Frete a calcular"
 
-        thumbnail = item.get("thumbnail", "")
+        thumbnail = card.get("thumbnail") or card.get("image") or ""
         imagem    = thumbnail.replace("I.jpg", "O.jpg") if thumbnail else ""
 
         link_afiliado = gerar_link_afiliado(permalink)
