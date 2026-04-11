@@ -129,24 +129,17 @@ def processar_item(item):
 
         metadata   = card.get("metadata", {}) or {}
         components = card.get("components", []) or []
+        pictures   = card.get("pictures", []) or []
 
         # Debug primeiro item
         if not getattr(processar_item, '_logged', False):
             processar_item._logged = True
-            log(f"  -> item keys: {list(item.keys())}")
-            log(f"  -> card keys: {list(card.keys())}")
-            log(f"  -> metadata keys: {list(metadata.keys())}")
+            log(f"  -> metadata: {list(metadata.keys())}")
             log(f"  -> {len(components)} components")
             for c in components:
                 ctype = c.get("type","")
                 cdata = c.get(ctype, c)
-                log(f"     [{ctype}] → {str(cdata)[:200]}")
-            # Mostra tudo do card exceto components para achar imagem
-            card_sem_comp = {k: v for k, v in card.items() if k != "components"}
-            log(f"  -> card (sem components): {str(card_sem_comp)[:600]}")
-            # Mostra item inteiro exceto card para achar imagem em outro lugar
-            item_sem_card = {k: v for k, v in item.items() if k != "card"}
-            log(f"  -> item (sem card): {str(item_sem_card)[:600]}")
+                log(f"     [{ctype}] → {str(cdata)[:150]}")
 
         # URL do produto
         url_prod = metadata.get("url", "")
@@ -195,8 +188,10 @@ def processar_item(item):
                 if "mais vendido" in txt or "best seller" in txt:
                     mais_vendido = True
 
-        # Fallback nome
-        if not nome:
+        # Imagem: vem em card["pictures"], não nos components
+        if not imagem and pictures:
+            primeira = pictures[0] if isinstance(pictures[0], dict) else {}
+            imagem = primeira.get("url", "") or primeira.get("src", "") or ""
             nome = metadata.get("title", "")
 
         nome = nome.strip()
