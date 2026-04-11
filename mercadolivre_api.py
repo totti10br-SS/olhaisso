@@ -185,39 +185,22 @@ def buscar_keyword_serpapi(keyword, limit=10):
 
 def processar_item_serp(item):
     try:
-        # Debug — loga campos do primeiro item para diagnóstico
-        if not hasattr(processar_item_serp, '_debug_logged'):
-            processar_item_serp._debug_logged = True
-            print(f"  ML debug keys: {list(item.keys())}")
-            print(f"  ML debug: price={item.get('price')} extracted={item.get('extracted_price')} link={str(item.get('link',''))[:60]} product_link={str(item.get('product_link',''))[:60]}")
-
         nome = item.get("title", "").strip()
         if not nome or not produto_valido(nome):
             return None
 
-        # Tenta todos os campos de link disponíveis
-        link_ml = (item.get("product_link") or
-                   item.get("link") or
-                   item.get("url") or "")
+        link_ml = item.get("link", "")
+        if "mercadolivre.com.br" not in link_ml:
+            return None
 
-        # Se não tiver link direto do ML, tenta montar via product_id
-        if not link_ml or "mercadolivre.com.br" not in link_ml:
-            product_id = item.get("product_id", "")
-            if product_id:
-                link_ml = f"https://www.mercadolivre.com.br/p/{product_id}"
-            else:
-                return None
-
-        # Tenta preço em vários campos
-        preco = extrair_preco_num(str(item.get("price", "") or
-                                      item.get("extracted_price", "") or ""))
+        preco = extrair_preco_num(str(item.get("price", "") or ""))
         if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
             return None
 
         # Tenta pegar preço original se disponível (não obrigatório)
         preco_orig = 0.0
         desconto = 0
-        for campo in ["old_price", "original_price"]:
+        for campo in ["old_price", "extracted_price", "original_price"]:
             val = item.get(campo)
             if val:
                 preco_orig = extrair_preco_num(str(val))
@@ -229,6 +212,7 @@ def processar_item_serp(item):
 
         imagem = item.get("thumbnail", "")
         link_afiliado = gerar_link_afiliado(link_ml)
+        print(f"  ML link gerado: {link_afiliado[:100]}")
         link_curto    = encurtar_link(link_afiliado)
 
         return {

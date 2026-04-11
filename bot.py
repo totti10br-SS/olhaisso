@@ -843,11 +843,13 @@ def montar_pipeline():
     tr = buscar_reddit_gadgets()
     log.info(f"Tendências — Google: {len(tg)} | TikTok: {len(tt)} | Reddit: {len(tr)}")
 
+    ML_ONLY = os.getenv("ML_ONLY", "false").lower() == "true"
+
     log.info("Buscando AliExpress API...")
-    produtos_ali = buscar_aliexpress()
+    produtos_ali = [] if ML_ONLY else buscar_aliexpress()
 
     log.info("Buscando Shopee API...")
-    produtos_shopee = buscar_shopee()
+    produtos_shopee = [] if ML_ONLY else buscar_shopee()
 
     log.info("Buscando Mercado Livre API...")
     try:
