@@ -120,25 +120,45 @@ def buscar_com_playwright():
                     titulo = page.title()
                     log(f"  -> Pagina: {titulo[:60]}")
 
-                    # Tenta varios seletores
+                    # Aguarda produtos carregarem (lazy loading)
+                    page.wait_for_timeout(2000)
+                    # Scroll para forçar carregamento
+                    page.evaluate("window.scrollTo(0, 500)")
+                    page.wait_for_timeout(2000)
+
+                    # Seletores específicos para cards de produto do ML ofertas
                     cards = []
-                    for seletor in ["li.promotion-item", "ol.items_container li", "li[class*='item']", "div[class*='promotion-item']"]:
+                    for seletor in [
+                        "li.promotion-item",
+                        "div.promotion-item",
+                        "li[class*='promotion']",
+                        "div[class*='promotion-item']",
+                        "ol.items_container > li",
+                        "section.items_container li",
+                    ]:
                         cards = page.query_selector_all(seletor)
                         if cards:
                             log(f"  -> {len(cards)} cards com: {seletor}")
                             break
 
                     if not cards:
-                        log("  -> Nenhum card encontrado!")
+                        log("  -> Nenhum card de produto encontrado — tentando dump da página...")
+                        # Mostra estrutura da página para diagnóstico
+                        estrutura = page.evaluate("""() => {
+                            const els = document.querySelectorAll('li, div, ol, ul, section');
+                            const classes = new Set();
+                            els.forEach(el => {
+                                if (el.className && typeof el.className === 'string') {
+                                    el.className.split(' ').forEach(c => {
+                                        if (c.includes('item') || c.includes('promo') || c.includes('product') || c.includes('offer'))
+                                            classes.add(c);
+                                    });
+                                }
+                            });
+                            return Array.from(classes).slice(0, 30).join(', ');
+                        }""")
+                        log(f"  -> Classes relevantes na página: {estrutura}")
                         continue
-
-                    # Debug — mostra HTML do primeiro card
-                    try:
-                        primeiro = cards[0]
-                        html_card = primeiro.inner_html()
-                        log(f"  -> HTML primeiro card: {html_card[:500]}")
-                    except:
-                        pass
 
                     encontrados = 0
                     for card in cards[:30]:
