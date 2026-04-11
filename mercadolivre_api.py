@@ -188,22 +188,16 @@ def processar_item(item):
                 if "mais vendido" in txt or "best seller" in txt:
                     mais_vendido = True
 
-        # Imagem: vem em card["pictures"], não nos components
-        if not getattr(processar_item, '_img_logged', False):
-            processar_item._img_logged = True
-            log(f"  -> pictures raw: {str(pictures)[:300]}")
-        if not imagem and pictures:
+        # Imagem: vem em card["pictures"]["pictures"][0]["id"]
+        if not imagem and isinstance(pictures, dict):
             try:
-                primeira = pictures[0]
-                if isinstance(primeira, dict):
-                    imagem = primeira.get("url", "") or primeira.get("src", "") or ""
-                elif isinstance(primeira, str):
-                    imagem = primeira
+                pics_list = pictures.get("pictures", [])
+                if pics_list and isinstance(pics_list[0], dict):
+                    pic_id = pics_list[0].get("id", "")
+                    if pic_id:
+                        imagem = f"https://http2.mlstatic.com/D_NQ_NP_{pic_id}-F.jpg"
             except Exception:
                 imagem = ""
-        if not getattr(processar_item, '_img2_logged', False):
-            processar_item._img2_logged = True
-            log(f"  -> imagem_url: '{imagem[:120] if imagem else "VAZIO"}'")
 
         # Fallback nome
         if not nome:
