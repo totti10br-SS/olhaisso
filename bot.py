@@ -51,7 +51,8 @@ DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 EVOLUTION_URL      = os.getenv("EVOLUTION_URL", "https://evolution-api-production-b1df.up.railway.app")
 EVOLUTION_APIKEY   = os.getenv("EVOLUTION_APIKEY", "A05E4CD20532-4B74-BA78-7FC09B26F2B0")
 EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE", "OlhaissOTech")
-WHATSAPP_GROUP_ID  = os.getenv("WHATSAPP_GROUP_ID", "120363409953330235@g.us")
+WHATSAPP_GROUP_ID      = os.getenv("WHATSAPP_GROUP_ID", "120363409953330235@g.us")
+WHATSAPP_TEST_GROUP_ID = os.getenv("WHATSAPP_TEST_GROUP_ID", "120363426249897089@g.us")  # Grupo de testes — não usado ainda
 
 # Quantos dias manter um produto no histórico antes de poder repetir
 DIAS_SEM_REPETIR = int(os.getenv("DIAS_SEM_REPETIR", "2"))  # mantido por compatibilidade
@@ -973,8 +974,6 @@ def main():
     log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
-    log.info("🚀 Disparando ciclo imediato ao iniciar...")
-    ciclo()
     log.info("⏳ Aguardando próximo horário agendado...")
     while True:
         schedule.run_pending()
