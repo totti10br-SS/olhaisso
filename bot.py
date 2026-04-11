@@ -25,7 +25,6 @@ from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
 from shopee_api import buscar_todos_produtos as buscar_shopee
-from mercadolivre_api import buscar_todos_produtos as buscar_ml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -843,33 +842,17 @@ def montar_pipeline():
     tr = buscar_reddit_gadgets()
     log.info(f"Tendências — Google: {len(tg)} | TikTok: {len(tt)} | Reddit: {len(tr)}")
 
-    ML_ONLY = os.getenv("ML_ONLY", "false").lower() == "true"
-
     log.info("Buscando AliExpress API...")
-    produtos_ali = [] if ML_ONLY else buscar_aliexpress()
+    produtos_ali = buscar_aliexpress()
 
     log.info("Buscando Shopee API...")
-    produtos_shopee = [] if ML_ONLY else buscar_shopee()
-
-    log.info("Buscando Mercado Livre API...")
-    try:
-        produtos_ml = buscar_ml()
-        log.info(f"Mercado Livre: {len(produtos_ml)} produtos carregados no pipeline")
-    except Exception as e:
-        log.error(f"Mercado Livre erro: {e}")
-        produtos_ml = []
+    produtos_shopee = buscar_shopee()
 
     log.info("Buscando Amazon Best Sellers...")
     produtos_amazon = buscar_amazon_best_sellers()
 
-    # Calcula cota proporcional por fonte (33% cada)
-    cota = POSTS_POR_CICLO // 3
-    sobra = POSTS_POR_CICLO - (cota * 3)  # ex: 6//3=2, sobra=0; 8//3=2, sobra=2
-
-    log.info(f"Rodízio proporcional: {cota} AliExpress | {cota} Shopee | {cota + sobra} ML (+ sobra)")
-
     # Aplica score em todos
-    todos_raw = produtos_ali + produtos_shopee + produtos_ml + produtos_amazon
+    todos_raw = produtos_ali + produtos_shopee + produtos_amazon
     for p in todos_raw:
         calcular_score(p, tg, tt, tr)
 
@@ -878,17 +861,10 @@ def montar_pipeline():
         todos_raw = produtos_mock()
 
     # Filtra/organiza por ciclo especial ou normal
-    # Em modo ML_ONLY, não filtra por ciclo especial
-    if not ML_ONLY:
-        todos_raw = filtrar_ciclo_especial(todos_raw)
-    else:
-        log.info("🧪 ML_ONLY: filtro de ciclo especial desativado")
+    todos_raw = filtrar_ciclo_especial(todos_raw)
 
     # Filtra por preço e desconto
-    # Produtos do ML via SerpApi raramente têm desconto — aceita sem desconto
-    todos_raw = [p for p in todos_raw if
-                 p.get("preco", 999) <= PRECO_MAXIMO and
-                 (p.get("loja") == "MERCADOLIVRE" or p.get("desconto", 0) >= DESCONTO_MINIMO)]
+    todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
 
     # Remove já postados
     antes = len(todos_raw)
@@ -903,15 +879,12 @@ def montar_pipeline():
 
     pool_ali    = filtrar_fonte(todos_raw, "ALIEXPRESS")
     pool_shopee = filtrar_fonte(todos_raw, "SHOPEE")
-    pool_ml     = filtrar_fonte(todos_raw, "MERCADOLIVRE")
-    pool_outros = [p for p in todos_raw if p.get("loja") not in ("ALIEXPRESS", "SHOPEE", "MERCADOLIVRE")]
+    pool_outros = [p for p in todos_raw if p.get("loja") not in ("ALIEXPRESS", "SHOPEE")]
 
-    # Monta fila proporcional — intercala as fontes
+    # Monta fila — intercala Ali e Shopee 50/50
     fila = []
-    idx_ali = idx_shopee = idx_ml = 0
-
-    # Intercala: 1 Ali, 1 Shopee, 1 ML repetindo
-    ordem = ["ALIEXPRESS", "SHOPEE", "MERCADOLIVRE"] * (POSTS_POR_CICLO + 3)
+    idx_ali = idx_shopee = 0
+    ordem = ["ALIEXPRESS", "SHOPEE"] * (POSTS_POR_CICLO + 2)
     for loja_alvo in ordem:
         if len(fila) >= POSTS_POR_CICLO * 2:
             break
@@ -919,8 +892,6 @@ def montar_pipeline():
             fila.append(pool_ali[idx_ali]); idx_ali += 1
         elif loja_alvo == "SHOPEE" and idx_shopee < len(pool_shopee):
             fila.append(pool_shopee[idx_shopee]); idx_shopee += 1
-        elif loja_alvo == "MERCADOLIVRE" and idx_ml < len(pool_ml):
-            fila.append(pool_ml[idx_ml]); idx_ml += 1
 
     # Completa com outros se faltar
     for p in pool_outros:
