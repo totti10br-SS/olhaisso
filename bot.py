@@ -1033,7 +1033,7 @@ def postar_whatsapp_teste(produto, imagem_path):
 
 
 def ciclo_teste():
-    """Busca 1 produto do ML e posta no grupo de teste. Sempre 1 produto fixo."""
+    """Busca 1 produto do ML e posta no grupo de teste."""
     log.info("🧪 Ciclo de teste iniciado...")
     try:
         from mercadolivre_api import buscar_todos_produtos as buscar_ml
@@ -1041,15 +1041,12 @@ def ciclo_teste():
         if not produtos:
             log.warning("🧪 Ciclo teste: nenhum produto ML encontrado")
             return
-        produto = produtos[0]  # Sempre só 1 produto
+        produto = produtos[0]
         log.info(f"🧪 Testando: {produto.get('nome', '')[:50]}")
-        imagem_path = baixar_imagem(produto)
+        imagem_path = gerar_imagem(produto)
         postar_whatsapp_teste(produto, imagem_path)
     except Exception as e:
         log.error(f"🧪 Ciclo teste erro: {e}")
-
-
-def main():
     init_db()
     log.info("🤖 OlhaissoTech Bot v6.0 iniciado!")
     log.info(f"📢 Canal: {TELEGRAM_CHANNEL}")
@@ -1061,7 +1058,6 @@ def main():
         schedule.every().day.at(h).do(ciclo)
     # Dispara 1 oferta de teste no grupo teste a cada deploy
     ciclo_teste()
-    log.info("⏳ Aguardando próximo horário agendado...")
     log.info("⏳ Aguardando próximo horário agendado...")
     while True:
         schedule.run_pending()
