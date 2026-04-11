@@ -144,23 +144,18 @@ def processar_item_serp(item):
         if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
             return None
 
-        # Preco original — so aceita se vier real
+        # Tenta pegar preço original se disponível (não obrigatório)
         preco_orig = 0.0
+        desconto = 0
         for campo in ["old_price", "extracted_price", "original_price"]:
             val = item.get(campo)
             if val:
                 preco_orig = extrair_preco_num(str(val))
                 if preco_orig > preco:
+                    desconto = int((1 - preco / preco_orig) * 100)
                     break
                 else:
                     preco_orig = 0.0
-
-        desconto = 0
-        if preco_orig > preco > 0:
-            desconto = int((1 - preco / preco_orig) * 100)
-
-        if desconto < DESCONTO_MINIMO:
-            return None
 
         imagem = item.get("thumbnail", "")
         link_afiliado = gerar_link_afiliado(link_ml)
@@ -169,7 +164,7 @@ def processar_item_serp(item):
         return {
             "nome":           nome,
             "preco":          round(preco, 2),
-            "preco_original": round(preco_orig, 2),
+            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
             "desconto":       desconto,
             "loja":           "MERCADOLIVRE",
             "frete":          "🚚 Frete a calcular",
