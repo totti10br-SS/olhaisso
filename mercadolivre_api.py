@@ -112,11 +112,25 @@ def scraper_get(url):
         r = requests.get(
             "https://api.scraperapi.com",
             params=payload,
-            timeout=30
+            timeout=60
         )
         log(f"  ScraperAPI status: {r.status_code} para {url[:60]}")
         if r.status_code == 200:
             return r.json()
+        log(f"  ScraperAPI resposta: {r.text[:100]}")
+        return None
+    except requests.exceptions.Timeout:
+        log(f"  ScraperAPI timeout — tentando novamente...")
+        try:
+            r = requests.get(
+                "https://api.scraperapi.com",
+                params=payload,
+                timeout=90
+            )
+            if r.status_code == 200:
+                return r.json()
+        except Exception as e2:
+            log(f"  ScraperAPI retry erro: {e2}")
         return None
     except Exception as e:
         log(f"  ScraperAPI erro: {e}")
