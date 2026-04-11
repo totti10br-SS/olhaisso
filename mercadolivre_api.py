@@ -1,100 +1,70 @@
 """
-Mercado Livre Affiliates — integração via API pública
+Mercado Livre Affiliates — via SerpApi Google Shopping
 Publisher ID: ot20260326074822
-Busca produtos com desconto nas categorias de tech do ML Brasil
+Busca produtos do ML com desconto real via Google Shopping
 """
 
 import os
+import re
 import random
 import hashlib
 import time
 import requests
 
 ML_PUBLISHER_ID = os.getenv("ML_PUBLISHER_ID", "ot20260326074822")
-ML_BASE_URL     = "https://api.mercadolibre.com"
+SERPAPI_KEY     = os.getenv("SERPAPI_KEY", "")
 
 PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
 PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
-# Categorias de tech do ML Brasil
-CATEGORIAS = [
-    # Informática
-    ("MLB1648", "Computação"),
-    ("MLB1676", "Monitores e Acessórios"),
-    ("MLB1693", "Componentes de PC"),
-    ("MLB1672", "Impressoras e Scanners"),
-    # Celulares e Telefones
-    ("MLB1051", "Celulares e Smartphones"),
-    ("MLB1052", "Acessórios para Celulares"),
-    # Eletrônicos
-    ("MLB1000", "Eletrônicos"),
-    ("MLB1002", "Áudio e Video"),
-    ("MLB1132", "Câmeras e Acessórios"),
-    # TVs
-    ("MLB1066", "TVs e Vídeo"),
-    # Games
-    ("MLB1039", "Video Games"),
-    ("MLB10215", "Consoles e Jogos"),
-    # Casa inteligente / gadgets
-    ("MLB1574", "Casa Inteligente"),
-]
-
-# Keywords para busca textual (complementar às categorias)
 KEYWORDS = [
-    "monitor gamer 144hz",
-    "monitor 4k",
-    "notebook gamer",
-    "processador intel",
-    "processador amd ryzen",
-    "memoria ram ddr4",
-    "memoria ram ddr5",
-    "ssd nvme",
-    "placa de video",
-    "smartphone samsung",
-    "iphone",
-    "xiaomi redmi",
-    "motorola edge",
-    "fone bluetooth",
-    "headset gamer",
-    "teclado mecanico",
-    "mouse gamer",
-    "webcam full hd",
-    "smart tv 4k",
-    "tv qled",
-    "tv oled",
-    "playstation 5",
-    "xbox series",
-    "nintendo switch",
-    "controle gamer",
-    "robo aspirador",
-    "airfryer",
-    "caixa de som bluetooth",
-    "smartwatch",
-    "power bank",
+    "monitor gamer mercado livre",
+    "monitor 4k mercado livre",
+    "notebook gamer mercado livre",
+    "processador intel mercado livre",
+    "processador amd ryzen mercado livre",
+    "ssd nvme mercado livre",
+    "memoria ram ddr4 mercado livre",
+    "placa de video mercado livre",
+    "smartphone samsung mercado livre",
+    "iphone mercado livre",
+    "xiaomi redmi mercado livre",
+    "motorola edge mercado livre",
+    "fone bluetooth mercado livre",
+    "headset gamer mercado livre",
+    "teclado mecanico mercado livre",
+    "mouse gamer mercado livre",
+    "smart tv 4k mercado livre",
+    "playstation 5 mercado livre",
+    "xbox series mercado livre",
+    "nintendo switch mercado livre",
+    "robo aspirador mercado livre",
+    "airfryer mercado livre",
+    "caixa de som bluetooth mercado livre",
+    "smartwatch mercado livre",
+    "power bank mercado livre",
+    "webcam full hd mercado livre",
+    "controle gamer mercado livre",
+    "tv oled mercado livre",
+    "tv qled mercado livre",
 ]
 
 PALAVRAS_BLOQUEADAS = [
-    # Esportes fora do nicho
     "bola de futebol", "bola gigante", "bola pvc", "bola praia",
     "brinquedo", "brinquedos", "jogos ao ar livre", "esporte ao ar livre",
     "football net", "soccer net", "goal net", "rede de futebol",
     "boxing glove", "luva de boxe", "yoga mat", "haltere", "dumbbell",
     "bicicleta", "bike", "skate", "patins", "raquete",
-    # Moda e vestuário
-    "roupa", "roupas", "vestido", "camisa", "camiseta", "calça",
-    "sapato", "sandália", "bolsa", "carteira", "chapéu",
-    "peruca", "extensão cabelo",
-    # Ferramentas
+    "roupa", "roupas", "vestido", "camisa", "camiseta", "calca",
+    "sapato", "sandalia", "bolsa", "carteira", "chapeu",
+    "peruca", "extensao cabelo",
     "furadeira", "parafusadeira", "martelo", "serra",
-    "multímetro", "multimetro", "clamp meter",
-    # Fogo / churrasco
+    "multimetro", "clamp meter",
     "churrasqueira", "fogueira", "grelha", "espeto",
-    # Jardinagem
     "cortador de grama", "vaso de planta", "mangueira jardim",
-    # Suplementos e saúde
     "suplemento", "creatina", "whey protein", "vitamina",
-    "remédio", "medicamento", "farmácia",
+    "remedio", "medicamento", "farmacia",
 ]
 
 
@@ -120,128 +90,89 @@ def encurtar_link(url_longa):
 
 
 def gerar_link_afiliado(url_produto):
-    """Adiciona parâmetro de afiliado na URL do produto."""
+    if "mercadolivre.com.br" not in url_produto:
+        return url_produto
     separador = "&" if "?" in url_produto else "?"
     return f"{url_produto}{separador}matt_tool={ML_PUBLISHER_ID}"
 
 
-def buscar_por_categoria(categoria_id, limit=10):
-    """Busca produtos com desconto em uma categoria do ML."""
+def extrair_preco_num(preco_str):
+    if not preco_str:
+        return 0.0
+    try:
+        limpo = re.sub(r'[^\d,.]', '', str(preco_str))
+        limpo = limpo.replace('.', '').replace(',', '.')
+        return float(limpo)
+    except:
+        return 0.0
+
+
+def buscar_keyword_serpapi(keyword, limit=10):
+    if not SERPAPI_KEY:
+        return []
     try:
         params = {
-            "category":    categoria_id,
-            "sort":        "best_seller",
-            "limit":       limit,
-            "offset":      random.randint(0, 40),
+            "engine":  "google_shopping",
+            "q":       keyword,
+            "gl":      "br",
+            "hl":      "pt",
+            "num":     limit,
+            "api_key": SERPAPI_KEY,
         }
-        r = requests.get(
-            f"{ML_BASE_URL}/sites/MLB/search",
-            params=params,
-            timeout=15,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        )
+        r = requests.get("https://serpapi.com/search", params=params, timeout=20)
         if r.status_code != 200:
-            print(f"ML categoria {categoria_id} status: {r.status_code} — {r.text[:100]}")
+            print(f"ML SerpApi erro {r.status_code}")
             return []
-        return r.json().get("results", [])
+        items = r.json().get("shopping_results", [])
+        return [i for i in items if "mercadolivre.com.br" in i.get("link", "")]
     except Exception as e:
-        print(f"ML busca categoria {categoria_id} erro: {e}")
+        print(f"ML SerpApi keyword '{keyword}' erro: {e}")
         return []
 
 
-def buscar_por_keyword(keyword, limit=10):
-    """Busca produtos por palavra-chave no ML."""
-    try:
-        params = {
-            "q":      keyword,
-            "sort":   "best_seller",
-            "limit":  limit,
-            "offset": random.randint(0, 20),
-        }
-        r = requests.get(
-            f"{ML_BASE_URL}/sites/MLB/search",
-            params=params,
-            timeout=15,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        )
-        if r.status_code != 200:
-            print(f"ML keyword '{keyword}' status: {r.status_code} — {r.text[:100]}")
-            return []
-        return r.json().get("results", [])
-    except Exception as e:
-        print(f"ML busca keyword '{keyword}' erro: {e}")
-        return []
-
-
-def processar_item(item):
-    """Converte item da API ML no formato padrão do bot."""
+def processar_item_serp(item):
     try:
         nome = item.get("title", "").strip()
-        if not nome:
+        if not nome or not produto_valido(nome):
             return None
 
-        preco = float(item.get("price", 0) or 0)
-        if preco <= 0:
-            return None
-        if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
+        link_ml = item.get("link", "")
+        if "mercadolivre.com.br" not in link_ml:
             return None
 
-        # 1) Tenta original_price direto
-        preco_orig = float(item.get("original_price") or 0)
-        desconto = 0
-        if preco_orig > preco:
-            desconto = int((1 - preco / preco_orig) * 100)
+        preco = extrair_preco_num(str(item.get("price", "") or ""))
+        if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
+            return None
 
-        # 2) Tenta via sale_price
-        if desconto == 0:
-            sale = item.get("sale_price", {}) or {}
-            try:
-                preco_sale     = float(sale.get("amount", 0) or 0)
-                preco_orig_sale = float(sale.get("regular_amount", 0) or 0)
-                if preco_orig_sale > preco_sale > 0:
-                    preco_orig = preco_orig_sale
-                    desconto   = int((1 - preco_sale / preco_orig_sale) * 100)
-            except:
-                pass
-
-        # 3) Tenta via atributo DISCOUNT
-        if desconto == 0:
-            for attr in item.get("attributes", []):
-                if attr.get("id") == "DISCOUNT":
-                    try:
-                        desconto = int(float(str(attr.get("value_name", "0")).replace("%", "").strip()))
-                    except:
-                        pass
+        # Preco original — so aceita se vier real
+        preco_orig = 0.0
+        for campo in ["old_price", "extracted_price", "original_price"]:
+            val = item.get(campo)
+            if val:
+                preco_orig = extrair_preco_num(str(val))
+                if preco_orig > preco:
                     break
+                else:
+                    preco_orig = 0.0
+
+        desconto = 0
+        if preco_orig > preco > 0:
+            desconto = int((1 - preco / preco_orig) * 100)
 
         if desconto < DESCONTO_MINIMO:
             return None
 
-        if not produto_valido(nome):
-            print(f"  ML bloqueado: {nome[:50]}")
-            return None
-
-        link_original = item.get("permalink", "")
-        if not link_original:
-            return None
-
-        shipping     = item.get("shipping", {}) or {}
-        frete_gratis = shipping.get("free_shipping", False)
-        frete_txt    = "✅ Frete grátis" if frete_gratis else "🚚 Frete a calcular"
-
-        thumbnail = item.get("thumbnail", "")
-        imagem    = thumbnail.replace("I.jpg", "O.jpg") if thumbnail else ""
-
-        link_afiliado = gerar_link_afiliado(link_original)
+        imagem = item.get("thumbnail", "")
+        link_afiliado = gerar_link_afiliado(link_ml)
         link_curto    = encurtar_link(link_afiliado)
 
         return {
             "nome":           nome,
             "preco":          round(preco, 2),
-            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
+            "preco_original": round(preco_orig, 2),
             "desconto":       desconto,
             "loja":           "MERCADOLIVRE",
-            "frete":          frete_txt,
+            "frete":          "🚚 Frete a calcular",
             "link_afiliado":  link_curto,
             "imagem_url":     imagem,
             "score":          1,
@@ -257,51 +188,27 @@ def buscar_todos_produtos():
     vistos      = set()
     total_bruto = 0
 
-    # Teste de conectividade
-    try:
-        r = requests.get(
-            f"{ML_BASE_URL}/sites/MLB/search?q=notebook&limit=1",
-            timeout=10,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        )
-        print(f"ML teste conectividade: status={r.status_code} total={r.json().get('paging', {}).get('total', 0)}")
-    except Exception as e:
-        print(f"ML teste conectividade erro: {e}")
+    if not SERPAPI_KEY:
+        print("ML SerpApi: SERPAPI_KEY nao configurada — pulando busca ML")
+        return []
 
-    # Busca por categorias
-    for cat_id, cat_nome in CATEGORIAS:
-        try:
-            items = buscar_por_categoria(cat_id, limit=8)
-            total_bruto += len(items)
-            for item in items:
-                p = processar_item(item)
-                if p:
-                    chave = hashlib.md5(p["nome"].encode()).hexdigest()
-                    if chave not in vistos:
-                        vistos.add(chave)
-                        todos.append(p)
-            time.sleep(1)
-        except Exception as e:
-            print(f"ML categoria {cat_nome} erro: {e}")
-            continue
+    keywords_shuffle = random.sample(KEYWORDS, min(10, len(KEYWORDS)))
 
-    # Busca por keywords
-    keywords_shuffle = random.sample(KEYWORDS, min(15, len(KEYWORDS)))
     for keyword in keywords_shuffle:
         try:
-            items = buscar_por_keyword(keyword, limit=5)
+            items = buscar_keyword_serpapi(keyword, limit=10)
             total_bruto += len(items)
             for item in items:
-                p = processar_item(item)
+                p = processar_item_serp(item)
                 if p:
                     chave = hashlib.md5(p["nome"].encode()).hexdigest()
                     if chave not in vistos:
                         vistos.add(chave)
                         todos.append(p)
-            time.sleep(1)
+            time.sleep(2)
         except Exception as e:
             print(f"ML keyword '{keyword}' erro: {e}")
             continue
 
-    print(f"Mercado Livre API: {total_bruto} itens brutos → {len(todos)} com desconto >= {DESCONTO_MINIMO}%")
+    print(f"Mercado Livre (SerpApi): {total_bruto} itens ML → {len(todos)} com desconto real >= {DESCONTO_MINIMO}%")
     return todos
