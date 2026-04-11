@@ -70,11 +70,21 @@ def encurtar_link(url_longa):
     return url_longa
 
 
+import sys
+
+def log(msg):
+    """Log com flush imediato para aparecer no Railway."""
+    print(msg, flush=True)
+    sys.stdout.flush()
+
+
 def buscar_com_playwright():
+    log("ML Playwright: iniciando...")
     try:
         from playwright.sync_api import sync_playwright
-    except ImportError:
-        print("ML Playwright: biblioteca nao instalada")
+        log("ML Playwright: biblioteca importada OK")
+    except ImportError as e:
+        log(f"ML Playwright: ERRO import — {e}")
         return []
 
     produtos = []
@@ -83,6 +93,7 @@ def buscar_com_playwright():
 
     with sync_playwright() as p:
         try:
+            log("ML Playwright: lançando browser...")
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -95,6 +106,7 @@ def buscar_com_playwright():
                     "--single-process",
                 ]
             )
+            log("ML Playwright: browser OK")
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 viewport={"width": 1280, "height": 800},
@@ -104,12 +116,26 @@ def buscar_com_playwright():
 
             for url in urls:
                 try:
-                    print(f"ML Playwright: {url[:60]}")
+                    log(f"ML Playwright: acessando {url[:60]}")
                     page.goto(url, timeout=30000, wait_until="domcontentloaded")
                     page.wait_for_timeout(3000)
 
-                    cards = page.query_selector_all("li.promotion-item, ol.items_container li, div[class*='item']")
-                    print(f"  -> {len(cards)} cards")
+                    # Loga o título da página para confirmar que carregou
+                    titulo = page.title()
+                    log(f"  -> Página: {titulo[:60]}")
+
+                    # Tenta vários seletores para achar os cards
+                    for seletor in ["li.promotion-item", "ol.items_container li", "div.ui-search-layout__item", "li[class*='item']"]:
+                        cards = page.query_selector_all(seletor)
+                        if cards:
+                            log(f"  -> {len(cards)} cards com seletor: {seletor}")
+                            break
+                    else:
+                        log(f"  -> 0 cards encontrados com nenhum seletor!")
+                        # Loga o HTML parcial para diagnóstico
+                        html = page.content()
+                        log(f"  -> HTML snippet: {html[500:1000]}")
+                        continue
 
                     for card in cards[:20]:
                         try:
@@ -158,6 +184,7 @@ def buscar_com_playwright():
                             link_afiliado = gerar_link_afiliado(link_clean)
                             link_curto    = encurtar_link(link_afiliado)
 
+                            log(f"  -> Produto: {nome[:50]} | R${preco} | {desconto}%")
                             produtos.append({
                                 "nome":           nome,
                                 "preco":          round(preco, 2),
@@ -172,21 +199,21 @@ def buscar_com_playwright():
                             })
 
                         except Exception as e:
-                            print(f"  ML card erro: {e}")
+                            log(f"  ML card erro: {e}")
                             continue
 
                     time.sleep(2)
 
                 except Exception as e:
-                    print(f"ML url erro: {e}")
+                    log(f"ML url erro: {e}")
                     continue
 
             browser.close()
 
         except Exception as e:
-            print(f"ML browser erro: {e}")
+            log(f"ML browser erro: {e}")
 
-    print(f"Mercado Livre (Playwright): {len(produtos)} produtos >= {DESCONTO_MINIMO}% desconto")
+    log(f"Mercado Livre (Playwright): {len(produtos)} produtos >= {DESCONTO_MINIMO}% desconto")
     return produtos
 
 
