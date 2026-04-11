@@ -14,31 +14,41 @@ ALIEXPRESS_APP_SECRET = "ubsjVAWmokbBynXv0uYsQz2PJSwsshXP"
 ALIEXPRESS_TRACKING   = "default"
 
 CATEGORIAS = [
-    # Periféricos gamer — top Brasil 2025
+    # Componentes de PC — PRIORIDADE ALTA
+    "ssd nvme m2",
+    "ssd nvme 1tb",
+    "ssd nvme 512gb",
+    "ssd portable external",
+    "ssd 1tb interno",
+    "ssd 512gb nvme",
+    "memoria ram ddr4 16gb",
+    "memoria ram ddr4 8gb",
+    "memoria ram ddr5",
+    "ram 4gb ddr4",
+    "ram 8gb ddr4",
+    "ram 16gb ddr4",
+    "ram 32gb ddr5",
+    "ram 8gb ddr5",
+    "processador intel core i5",
+    "processador intel core i7",
+    "processador amd ryzen 5",
+    "processador amd ryzen 7",
+    "cooler cpu rgb",
+    "cooler processador argb",
+    "fonte pc modular",
+    "fonte atx 650w",
+    "fonte atx 750w",
+    "placa mae b660",
+    "placa mae b550",
+    # Periféricos gamer
     "mechanical keyboard hot swappable",
+    "gaming keyboard rgb",
     "gaming controller hall effect",
     "gaming mouse rgb wireless",
     "gaming headset surround",
-    # Áudio e mobile
-    "wireless earbuds noise cancelling anc",
-    "smartwatch health monitor",
-    "power bank magnetic fast charge",
-    "bluetooth speaker portable",
-    # Casa inteligente
-    "robot vacuum mop wifi",
-    "robot vacuum cleaner",
-    "robo aspirador wifi",
-    "robo aspirador mop",
-    "aspirador robo inteligente",
-    "smart led strip rgb",
-    "air fryer digital",
-    "mini projector portable 1080p",
-    # Informática e upgrade
-    "ssd portable external",
-    "usb hub docking station",
-    "webcam streaming 1080p",
-    "laptop cooling stand",
-    "electric desk lamp led",
+    "teclado gamer rgb",
+    "mouse gamer sem fio",
+    "headset gamer usb",
     # Monitores
     "gaming monitor 144hz",
     "gaming monitor 165hz",
@@ -50,25 +60,33 @@ CATEGORIAS = [
     "monitor led full hd",
     "monitor ultrawide",
     "portable monitor usb-c",
+    # Áudio e mobile — REDUZIDO
+    "wireless earbuds noise cancelling anc",
+    "bluetooth speaker portable",
+    # Casa inteligente
+    "robot vacuum mop wifi",
+    "robot vacuum cleaner",
+    "smart led strip rgb",
+    "air fryer digital",
+    "mini projector portable 1080p",
+    # Informática
+    "usb hub docking station",
+    "webcam streaming 1080p",
+    "laptop cooling stand",
+    "electric desk lamp led",
+    # Smartwatch
+    "smartwatch health monitor",
+    "power bank magnetic fast charge",
     # Gadgets direcionados
     "gadget smart home 2025",
     "cool gadget men gift",
-    "gadget kitchen electric",
     "neck fan hands free",
-    "gadget office productivity",
     # Virais — tech apenas
-    "viral gadget tiktok 2025",
     "trending gadget 2025",
     "best selling gadget 2025",
-    "viral tech product",
     # Copa do Mundo 2026
-    "world cup 2026 gadget",
-    "soccer fan gadget",
-    "football led fan",
     "sports bluetooth speaker",
     "mini projector football",
-    "led jersey light fan",
-    "stadium fan accessories",
     "world cup smart watch",
     # Celulares e Smartphones
     "smartphone android",
@@ -79,17 +97,13 @@ CATEGORIAS = [
     "poco smartphone",
     "redmi smartphone",
     "realme smartphone",
-    "iphone case cover",
     "smartphone 108mp camera",
     "smartphone gaming",
-    "telefone celular barato",
     # Acessórios de celular
     "capinha celular",
-    "pelicula celular",
     "carregador celular rapido",
     "cabo usb-c celular",
     "suporte celular carro",
-    "selfie stick bluetooth",
     # Marcas premium
     "xiaomi earbuds",
     "xiaomi smartwatch band",
@@ -97,14 +111,11 @@ CATEGORIAS = [
     "baseus power bank",
     "anker charger gan",
     "anker power bank",
-    "jbl speaker bluetooth",
-    "jbl earbuds",
     "redragon gaming mouse",
     "redragon keyboard",
     "logitech mouse wireless",
     "logitech keyboard",
     "samsung ssd portable",
-    "philips smart lamp",
 ]
 
 PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
@@ -163,7 +174,26 @@ PALAVRAS_BLOQUEADAS = [
     "raquete", "racket", "racquet",
     "capacete bike", "joelheira", "cotoveleira",
 
-    # Fogo, churrasqueira, camping fora do nicho
+    # Brinquedos e esportes ao ar livre — fora do nicho
+    "bola de futebol", "bola gigante", "bola pvc", "bola praia",
+    "bola verão", "brinquedo", "brinquedos", "toy", "toys",
+    "jogos ao ar livre", "jogos esportivos", "esporte ao ar livre",
+    "gramado esporte", "queda gramado", "presente jogos",
+    "pvc ball", "giant ball", "beach ball", "outdoor game",
+    "kite", "pipa", "pião", "bambolê", "frisbee",
+    # Ferramentas de medição e elétrica — fora do nicho
+    "multímetro", "multimetro", "alicate amperímetro", "alicate amperimetro",
+    "medidor de braçadeira", "medidor de bracadeira", "clamp meter",
+    "digital clamp", "amperímetro", "amperimetro", "voltímetro", "voltimetro",
+    "capacitância", "capacitancia", "medidor de temperatura",
+    "testador de cabo", "testador elétrico", "testador eletrico",
+    "osciloscópio", "osciloscopio", "analisador de espectro",
+    "medidor de energia", "wattímetro", "wattimetro",
+    "detector de tensão", "detector de tensao",
+    "termômetro infravermelho", "termometro infravermelho",
+    # Ferramentas gerais
+    "furadeira", "parafusadeira", "chave inglesa", "martelo",
+    "serra", "esmerilhadeira", "lixadeira",
     "fogueira", "fogão", "fogao", "churrasqueira", "churrasco",
     "fire pit", "campfire", "fireplace", "lareira",
     "suporte para fogueira", "base para fogueira", "queimador",
