@@ -5,6 +5,7 @@ Publisher ID: ot20260326074822
 
 import os
 import re
+import sys
 import random
 import hashlib
 import time
@@ -12,15 +13,14 @@ import time
 ML_PUBLISHER_ID = os.getenv("ML_PUBLISHER_ID", "ot20260326074822")
 PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
 PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
-DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
 URLS_CATEGORIAS = [
-    "https://www.mercadolivre.com.br/ofertas#nav-header",
     "https://www.mercadolivre.com.br/ofertas?category=MLB1648",
     "https://www.mercadolivre.com.br/ofertas?category=MLB1051",
     "https://www.mercadolivre.com.br/ofertas?category=MLB1000",
     "https://www.mercadolivre.com.br/ofertas?category=MLB1066",
     "https://www.mercadolivre.com.br/ofertas?category=MLB1039",
+    "https://www.mercadolivre.com.br/ofertas#nav-header",
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -33,6 +33,11 @@ PALAVRAS_BLOQUEADAS = [
     "suplemento", "creatina", "whey protein", "vitamina",
     "remedio", "medicamento",
 ]
+
+
+def log(msg):
+    print(msg, flush=True)
+    sys.stdout.flush()
 
 
 def produto_valido(nome):
@@ -70,19 +75,11 @@ def encurtar_link(url_longa):
     return url_longa
 
 
-import sys
-
-def log(msg):
-    """Log com flush imediato para aparecer no Railway."""
-    print(msg, flush=True)
-    sys.stdout.flush()
-
-
 def buscar_com_playwright():
     log("ML Playwright: iniciando...")
     try:
         from playwright.sync_api import sync_playwright
-        log("ML Playwright: biblioteca importada OK")
+        log("ML Playwright: biblioteca OK")
     except ImportError as e:
         log(f"ML Playwright: ERRO import — {e}")
         return []
@@ -116,60 +113,78 @@ def buscar_com_playwright():
 
             for url in urls:
                 try:
-                    log(f"ML Playwright: acessando {url[:60]}")
+                    log(f"ML Playwright: acessando {url[:70]}")
                     page.goto(url, timeout=30000, wait_until="domcontentloaded")
                     page.wait_for_timeout(3000)
 
-                    # Loga o título da página para confirmar que carregou
                     titulo = page.title()
-                    log(f"  -> Página: {titulo[:60]}")
+                    log(f"  -> Pagina: {titulo[:60]}")
 
-                    # Tenta vários seletores para achar os cards
-                    for seletor in ["li.promotion-item", "ol.items_container li", "div.ui-search-layout__item", "li[class*='item']"]:
+                    # Tenta varios seletores
+                    cards = []
+                    for seletor in ["li.promotion-item", "ol.items_container li", "li[class*='item']", "div[class*='promotion-item']"]:
                         cards = page.query_selector_all(seletor)
                         if cards:
-                            log(f"  -> {len(cards)} cards com seletor: {seletor}")
+                            log(f"  -> {len(cards)} cards com: {seletor}")
                             break
-                    else:
-                        log(f"  -> 0 cards encontrados com nenhum seletor!")
-                        # Loga o HTML parcial para diagnóstico
-                        html = page.content()
-                        log(f"  -> HTML snippet: {html[500:1000]}")
+
+                    if not cards:
+                        log("  -> Nenhum card encontrado!")
                         continue
 
-                    for card in cards[:20]:
+                    encontrados = 0
+                    for card in cards[:30]:
                         try:
-                            nome_el = card.query_selector("p[class*='title'], h2[class*='title']")
+                            # Nome
+                            nome_el = card.query_selector("p[class*='title'], h2[class*='title'], span[class*='title'], a[class*='title']")
                             nome = nome_el.inner_text().strip() if nome_el else ""
-                            if not nome or not produto_valido(nome):
+                            if not nome or len(nome) < 5 or not produto_valido(nome):
                                 continue
 
-                            preco_el = card.query_selector("span.andes-money-amount__fraction")
-                            preco = extrair_preco(preco_el.inner_text() if preco_el else "")
-                            if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
+                            # Pega todos os precos do card
+                            precos_el = card.query_selector_all("span.andes-money-amount__fraction")
+                            valores = []
+                            for pel in precos_el:
+                                v = extrair_preco(pel.inner_text())
+                                if v >= PRECO_MINIMO:
+                                    valores.append(v)
+
+                            if not valores:
                                 continue
 
-                            orig_el = card.query_selector("s span.andes-money-amount__fraction")
-                            preco_orig = extrair_preco(orig_el.inner_text() if orig_el else "")
+                            preco      = min(valores)
+                            preco_orig = max(valores) if len(valores) > 1 else 0
 
-                            desc_el = card.query_selector("span[class*='discount']")
+                            if preco > PRECO_MAXIMO:
+                                continue
+
+                            # Desconto
+                            desc_el  = card.query_selector("span[class*='discount'], span[class*='rebate'], span[class*='off']")
                             desc_txt = desc_el.inner_text() if desc_el else ""
                             desconto = 0
                             if desc_txt:
                                 m = re.search(r'(\d+)', desc_txt)
                                 if m:
                                     desconto = int(m.group(1))
-                            elif preco_orig > preco > 0:
+                            if desconto == 0 and preco_orig > preco > 0:
                                 desconto = int((1 - preco / preco_orig) * 100)
 
-                            if desconto < DESCONTO_MINIMO:
-                                continue
+                            # Tag "Mais Vendido" — aumenta score
+                            mais_vendido = False
+                            tag_el = card.query_selector("span[class*='highlight'], span[class*='tag'], div[class*='badge']")
+                            if tag_el:
+                                tag_txt = tag_el.inner_text().lower()
+                                if "mais vendido" in tag_txt or "best seller" in tag_txt:
+                                    mais_vendido = True
+                                    log(f"  ⭐ MAIS VENDIDO: {nome[:40]}")
 
+                            # Link
                             link_el = card.query_selector("a")
                             link = link_el.get_attribute("href") if link_el else ""
-                            if not link:
+                            if not link or "mercadolivre" not in link:
                                 continue
 
+                            # Imagem
                             img_el = card.query_selector("img")
                             imagem = ""
                             if img_el:
@@ -184,7 +199,7 @@ def buscar_com_playwright():
                             link_afiliado = gerar_link_afiliado(link_clean)
                             link_curto    = encurtar_link(link_afiliado)
 
-                            log(f"  -> Produto: {nome[:50]} | R${preco} | {desconto}%")
+                            log(f"  -> OK: {nome[:45]} | R${preco} | {desconto}% {'⭐' if mais_vendido else ''}")
                             produtos.append({
                                 "nome":           nome,
                                 "preco":          round(preco, 2),
@@ -194,14 +209,16 @@ def buscar_com_playwright():
                                 "frete":          "🚚 Frete a calcular",
                                 "link_afiliado":  link_curto,
                                 "imagem_url":     imagem,
-                                "score":          1,
+                                "score":          3 if mais_vendido else 1,
                                 "fontes":         ["mercadolivre"],
                             })
+                            encontrados += 1
 
                         except Exception as e:
                             log(f"  ML card erro: {e}")
                             continue
 
+                    log(f"  -> {encontrados} produtos válidos nesta URL")
                     time.sleep(2)
 
                 except Exception as e:
@@ -213,7 +230,7 @@ def buscar_com_playwright():
         except Exception as e:
             log(f"ML browser erro: {e}")
 
-    log(f"Mercado Livre (Playwright): {len(produtos)} produtos >= {DESCONTO_MINIMO}% desconto")
+    log(f"Mercado Livre (Playwright): {len(produtos)} produtos encontrados")
     return produtos
 
 
