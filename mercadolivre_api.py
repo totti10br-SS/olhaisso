@@ -154,6 +154,7 @@ def processar_item(item):
         desconto   = 0
         imagem     = ""
         mais_vendido = False
+        frete_ok   = False
 
         for comp in components:
             if not isinstance(comp, dict):
@@ -164,29 +165,19 @@ def processar_item(item):
                 cdata = {}
 
             if ctype == "title":
-                nome = cdata.get("text", "") or cdata.get("label", "") or nome
+                nome = cdata.get("text", "") or nome
 
             elif ctype == "price":
-                # preço atual
-                sp = cdata.get("sale_price", {}) or {}
-                if sp:
-                    preco = float(sp.get("amount", 0) or 0)
-                    # preço original
-                    op = cdata.get("original_price", {}) or {}
-                    if op:
-                        preco_orig = float(op.get("amount", 0) or 0)
-                    # desconto
-                    disc = cdata.get("discount", {}) or {}
-                    if disc:
-                        d = disc.get("rate", 0)
-                        if d:
-                            desconto = int(float(d) * 100) if float(d) < 1 else int(float(d))
+                curr = cdata.get("current_price", {}) or {}
+                prev = cdata.get("previous_price", {}) or {}
+                preco      = float(curr.get("value", 0) or 0)
+                preco_orig = float(prev.get("value", 0) or 0)
+                log(f"  -> PRICE: curr={preco} orig={preco_orig} cdata_keys={list(cdata.keys())[:5]}")
 
-            elif ctype == "discount":
-                d = cdata.get("rate", 0) or cdata.get("text", "")
-                m = re.search(r'(\d+)', str(d))
-                if m:
-                    desconto = int(m.group(1))
+            elif ctype == "shipping":
+                frete_txt_comp = cdata.get("text", "")
+                if "grátis" in frete_txt_comp.lower() or "gratis" in frete_txt_comp.lower():
+                    frete_ok = True
 
             elif ctype in ("image", "picture", "gallery"):
                 imagem = cdata.get("url", "") or cdata.get("src", "") or imagem
@@ -213,6 +204,7 @@ def processar_item(item):
         if desconto < DESCONTO_MINIMO:
             return None
 
+        frete_txt     = "✅ Frete grátis" if frete_ok else "🚚 Frete a calcular"
         link_afiliado = gerar_link_afiliado(url_prod)
         link_curto    = encurtar_link(link_afiliado)
 
@@ -224,7 +216,7 @@ def processar_item(item):
             "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
             "desconto":       desconto,
             "loja":           "MERCADOLIVRE",
-            "frete":          "🚚 Frete a calcular",
+            "frete":          frete_txt,
             "link_afiliado":  link_curto,
             "imagem_url":     imagem,
             "score":          3 if mais_vendido else 1,
