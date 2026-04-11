@@ -145,51 +145,85 @@ def processar_item(item):
         if not isinstance(item, dict):
             return None
 
-        # Dados reais estão dentro de "card"
         card = item.get("card", item)
         if not card or not isinstance(card, dict):
             return None
 
-        # Debug do primeiro card
+        metadata   = card.get("metadata", {}) or {}
+        components = card.get("components", []) or []
+
+        # Debug do primeiro item
         if not getattr(processar_item, '_logged', False):
             processar_item._logged = True
-            log(f"  -> Campos do card: {list(card.keys())[:15]}")
-            log(f"  -> card sample: {str(card)[:300]}")
+            log(f"  -> metadata keys: {list(metadata.keys())}")
+            log(f"  -> components count: {len(components)}")
+            if components:
+                log(f"  -> primeiro component: {str(components[0])[:200]}")
 
-        nome = (card.get("title") or card.get("name") or "").strip()
-        if not nome or not produto_valido(nome):
+        # URL do produto — em metadata
+        url_prod = metadata.get("url", "") or metadata.get("permalink", "")
+        if url_prod and not url_prod.startswith("http"):
+            url_prod = "https://" + url_prod
+        if not url_prod:
             return None
 
-        preco      = float(card.get("price", 0) or card.get("sale_price", 0) or 0)
-        preco_orig = float(card.get("original_price", 0) or card.get("regular_price", 0) or 0)
+        # Nome, preço e desconto — em components
+        nome       = ""
+        preco      = 0.0
+        preco_orig = 0.0
+        desconto   = 0
+        imagem     = ""
+        mais_vendido = False
+
+        for comp in components:
+            if not isinstance(comp, dict):
+                continue
+            ctype = comp.get("type", "")
+
+            if ctype == "TITLE" or "title" in ctype.lower():
+                nome = comp.get("text", "") or comp.get("value", "") or nome
+
+            elif ctype in ("PRICE", "SALE_PRICE") or "price" in ctype.lower():
+                preco = float(comp.get("amount", 0) or comp.get("value", 0) or preco)
+                preco_orig = float(comp.get("original_amount", 0) or preco_orig)
+
+            elif ctype == "DISCOUNT" or "discount" in ctype.lower():
+                d = comp.get("text", "") or comp.get("value", "")
+                m = re.search(r'(\d+)', str(d))
+                if m:
+                    desconto = int(m.group(1))
+
+            elif ctype == "IMAGE" or "image" in ctype.lower():
+                imagem = comp.get("url", "") or comp.get("src", "") or imagem
+
+            elif "best_seller" in str(comp).lower() or "mais vendido" in str(comp).lower():
+                mais_vendido = True
+
+        # Fallback: tenta pegar nome/preço diretamente do card
+        if not nome:
+            nome = card.get("title", "") or metadata.get("title", "") or ""
+        if preco == 0:
+            preco = float(card.get("price", 0) or metadata.get("price", 0) or 0)
+        if not imagem:
+            pics = card.get("pictures", [])
+            if pics:
+                imagem = pics[0].get("url", "") if isinstance(pics[0], dict) else ""
+
+        nome = nome.strip()
+        if not nome or not produto_valido(nome):
+            return None
 
         if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
             return None
 
-        desconto = 0
-        if preco_orig > preco:
+        if preco_orig > preco and desconto == 0:
             desconto = int((1 - preco / preco_orig) * 100)
-        elif card.get("discount_percentage"):
-            desconto = int(float(card.get("discount_percentage", 0)))
 
         if desconto < DESCONTO_MINIMO:
             return None
 
-        permalink = card.get("permalink") or card.get("url") or card.get("link") or ""
-        if not permalink:
-            return None
-
-        tags = [t.get("id", "") for t in card.get("tags", [])]
-        mais_vendido = "best_seller" in tags
-
-        shipping     = card.get("shipping", {}) or {}
-        frete_gratis = shipping.get("free_shipping", False)
-        frete_txt    = "✅ Frete grátis" if frete_gratis else "🚚 Frete a calcular"
-
-        thumbnail = card.get("thumbnail") or card.get("image") or ""
-        imagem    = thumbnail.replace("I.jpg", "O.jpg") if thumbnail else ""
-
-        link_afiliado = gerar_link_afiliado(permalink)
+        frete_txt     = "🚚 Frete a calcular"
+        link_afiliado = gerar_link_afiliado(url_prod)
         link_curto    = encurtar_link(link_afiliado)
 
         if mais_vendido:
