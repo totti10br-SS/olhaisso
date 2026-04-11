@@ -1047,6 +1047,9 @@ def ciclo_teste():
         postar_whatsapp_teste(produto, imagem_path)
     except Exception as e:
         log.error(f"🧪 Ciclo teste erro: {e}")
+
+
+def main():
     init_db()
     log.info("🤖 OlhaissoTech Bot v6.0 iniciado!")
     log.info(f"📢 Canal: {TELEGRAM_CHANNEL}")
