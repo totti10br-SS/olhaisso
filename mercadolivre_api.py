@@ -1,12 +1,12 @@
 """
-Mercado Livre — via ScraperAPI + API oficial do ML
+Mercado Livre — via ScraperAPI buscando site do ML
 Publisher ID: ot20260326074822
-ScraperAPI bypassa o 403 do ML
 """
 
 import os
 import re
 import sys
+import json
 import random
 import hashlib
 import time
@@ -18,44 +18,13 @@ PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
 PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
-# Categorias tech do ML Brasil
-CATEGORIAS = [
-    ("MLB1648", "Computação"),
-    ("MLB1676", "Monitores"),
-    ("MLB1051", "Celulares"),
-    ("MLB1000", "Eletrônicos"),
-    ("MLB1066", "TVs"),
-    ("MLB1039", "Video Games"),
-    ("MLB1002", "Áudio"),
-    ("MLB1132", "Câmeras"),
-]
-
-KEYWORDS = [
-    "monitor gamer 144hz",
-    "monitor 4k",
-    "ssd nvme 1tb",
-    "memoria ram ddr4",
-    "placa de video",
-    "processador intel",
-    "processador amd",
-    "smartphone samsung",
-    "iphone",
-    "xiaomi redmi",
-    "motorola edge",
-    "notebook gamer",
-    "teclado mecanico",
-    "mouse gamer",
-    "headset gamer",
-    "smart tv 4k",
-    "playstation 5",
-    "xbox series",
-    "nintendo switch",
-    "robo aspirador",
-    "airfryer",
-    "smartwatch",
-    "fonte pc 650w",
-    "placa mae",
-    "cooler cpu",
+URLS_BUSCA = [
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648", "Computação"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1051", "Celulares"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1000", "Eletrônicos"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1066", "TVs"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1039", "Video Games"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1002", "Áudio"),
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -90,10 +59,7 @@ def gerar_link_afiliado(url):
 
 def encurtar_link(url_longa):
     try:
-        r = requests.get(
-            f"https://tinyurl.com/api-create.php?url={url_longa}",
-            timeout=5
-        )
+        r = requests.get(f"https://tinyurl.com/api-create.php?url={url_longa}", timeout=5)
         if r.status_code == 200 and r.text.startswith("https://"):
             return r.text.strip()
     except:
@@ -101,45 +67,68 @@ def encurtar_link(url_longa):
     return url_longa
 
 
-def scraper_get(url):
-    """Faz requisição via ScraperAPI para bypasear o 403 do ML."""
+def scraper_fetch(url):
+    """Busca HTML via ScraperAPI."""
     try:
         payload = {
-            "api_key": SCRAPERAPI_KEY,
-            "url":     url,
+            "api_key":      SCRAPERAPI_KEY,
+            "url":          url,
             "country_code": "br",
+            "render":       "false",
         }
-        r = requests.get(
-            "https://api.scraperapi.com",
-            params=payload,
-            timeout=60
-        )
-        log(f"  ScraperAPI status: {r.status_code} para {url[:60]}")
+        r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
+        log(f"  ScraperAPI {r.status_code} → {url[:60]}")
         if r.status_code == 200:
-            return r.json()
-        log(f"  ScraperAPI resposta: {r.text[:100]}")
-        return None
-    except requests.exceptions.Timeout:
-        log(f"  ScraperAPI timeout — tentando novamente...")
-        try:
-            r = requests.get(
-                "https://api.scraperapi.com",
-                params=payload,
-                timeout=90
-            )
-            if r.status_code == 200:
-                return r.json()
-        except Exception as e2:
-            log(f"  ScraperAPI retry erro: {e2}")
+            return r.text
+        log(f"  Erro: {r.text[:150]}")
         return None
     except Exception as e:
         log(f"  ScraperAPI erro: {e}")
         return None
 
 
+def extrair_produtos_html(html):
+    """Extrai produtos do JSON embutido no HTML do ML."""
+    produtos = []
+    if not html:
+        return produtos
+
+    # ML embute dados como JSON no script "__PRELOADED_STATE__" ou similar
+    patterns = [
+        r'"items"\s*:\s*(\[(?:[^[\]]*|\[(?:[^[\]]*|\[[^[\]]*\])*\])*\])',
+        r'"results"\s*:\s*(\[(?:[^[\]]*|\[(?:[^[\]]*|\[[^[\]]*\])*\])*\])',
+        r'window\[\'initialState\'\]\s*=\s*({.+?});\s*</script>',
+    ]
+
+    for pattern in patterns:
+        matches = re.findall(pattern, html, re.DOTALL)
+        for match in matches:
+            try:
+                data = json.loads(match)
+                if isinstance(data, list) and len(data) > 2:
+                    log(f"  -> {len(data)} itens no JSON")
+                    return data
+                elif isinstance(data, dict):
+                    for key in ["results", "items", "elements"]:
+                        items = data.get(key, [])
+                        if items and len(items) > 0:
+                            log(f"  -> {len(items)} itens no JSON[{key}]")
+                            return items
+            except:
+                continue
+
+    # Fallback: extrai preços e links via regex simples
+    log("  -> JSON não encontrado, tentando regex...")
+    links = re.findall(r'href="(https://www\.mercadolivre\.com\.br/[^"]+)"', html)
+    log(f"  -> {len(links)} links encontrados via regex")
+    return []
+
+
 def processar_item(item):
-    """Converte item da API ML no formato padrão do bot."""
     try:
+        if not isinstance(item, dict):
+            return None
+
         nome = item.get("title", "").strip()
         if not nome or not produto_valido(nome):
             return None
@@ -161,22 +150,21 @@ def processar_item(item):
         if not permalink:
             return None
 
-        # Tag mais vendido
         tags = [t.get("id", "") for t in item.get("tags", [])]
-        mais_vendido = "best_seller" in tags or "good_sale_quality" in tags
+        mais_vendido = "best_seller" in tags
 
-        shipping    = item.get("shipping", {}) or {}
+        shipping     = item.get("shipping", {}) or {}
         frete_gratis = shipping.get("free_shipping", False)
-        frete_txt   = "✅ Frete grátis" if frete_gratis else "🚚 Frete a calcular"
+        frete_txt    = "✅ Frete grátis" if frete_gratis else "🚚 Frete a calcular"
 
-        thumbnail   = item.get("thumbnail", "")
-        imagem      = thumbnail.replace("I.jpg", "O.jpg") if thumbnail else ""
+        thumbnail = item.get("thumbnail", "")
+        imagem    = thumbnail.replace("I.jpg", "O.jpg") if thumbnail else ""
 
         link_afiliado = gerar_link_afiliado(permalink)
         link_curto    = encurtar_link(link_afiliado)
 
         if mais_vendido:
-            log(f"  ⭐ MAIS VENDIDO: {nome[:45]}")
+            log(f"  ⭐ MAIS VENDIDO: {nome[:40]}")
 
         return {
             "nome":           nome,
@@ -191,29 +179,8 @@ def processar_item(item):
             "fontes":         ["mercadolivre"],
         }
     except Exception as e:
-        log(f"  ML processar item erro: {e}")
+        log(f"  ML item erro: {e}")
         return None
-
-
-def buscar_por_categoria(cat_id, cat_nome, limit=10):
-    """Busca produtos em oferta por categoria via ScraperAPI."""
-    url = f"https://api.mercadolibre.com/sites/MLB/search?category={cat_id}&sort=best_seller&limit={limit}"
-    log(f"ML buscando categoria: {cat_nome}")
-    data = scraper_get(url)
-    if not data:
-        return []
-    items = data.get("results", [])
-    log(f"  -> {len(items)} itens retornados")
-    return items
-
-
-def buscar_por_keyword(keyword, limit=8):
-    """Busca produtos por keyword via ScraperAPI."""
-    url = f"https://api.mercadolibre.com/sites/MLB/search?q={requests.utils.quote(keyword)}&sort=best_seller&limit={limit}"
-    data = scraper_get(url)
-    if not data:
-        return []
-    return data.get("results", [])
 
 
 def buscar_todos_produtos():
@@ -222,16 +189,19 @@ def buscar_todos_produtos():
         return []
 
     log("ML ScraperAPI: iniciando busca...")
-    todos  = []
-    vistos = set()
+    todos   = []
+    vistos  = set()
     total_bruto = 0
 
-    # Busca por categorias
-    cats = random.sample(CATEGORIAS, min(4, len(CATEGORIAS)))
-    for cat_id, cat_nome in cats:
+    urls = random.sample(URLS_BUSCA, min(4, len(URLS_BUSCA)))
+
+    for url, nome in urls:
         try:
-            items = buscar_por_categoria(cat_id, cat_nome, limit=10)
+            log(f"ML buscando: {nome}")
+            html = scraper_fetch(url)
+            items = extrair_produtos_html(html)
             total_bruto += len(items)
+
             for item in items:
                 p = processar_item(item)
                 if p:
@@ -239,28 +209,10 @@ def buscar_todos_produtos():
                     if chave not in vistos:
                         vistos.add(chave)
                         todos.append(p)
-            time.sleep(1)
+            time.sleep(2)
         except Exception as e:
-            log(f"ML categoria {cat_nome} erro: {e}")
+            log(f"ML erro {nome}: {e}")
             continue
 
-    # Busca por keywords
-    kws = random.sample(KEYWORDS, min(6, len(KEYWORDS)))
-    for kw in kws:
-        try:
-            items = buscar_por_keyword(kw, limit=8)
-            total_bruto += len(items)
-            for item in items:
-                p = processar_item(item)
-                if p:
-                    chave = hashlib.md5(p["nome"].encode()).hexdigest()
-                    if chave not in vistos:
-                        vistos.add(chave)
-                        todos.append(p)
-            time.sleep(1)
-        except Exception as e:
-            log(f"ML keyword '{kw}' erro: {e}")
-            continue
-
-    log(f"Mercado Livre (ScraperAPI): {total_bruto} brutos → {len(todos)} com desconto >= {DESCONTO_MINIMO}%")
+    log(f"Mercado Livre (ScraperAPI): {total_bruto} brutos → {len(todos)} válidos")
     return todos
