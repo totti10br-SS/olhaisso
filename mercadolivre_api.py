@@ -68,7 +68,6 @@ def encurtar_link(url_longa):
 
 
 def scraper_fetch(url):
-    """Busca HTML via ScraperAPI."""
     try:
         payload = {
             "api_key":      SCRAPERAPI_KEY,
@@ -80,7 +79,7 @@ def scraper_fetch(url):
         log(f"  ScraperAPI {r.status_code} → {url[:60]}")
         if r.status_code == 200:
             return r.text
-        log(f"  Erro: {r.text[:150]}")
+        log(f"  Erro: {r.text[:100]}")
         return None
     except Exception as e:
         log(f"  ScraperAPI erro: {e}")
@@ -88,55 +87,34 @@ def scraper_fetch(url):
 
 
 def extrair_produtos_html(html):
-    """Extrai produtos do JSON embutido no HTML do ML."""
     if not html:
         return []
-
-    log(f"  -> HTML recebido: {len(html)} chars")
-
-    # ML injeta dados no formato: {"results":[...]} dentro de scripts
-    # Procura por blocos JSON que contenham "original_price" (indica produto com desconto)
+    log(f"  -> HTML: {len(html)} chars")
     try:
-        # Tenta achar o JSON principal da página
         idx = html.find('"results":[{')
         if idx == -1:
             idx = html.find('"items":[{')
-
-        if idx != -1:
-            # Encontra o início do array
-            start = html.rfind('[', 0, idx + 15)
-            if start == -1:
-                start = idx + html[idx:].find('[')
-
-            # Encontra o fim balanceado do array
-            depth = 0
-            end = start
-            for i, c in enumerate(html[start:], start):
-                if c == '[':
-                    depth += 1
-                elif c == ']':
-                    depth -= 1
-                    if depth == 0:
-                        end = i + 1
-                        break
-                if i - start > 500000:  # limite de segurança
+        if idx == -1:
+            log("  -> JSON não encontrado")
+            return []
+        start = html.rfind('[', 0, idx + 15)
+        depth = 0
+        end = start
+        for i, c in enumerate(html[start:], start):
+            if c == '[': depth += 1
+            elif c == ']':
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
                     break
-
-            json_str = html[start:end]
-            data = json.loads(json_str)
-            if isinstance(data, list) and len(data) > 0:
-                log(f"  -> {len(data)} itens extraídos do JSON")
-                return data
+            if i - start > 500000:
+                break
+        data = json.loads(html[start:end])
+        if isinstance(data, list) and len(data) > 0:
+            log(f"  -> {len(data)} itens extraídos")
+            return data
     except Exception as e:
-        log(f"  -> Erro ao extrair JSON: {e}")
-
-    # Fallback: conta links do ML para diagnóstico
-    links = re.findall(r'href="(https://www\.mercadolivre\.com\.br/[^"?#]+)"', html)
-    links_unicos = list(set(links))
-    log(f"  -> JSON não encontrado. {len(links_unicos)} links de produto no HTML")
-    if links_unicos:
-        log(f"  -> Exemplo: {links_unicos[0][:80]}")
-
+        log(f"  -> Erro JSON: {e}")
     return []
 
 
@@ -145,29 +123,31 @@ def processar_item(item):
         if not isinstance(item, dict):
             return None
 
-        card = item.get("card", item)
-        if not card or not isinstance(card, dict):
+        card = item.get("card", {})
+        if not card:
             return None
 
         metadata   = card.get("metadata", {}) or {}
         components = card.get("components", []) or []
 
-        # Debug do primeiro item
+        # Debug primeiro item
         if not getattr(processar_item, '_logged', False):
             processar_item._logged = True
-            log(f"  -> metadata keys: {list(metadata.keys())}")
-            log(f"  -> components count: {len(components)}")
-            if components:
-                log(f"  -> primeiro component: {str(components[0])[:200]}")
+            log(f"  -> metadata: {list(metadata.keys())}")
+            log(f"  -> {len(components)} components")
+            for c in components[:3]:
+                ctype = c.get("type","")
+                cdata = c.get(ctype, c)
+                log(f"     [{ctype}] → {str(cdata)[:120]}")
 
-        # URL do produto — em metadata
-        url_prod = metadata.get("url", "") or metadata.get("permalink", "")
+        # URL do produto
+        url_prod = metadata.get("url", "")
         if url_prod and not url_prod.startswith("http"):
             url_prod = "https://" + url_prod
         if not url_prod:
             return None
 
-        # Nome, preço e desconto — em components
+        # Extrai dados dos components
         nome       = ""
         preco      = 0.0
         preco_orig = 0.0
@@ -178,36 +158,47 @@ def processar_item(item):
         for comp in components:
             if not isinstance(comp, dict):
                 continue
-            ctype = comp.get("type", "")
+            ctype = comp.get("type", "").lower()
+            cdata = comp.get(ctype, {})
+            if not isinstance(cdata, dict):
+                cdata = {}
 
-            if ctype == "TITLE" or "title" in ctype.lower():
-                nome = comp.get("text", "") or comp.get("value", "") or nome
+            if ctype == "title":
+                nome = cdata.get("text", "") or cdata.get("label", "") or nome
 
-            elif ctype in ("PRICE", "SALE_PRICE") or "price" in ctype.lower():
-                preco = float(comp.get("amount", 0) or comp.get("value", 0) or preco)
-                preco_orig = float(comp.get("original_amount", 0) or preco_orig)
+            elif ctype == "price":
+                # preço atual
+                sp = cdata.get("sale_price", {}) or {}
+                if sp:
+                    preco = float(sp.get("amount", 0) or 0)
+                    # preço original
+                    op = cdata.get("original_price", {}) or {}
+                    if op:
+                        preco_orig = float(op.get("amount", 0) or 0)
+                    # desconto
+                    disc = cdata.get("discount", {}) or {}
+                    if disc:
+                        d = disc.get("rate", 0)
+                        if d:
+                            desconto = int(float(d) * 100) if float(d) < 1 else int(float(d))
 
-            elif ctype == "DISCOUNT" or "discount" in ctype.lower():
-                d = comp.get("text", "") or comp.get("value", "")
+            elif ctype == "discount":
+                d = cdata.get("rate", 0) or cdata.get("text", "")
                 m = re.search(r'(\d+)', str(d))
                 if m:
                     desconto = int(m.group(1))
 
-            elif ctype == "IMAGE" or "image" in ctype.lower():
-                imagem = comp.get("url", "") or comp.get("src", "") or imagem
+            elif ctype in ("image", "picture", "gallery"):
+                imagem = cdata.get("url", "") or cdata.get("src", "") or imagem
 
-            elif "best_seller" in str(comp).lower() or "mais vendido" in str(comp).lower():
-                mais_vendido = True
+            elif ctype == "highlight":
+                txt = cdata.get("text", "").lower()
+                if "mais vendido" in txt or "best seller" in txt:
+                    mais_vendido = True
 
-        # Fallback: tenta pegar nome/preço diretamente do card
+        # Fallback nome
         if not nome:
-            nome = card.get("title", "") or metadata.get("title", "") or ""
-        if preco == 0:
-            preco = float(card.get("price", 0) or metadata.get("price", 0) or 0)
-        if not imagem:
-            pics = card.get("pictures", [])
-            if pics:
-                imagem = pics[0].get("url", "") if isinstance(pics[0], dict) else ""
+            nome = metadata.get("title", "")
 
         nome = nome.strip()
         if not nome or not produto_valido(nome):
@@ -222,12 +213,10 @@ def processar_item(item):
         if desconto < DESCONTO_MINIMO:
             return None
 
-        frete_txt     = "🚚 Frete a calcular"
         link_afiliado = gerar_link_afiliado(url_prod)
         link_curto    = encurtar_link(link_afiliado)
 
-        if mais_vendido:
-            log(f"  ⭐ MAIS VENDIDO: {nome[:40]}")
+        log(f"  ✅ {nome[:45]} | R${preco} | {desconto}% {'⭐' if mais_vendido else ''}")
 
         return {
             "nome":           nome,
@@ -235,7 +224,7 @@ def processar_item(item):
             "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
             "desconto":       desconto,
             "loja":           "MERCADOLIVRE",
-            "frete":          frete_txt,
+            "frete":          "🚚 Frete a calcular",
             "link_afiliado":  link_curto,
             "imagem_url":     imagem,
             "score":          3 if mais_vendido else 1,
@@ -261,15 +250,13 @@ def buscar_todos_produtos():
     for url, nome in urls:
         try:
             log(f"ML buscando: {nome}")
-            html = scraper_fetch(url)
+            html  = scraper_fetch(url)
             items = extrair_produtos_html(html)
             total_bruto += len(items)
 
-            # Debug — mostra estrutura do primeiro item
             if items and len(todos) == 0:
-                primeiro = items[0] if isinstance(items[0], dict) else {}
-                log(f"  -> Campos do item: {list(primeiro.keys())[:10]}")
-                log(f"  -> title={primeiro.get('title','')[:40]} price={primeiro.get('price')} orig={primeiro.get('original_price')} permalink={str(primeiro.get('permalink',''))[:50]}")
+                # Debug primeiro item
+                processar_item._logged = False
 
             for item in items:
                 p = processar_item(item)
