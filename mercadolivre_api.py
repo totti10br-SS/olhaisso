@@ -132,6 +132,14 @@ def buscar_com_playwright():
                         log("  -> Nenhum card encontrado!")
                         continue
 
+                    # Debug — mostra HTML do primeiro card
+                    try:
+                        primeiro = cards[0]
+                        html_card = primeiro.inner_html()
+                        log(f"  -> HTML primeiro card: {html_card[:500]}")
+                    except:
+                        pass
+
                     encontrados = 0
                     for card in cards[:30]:
                         try:
