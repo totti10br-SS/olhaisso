@@ -878,7 +878,11 @@ def montar_pipeline():
         todos_raw = produtos_mock()
 
     # Filtra/organiza por ciclo especial ou normal
-    todos_raw = filtrar_ciclo_especial(todos_raw)
+    # Em modo ML_ONLY, não filtra por ciclo especial
+    if not ML_ONLY:
+        todos_raw = filtrar_ciclo_especial(todos_raw)
+    else:
+        log.info("🧪 ML_ONLY: filtro de ciclo especial desativado")
 
     # Filtra por preço e desconto
     todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]

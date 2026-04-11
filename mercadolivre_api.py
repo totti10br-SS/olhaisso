@@ -185,30 +185,15 @@ def buscar_keyword_serpapi(keyword, limit=10):
 
 def processar_item_serp(item):
     try:
-        # Debug único — mostra todos os campos do primeiro item
-        if not getattr(processar_item_serp, '_logged', False):
-            processar_item_serp._logged = True
-            print(f"  ML debug keys: {list(item.keys())}")
-            for k, v in item.items():
-                if k in ('title','price','extracted_price','link','product_link','url','source','product_id','old_price','original_price'):
-                    print(f"  ML debug {k}={str(v)[:80]}")
-
         nome = item.get("title", "").strip()
         if not nome or not produto_valido(nome):
             return None
 
-        # Tenta todos os campos de link em ordem de preferência
-        link_ml = (item.get("product_link") or
-                   item.get("link") or
-                   item.get("url") or "")
-
-        # Se não tiver link direto do ML, tenta via product_id
-        if not link_ml or "mercadolivre.com.br" not in link_ml:
-            pid = item.get("product_id", "")
-            if pid:
-                link_ml = f"https://www.mercadolivre.com.br/p/{pid}"
-            else:
-                return None
+        # product_link do Google é link de busca do Google, não do ML
+        # Monta URL de busca direta no ML pelo título
+        import urllib.parse
+        titulo_enc = urllib.parse.quote_plus(nome[:80])
+        link_ml = f"https://www.mercadolivre.com.br/ofertas?q={titulo_enc}"
 
         # Tenta preço em vários campos
         preco = extrair_preco_num(
@@ -232,7 +217,6 @@ def processar_item_serp(item):
 
         imagem        = item.get("thumbnail", "")
         link_afiliado = gerar_link_afiliado(link_ml)
-        print(f"  ML link: {link_afiliado[:100]}")
         link_curto    = encurtar_link(link_afiliado)
 
         return {
