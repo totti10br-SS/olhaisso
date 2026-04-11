@@ -991,6 +991,18 @@ def ciclo():
 
 def main():
     init_db()
+
+    # Limpa histórico se CLEAR_DB=true (apenas para testes)
+    if os.getenv("CLEAR_DB", "false").lower() == "true":
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("DELETE FROM postados")
+            conn.commit()
+            conn.close()
+            log.info("🧹 CLEAR_DB: histórico de posts limpo!")
+        except Exception as e:
+            log.error(f"CLEAR_DB erro: {e}")
+
     log.info("🤖 OlhaissoTech Bot v6.0 iniciado!")
     log.info(f"📢 Canal: {TELEGRAM_CHANNEL}")
     log.info(f"⏰ Horários: {', '.join(HORARIOS)}")
