@@ -19,35 +19,73 @@ PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
 KEYWORDS = [
-    "monitor gamer mercado livre",
+    # Monitores
+    "monitor gamer 144hz mercado livre",
+    "monitor gamer 165hz mercado livre",
+    "monitor gamer 240hz mercado livre",
     "monitor 4k mercado livre",
-    "notebook gamer mercado livre",
+    "monitor curvo mercado livre",
+    "monitor ultrawide mercado livre",
+    "monitor led full hd mercado livre",
+    "monitor 27 polegadas mercado livre",
+    "monitor 24 polegadas mercado livre",
+    # TVs
+    "smart tv 4k mercado livre",
+    "tv qled mercado livre",
+    "tv oled mercado livre",
+    "smart tv 55 polegadas mercado livre",
+    "smart tv 50 polegadas mercado livre",
+    "smart tv samsung mercado livre",
+    "smart tv lg mercado livre",
+    "tv led mercado livre",
+    # Video Games e Consoles
+    "playstation 5 mercado livre",
+    "xbox series x mercado livre",
+    "nintendo switch mercado livre",
+    "controle ps5 mercado livre",
+    "controle xbox mercado livre",
+    "controle gamer mercado livre",
+    "jogo ps5 mercado livre",
+    "jogo xbox mercado livre",
+    # Periféricos Gamer
+    "teclado mecanico mercado livre",
+    "teclado gamer rgb mercado livre",
+    "mouse gamer mercado livre",
+    "mouse sem fio mercado livre",
+    "headset gamer mercado livre",
+    "cadeira gamer mercado livre",
+    # Componentes de PC
+    "ssd nvme mercado livre",
+    "ssd 1tb mercado livre",
+    "memoria ram ddr4 mercado livre",
+    "memoria ram ddr5 mercado livre",
+    "placa de video mercado livre",
     "processador intel mercado livre",
     "processador amd ryzen mercado livre",
-    "ssd nvme mercado livre",
-    "memoria ram ddr4 mercado livre",
-    "placa de video mercado livre",
+    "fonte pc 650w mercado livre",
+    "fonte pc modular mercado livre",
+    "placa mae mercado livre",
+    "cooler cpu mercado livre",
+    "gabinete gamer mercado livre",
+    # Notebooks
+    "notebook gamer mercado livre",
+    "notebook samsung mercado livre",
+    "notebook dell mercado livre",
+    "notebook lenovo mercado livre",
+    # Smartphones
     "smartphone samsung mercado livre",
     "iphone mercado livre",
     "xiaomi redmi mercado livre",
     "motorola edge mercado livre",
+    "smartphone 5g mercado livre",
+    # Áudio e Acessórios
     "fone bluetooth mercado livre",
-    "headset gamer mercado livre",
-    "teclado mecanico mercado livre",
-    "mouse gamer mercado livre",
-    "smart tv 4k mercado livre",
-    "playstation 5 mercado livre",
-    "xbox series mercado livre",
-    "nintendo switch mercado livre",
-    "robo aspirador mercado livre",
-    "airfryer mercado livre",
     "caixa de som bluetooth mercado livre",
     "smartwatch mercado livre",
-    "power bank mercado livre",
+    "robo aspirador mercado livre",
+    "airfryer mercado livre",
     "webcam full hd mercado livre",
-    "controle gamer mercado livre",
-    "tv oled mercado livre",
-    "tv qled mercado livre",
+    "power bank mercado livre",
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -123,8 +161,23 @@ def buscar_keyword_serpapi(keyword, limit=10):
         if r.status_code != 200:
             print(f"ML SerpApi erro {r.status_code}")
             return []
-        items = r.json().get("shopping_results", [])
-        return [i for i in items if "mercadolivre.com.br" in i.get("link", "")]
+        data = r.json()
+        items = data.get("shopping_results", [])
+        total = len(items)
+
+        # Debug — mostra fontes e links dos primeiros resultados
+        if items:
+            for i in items[:2]:
+                print(f"  SerpApi item: source={i.get('source','?')} link={i.get('link','')[:60]}")
+
+        # Filtra pelo ML — link direto ou source
+        ml_items = [i for i in items if
+                    "mercadolivre.com.br" in i.get("link", "") or
+                    "mercado livre" in i.get("source", "").lower() or
+                    "mercadolivre" in i.get("source", "").lower()]
+
+        print(f"  SerpApi '{keyword[:35]}': {total} resultados → {len(ml_items)} do ML")
+        return ml_items
     except Exception as e:
         print(f"ML SerpApi keyword '{keyword}' erro: {e}")
         return []
@@ -205,5 +258,5 @@ def buscar_todos_produtos():
             print(f"ML keyword '{keyword}' erro: {e}")
             continue
 
-    print(f"Mercado Livre (SerpApi): {total_bruto} itens ML → {len(todos)} com desconto real >= {DESCONTO_MINIMO}%")
+    print(f"Mercado Livre (SerpApi): {total_bruto} itens ML → {len(todos)} produtos válidos")
     return todos
