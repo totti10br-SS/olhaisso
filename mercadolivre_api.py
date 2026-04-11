@@ -218,6 +218,12 @@ def buscar_todos_produtos():
             items = extrair_produtos_html(html)
             total_bruto += len(items)
 
+            # Debug — mostra estrutura do primeiro item
+            if items and len(todos) == 0:
+                primeiro = items[0] if isinstance(items[0], dict) else {}
+                log(f"  -> Campos do item: {list(primeiro.keys())[:10]}")
+                log(f"  -> title={primeiro.get('title','')[:40]} price={primeiro.get('price')} orig={primeiro.get('original_price')} permalink={str(primeiro.get('permalink',''))[:50]}")
+
             for item in items:
                 p = processar_item(item)
                 if p:
