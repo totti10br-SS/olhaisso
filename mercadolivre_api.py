@@ -135,10 +135,10 @@ def processar_item(item):
             processar_item._logged = True
             log(f"  -> metadata: {list(metadata.keys())}")
             log(f"  -> {len(components)} components")
-            for c in components[:3]:
+            for c in components:
                 ctype = c.get("type","")
                 cdata = c.get(ctype, c)
-                log(f"     [{ctype}] → {str(cdata)[:120]}")
+                log(f"     [{ctype}] → {str(cdata)[:150]}")
 
         # URL do produto
         url_prod = metadata.get("url", "")
