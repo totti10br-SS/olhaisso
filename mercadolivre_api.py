@@ -89,38 +89,54 @@ def scraper_fetch(url):
 
 def extrair_produtos_html(html):
     """Extrai produtos do JSON embutido no HTML do ML."""
-    produtos = []
     if not html:
-        return produtos
+        return []
 
-    # ML embute dados como JSON no script "__PRELOADED_STATE__" ou similar
-    patterns = [
-        r'"items"\s*:\s*(\[(?:[^[\]]*|\[(?:[^[\]]*|\[[^[\]]*\])*\])*\])',
-        r'"results"\s*:\s*(\[(?:[^[\]]*|\[(?:[^[\]]*|\[[^[\]]*\])*\])*\])',
-        r'window\[\'initialState\'\]\s*=\s*({.+?});\s*</script>',
-    ]
+    log(f"  -> HTML recebido: {len(html)} chars")
 
-    for pattern in patterns:
-        matches = re.findall(pattern, html, re.DOTALL)
-        for match in matches:
-            try:
-                data = json.loads(match)
-                if isinstance(data, list) and len(data) > 2:
-                    log(f"  -> {len(data)} itens no JSON")
-                    return data
-                elif isinstance(data, dict):
-                    for key in ["results", "items", "elements"]:
-                        items = data.get(key, [])
-                        if items and len(items) > 0:
-                            log(f"  -> {len(items)} itens no JSON[{key}]")
-                            return items
-            except:
-                continue
+    # ML injeta dados no formato: {"results":[...]} dentro de scripts
+    # Procura por blocos JSON que contenham "original_price" (indica produto com desconto)
+    try:
+        # Tenta achar o JSON principal da página
+        idx = html.find('"results":[{')
+        if idx == -1:
+            idx = html.find('"items":[{')
 
-    # Fallback: extrai preços e links via regex simples
-    log("  -> JSON não encontrado, tentando regex...")
-    links = re.findall(r'href="(https://www\.mercadolivre\.com\.br/[^"]+)"', html)
-    log(f"  -> {len(links)} links encontrados via regex")
+        if idx != -1:
+            # Encontra o início do array
+            start = html.rfind('[', 0, idx + 15)
+            if start == -1:
+                start = idx + html[idx:].find('[')
+
+            # Encontra o fim balanceado do array
+            depth = 0
+            end = start
+            for i, c in enumerate(html[start:], start):
+                if c == '[':
+                    depth += 1
+                elif c == ']':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+                if i - start > 500000:  # limite de segurança
+                    break
+
+            json_str = html[start:end]
+            data = json.loads(json_str)
+            if isinstance(data, list) and len(data) > 0:
+                log(f"  -> {len(data)} itens extraídos do JSON")
+                return data
+    except Exception as e:
+        log(f"  -> Erro ao extrair JSON: {e}")
+
+    # Fallback: conta links do ML para diagnóstico
+    links = re.findall(r'href="(https://www\.mercadolivre\.com\.br/[^"?#]+)"', html)
+    links_unicos = list(set(links))
+    log(f"  -> JSON não encontrado. {len(links_unicos)} links de produto no HTML")
+    if links_unicos:
+        log(f"  -> Exemplo: {links_unicos[0][:80]}")
+
     return []
 
 
