@@ -190,8 +190,17 @@ def processar_item(item):
 
         # Imagem: vem em card["pictures"], não nos components
         if not imagem and pictures:
-            primeira = pictures[0] if isinstance(pictures[0], dict) else {}
-            imagem = primeira.get("url", "") or primeira.get("src", "") or ""
+            try:
+                primeira = pictures[0]
+                if isinstance(primeira, dict):
+                    imagem = primeira.get("url", "") or primeira.get("src", "") or ""
+                elif isinstance(primeira, str):
+                    imagem = primeira
+            except Exception:
+                imagem = ""
+
+        # Fallback nome
+        if not nome:
             nome = metadata.get("title", "")
 
         nome = nome.strip()
@@ -226,7 +235,8 @@ def processar_item(item):
             "fontes":         ["mercadolivre"],
         }
     except Exception as e:
-        log(f"  ML item erro: {e}")
+        import traceback
+        log(f"  ML item erro: {e} | {traceback.format_exc()[-300:]}")
         return None
 
 
