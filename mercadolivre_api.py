@@ -189,6 +189,9 @@ def processar_item(item):
                     mais_vendido = True
 
         # Imagem: vem em card["pictures"], não nos components
+        if not getattr(processar_item, '_img_logged', False):
+            processar_item._img_logged = True
+            log(f"  -> pictures raw: {str(pictures)[:300]}")
         if not imagem and pictures:
             try:
                 primeira = pictures[0]
@@ -198,6 +201,9 @@ def processar_item(item):
                     imagem = primeira
             except Exception:
                 imagem = ""
+        if not getattr(processar_item, '_img2_logged', False):
+            processar_item._img2_logged = True
+            log(f"  -> imagem_url: '{imagem[:120] if imagem else "VAZIO"}'")
 
         # Fallback nome
         if not nome:
