@@ -964,6 +964,91 @@ def ciclo():
     log.info(f"Ciclo concluído — {postou} post(s)\n")
 
 
+def postar_whatsapp_teste(produto, imagem_path):
+    """Posta 1 oferta no grupo de teste via Evolution API."""
+    if not EVOLUTION_URL or not WHATSAPP_TEST_GROUP_ID:
+        log.warning("WhatsApp teste: WHATSAPP_TEST_GROUP_ID não configurado")
+        return
+
+    try:
+        nome    = produto.get("nome", "")
+        preco   = produto.get("preco", 0)
+        orig    = produto.get("preco_original", 0)
+        desc    = produto.get("desconto", 0)
+        link    = produto.get("link_afiliado", "")
+        loja    = produto.get("loja", "")
+        img_url = produto.get("imagem_url", "")
+
+        loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "MERCADOLIVRE": "🟡 Mercado Livre", "AMAZON": "📦 Amazon"}.get(loja, loja)
+
+        def fmt(v):
+            return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        texto  = f"🧪 *[TESTE]* — OlhaissO Tech\n"
+        texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        texto += f"*{nome}*\n\n"
+        if desc > 0:
+            eco = round(orig - preco, 2)
+            texto += f"🏷️ *{desc}% OFF*  |  Economia de *{fmt(eco)}*\n"
+        if orig > preco:
+            texto += f"\n💵 De {fmt(orig)} por apenas\n"
+        texto += f"💰 *{fmt(preco)}*\n\n"
+        texto += f"{loja_label}\n"
+        texto += f"\n🛒 *COMPRAR AGORA:*\n{link}\n"
+        texto += f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        texto += f"🧪 Mensagem de teste — OlhaissoTech"
+
+        headers = {
+            "apikey": EVOLUTION_APIKEY,
+            "Content-Type": "application/json",
+        }
+
+        if img_url:
+            payload = {
+                "number": WHATSAPP_TEST_GROUP_ID,
+                "mediatype": "image",
+                "mimetype": "image/jpeg",
+                "caption": texto,
+                "media": img_url,
+            }
+            r = requests.post(
+                f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
+                json=payload, headers=headers, timeout=30
+            )
+            if r.status_code in (200, 201):
+                log.info("✅ WhatsApp TESTE postado com imagem!")
+                return
+
+        payload_txt = {
+            "number": WHATSAPP_TEST_GROUP_ID,
+            "text": texto,
+        }
+        requests.post(
+            f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}",
+            json=payload_txt, headers=headers, timeout=30
+        )
+        log.info("✅ WhatsApp TESTE postado!")
+    except Exception as e:
+        log.error(f"WhatsApp teste erro: {e}")
+
+
+def ciclo_teste():
+    """Busca 1 produto do ML e posta no grupo de teste. Sempre 1 produto fixo."""
+    log.info("🧪 Ciclo de teste iniciado...")
+    try:
+        from mercadolivre_api import buscar_todos_produtos as buscar_ml
+        produtos = buscar_ml()
+        if not produtos:
+            log.warning("🧪 Ciclo teste: nenhum produto ML encontrado")
+            return
+        produto = produtos[0]  # Sempre só 1 produto
+        log.info(f"🧪 Testando: {produto.get('nome', '')[:50]}")
+        imagem_path = baixar_imagem(produto)
+        postar_whatsapp_teste(produto, imagem_path)
+    except Exception as e:
+        log.error(f"🧪 Ciclo teste erro: {e}")
+
+
 def main():
     init_db()
     log.info("🤖 OlhaissoTech Bot v6.0 iniciado!")
@@ -974,6 +1059,9 @@ def main():
     log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
+    # Dispara 1 oferta de teste no grupo teste a cada deploy
+    ciclo_teste()
+    log.info("⏳ Aguardando próximo horário agendado...")
     log.info("⏳ Aguardando próximo horário agendado...")
     while True:
         schedule.run_pending()
