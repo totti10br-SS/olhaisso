@@ -1,6 +1,7 @@
 """
-Mercado Livre — scraping via Playwright (headless Chromium)
+Mercado Livre — via ScraperAPI + API oficial do ML
 Publisher ID: ot20260326074822
+ScraperAPI bypassa o 403 do ML
 """
 
 import os
@@ -9,18 +10,52 @@ import sys
 import random
 import hashlib
 import time
+import requests
 
 ML_PUBLISHER_ID = os.getenv("ML_PUBLISHER_ID", "ot20260326074822")
+SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")
 PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
 PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
+DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
-URLS_CATEGORIAS = [
-    "https://www.mercadolivre.com.br/ofertas?category=MLB1648",
-    "https://www.mercadolivre.com.br/ofertas?category=MLB1051",
-    "https://www.mercadolivre.com.br/ofertas?category=MLB1000",
-    "https://www.mercadolivre.com.br/ofertas?category=MLB1066",
-    "https://www.mercadolivre.com.br/ofertas?category=MLB1039",
-    "https://www.mercadolivre.com.br/ofertas#nav-header",
+# Categorias tech do ML Brasil
+CATEGORIAS = [
+    ("MLB1648", "Computação"),
+    ("MLB1676", "Monitores"),
+    ("MLB1051", "Celulares"),
+    ("MLB1000", "Eletrônicos"),
+    ("MLB1066", "TVs"),
+    ("MLB1039", "Video Games"),
+    ("MLB1002", "Áudio"),
+    ("MLB1132", "Câmeras"),
+]
+
+KEYWORDS = [
+    "monitor gamer 144hz",
+    "monitor 4k",
+    "ssd nvme 1tb",
+    "memoria ram ddr4",
+    "placa de video",
+    "processador intel",
+    "processador amd",
+    "smartphone samsung",
+    "iphone",
+    "xiaomi redmi",
+    "motorola edge",
+    "notebook gamer",
+    "teclado mecanico",
+    "mouse gamer",
+    "headset gamer",
+    "smart tv 4k",
+    "playstation 5",
+    "xbox series",
+    "nintendo switch",
+    "robo aspirador",
+    "airfryer",
+    "smartwatch",
+    "fonte pc 650w",
+    "placa mae",
+    "cooler cpu",
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -48,17 +83,6 @@ def produto_valido(nome):
     return True
 
 
-def extrair_preco(texto):
-    if not texto:
-        return 0.0
-    try:
-        limpo = re.sub(r'[^\d,.]', '', texto)
-        limpo = limpo.replace('.', '').replace(',', '.')
-        return float(limpo)
-    except:
-        return 0.0
-
-
 def gerar_link_afiliado(url):
     separador = "&" if "?" in url else "?"
     return f"{url}{separador}matt_tool={ML_PUBLISHER_ID}"
@@ -66,8 +90,10 @@ def gerar_link_afiliado(url):
 
 def encurtar_link(url_longa):
     try:
-        import requests
-        r = requests.get(f"https://tinyurl.com/api-create.php?url={url_longa}", timeout=5)
+        r = requests.get(
+            f"https://tinyurl.com/api-create.php?url={url_longa}",
+            timeout=5
+        )
         if r.status_code == 200 and r.text.startswith("https://"):
             return r.text.strip()
     except:
@@ -75,192 +101,152 @@ def encurtar_link(url_longa):
     return url_longa
 
 
-def buscar_com_playwright():
-    log("ML Playwright: iniciando...")
+def scraper_get(url):
+    """Faz requisição via ScraperAPI para bypasear o 403 do ML."""
     try:
-        from playwright.sync_api import sync_playwright
-        log("ML Playwright: biblioteca OK")
-    except ImportError as e:
-        log(f"ML Playwright: ERRO import — {e}")
+        payload = {
+            "api_key": SCRAPERAPI_KEY,
+            "url":     url,
+            "country_code": "br",
+        }
+        r = requests.get(
+            "https://api.scraperapi.com",
+            params=payload,
+            timeout=30
+        )
+        log(f"  ScraperAPI status: {r.status_code} para {url[:60]}")
+        if r.status_code == 200:
+            return r.json()
+        return None
+    except Exception as e:
+        log(f"  ScraperAPI erro: {e}")
+        return None
+
+
+def processar_item(item):
+    """Converte item da API ML no formato padrão do bot."""
+    try:
+        nome = item.get("title", "").strip()
+        if not nome or not produto_valido(nome):
+            return None
+
+        preco      = float(item.get("price", 0) or 0)
+        preco_orig = float(item.get("original_price") or 0)
+
+        if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
+            return None
+
+        desconto = 0
+        if preco_orig > preco:
+            desconto = int((1 - preco / preco_orig) * 100)
+
+        if desconto < DESCONTO_MINIMO:
+            return None
+
+        permalink = item.get("permalink", "")
+        if not permalink:
+            return None
+
+        # Tag mais vendido
+        tags = [t.get("id", "") for t in item.get("tags", [])]
+        mais_vendido = "best_seller" in tags or "good_sale_quality" in tags
+
+        shipping    = item.get("shipping", {}) or {}
+        frete_gratis = shipping.get("free_shipping", False)
+        frete_txt   = "✅ Frete grátis" if frete_gratis else "🚚 Frete a calcular"
+
+        thumbnail   = item.get("thumbnail", "")
+        imagem      = thumbnail.replace("I.jpg", "O.jpg") if thumbnail else ""
+
+        link_afiliado = gerar_link_afiliado(permalink)
+        link_curto    = encurtar_link(link_afiliado)
+
+        if mais_vendido:
+            log(f"  ⭐ MAIS VENDIDO: {nome[:45]}")
+
+        return {
+            "nome":           nome,
+            "preco":          round(preco, 2),
+            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
+            "desconto":       desconto,
+            "loja":           "MERCADOLIVRE",
+            "frete":          frete_txt,
+            "link_afiliado":  link_curto,
+            "imagem_url":     imagem,
+            "score":          3 if mais_vendido else 1,
+            "fontes":         ["mercadolivre"],
+        }
+    except Exception as e:
+        log(f"  ML processar item erro: {e}")
+        return None
+
+
+def buscar_por_categoria(cat_id, cat_nome, limit=10):
+    """Busca produtos em oferta por categoria via ScraperAPI."""
+    url = f"https://api.mercadolibre.com/sites/MLB/search?category={cat_id}&sort=best_seller&limit={limit}"
+    log(f"ML buscando categoria: {cat_nome}")
+    data = scraper_get(url)
+    if not data:
         return []
+    items = data.get("results", [])
+    log(f"  -> {len(items)} itens retornados")
+    return items
 
-    produtos = []
-    vistos   = set()
-    urls = random.sample(URLS_CATEGORIAS, min(3, len(URLS_CATEGORIAS)))
 
-    with sync_playwright() as p:
-        try:
-            log("ML Playwright: lançando browser...")
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--no-first-run",
-                    "--no-zygote",
-                    "--single-process",
-                ]
-            )
-            log("ML Playwright: browser OK")
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800},
-                locale="pt-BR",
-            )
-            page = context.new_page()
-
-            for url in urls:
-                try:
-                    log(f"ML Playwright: acessando {url[:70]}")
-                    page.goto(url, timeout=30000, wait_until="domcontentloaded")
-                    page.wait_for_timeout(3000)
-
-                    titulo = page.title()
-                    log(f"  -> Pagina: {titulo[:60]}")
-
-                    # Aguarda produtos carregarem (lazy loading)
-                    page.wait_for_timeout(2000)
-                    # Scroll para forçar carregamento
-                    page.evaluate("window.scrollTo(0, 500)")
-                    page.wait_for_timeout(2000)
-
-                    # Seletores específicos para cards de produto do ML ofertas
-                    cards = []
-                    for seletor in [
-                        "li.promotion-item",
-                        "div.promotion-item",
-                        "li[class*='promotion']",
-                        "div[class*='promotion-item']",
-                        "ol.items_container > li",
-                        "section.items_container li",
-                    ]:
-                        cards = page.query_selector_all(seletor)
-                        if cards:
-                            log(f"  -> {len(cards)} cards com: {seletor}")
-                            break
-
-                    if not cards:
-                        log("  -> Nenhum card de produto encontrado — tentando dump da página...")
-                        # Mostra estrutura da página para diagnóstico
-                        estrutura = page.evaluate("""() => {
-                            const els = document.querySelectorAll('li, div, ol, ul, section');
-                            const classes = new Set();
-                            els.forEach(el => {
-                                if (el.className && typeof el.className === 'string') {
-                                    el.className.split(' ').forEach(c => {
-                                        if (c.includes('item') || c.includes('promo') || c.includes('product') || c.includes('offer'))
-                                            classes.add(c);
-                                    });
-                                }
-                            });
-                            return Array.from(classes).slice(0, 30).join(', ');
-                        }""")
-                        log(f"  -> Classes relevantes na página: {estrutura}")
-                        continue
-
-                    encontrados = 0
-                    for card in cards[:30]:
-                        try:
-                            # Nome
-                            nome_el = card.query_selector("p[class*='title'], h2[class*='title'], span[class*='title'], a[class*='title']")
-                            nome = nome_el.inner_text().strip() if nome_el else ""
-                            if not nome or len(nome) < 5 or not produto_valido(nome):
-                                continue
-
-                            # Pega todos os precos do card
-                            precos_el = card.query_selector_all("span.andes-money-amount__fraction")
-                            valores = []
-                            for pel in precos_el:
-                                v = extrair_preco(pel.inner_text())
-                                if v >= PRECO_MINIMO:
-                                    valores.append(v)
-
-                            if not valores:
-                                continue
-
-                            preco      = min(valores)
-                            preco_orig = max(valores) if len(valores) > 1 else 0
-
-                            if preco > PRECO_MAXIMO:
-                                continue
-
-                            # Desconto
-                            desc_el  = card.query_selector("span[class*='discount'], span[class*='rebate'], span[class*='off']")
-                            desc_txt = desc_el.inner_text() if desc_el else ""
-                            desconto = 0
-                            if desc_txt:
-                                m = re.search(r'(\d+)', desc_txt)
-                                if m:
-                                    desconto = int(m.group(1))
-                            if desconto == 0 and preco_orig > preco > 0:
-                                desconto = int((1 - preco / preco_orig) * 100)
-
-                            # Tag "Mais Vendido" — aumenta score
-                            mais_vendido = False
-                            tag_el = card.query_selector("span[class*='highlight'], span[class*='tag'], div[class*='badge']")
-                            if tag_el:
-                                tag_txt = tag_el.inner_text().lower()
-                                if "mais vendido" in tag_txt or "best seller" in tag_txt:
-                                    mais_vendido = True
-                                    log(f"  ⭐ MAIS VENDIDO: {nome[:40]}")
-
-                            # Link
-                            link_el = card.query_selector("a")
-                            link = link_el.get_attribute("href") if link_el else ""
-                            if not link or "mercadolivre" not in link:
-                                continue
-
-                            # Imagem
-                            img_el = card.query_selector("img")
-                            imagem = ""
-                            if img_el:
-                                imagem = img_el.get_attribute("src") or img_el.get_attribute("data-src") or ""
-
-                            chave = hashlib.md5(nome.encode()).hexdigest()
-                            if chave in vistos:
-                                continue
-                            vistos.add(chave)
-
-                            link_clean    = link.split("#")[0].split("?")[0]
-                            link_afiliado = gerar_link_afiliado(link_clean)
-                            link_curto    = encurtar_link(link_afiliado)
-
-                            log(f"  -> OK: {nome[:45]} | R${preco} | {desconto}% {'⭐' if mais_vendido else ''}")
-                            produtos.append({
-                                "nome":           nome,
-                                "preco":          round(preco, 2),
-                                "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
-                                "desconto":       desconto,
-                                "loja":           "MERCADOLIVRE",
-                                "frete":          "🚚 Frete a calcular",
-                                "link_afiliado":  link_curto,
-                                "imagem_url":     imagem,
-                                "score":          3 if mais_vendido else 1,
-                                "fontes":         ["mercadolivre"],
-                            })
-                            encontrados += 1
-
-                        except Exception as e:
-                            log(f"  ML card erro: {e}")
-                            continue
-
-                    log(f"  -> {encontrados} produtos válidos nesta URL")
-                    time.sleep(2)
-
-                except Exception as e:
-                    log(f"ML url erro: {e}")
-                    continue
-
-            browser.close()
-
-        except Exception as e:
-            log(f"ML browser erro: {e}")
-
-    log(f"Mercado Livre (Playwright): {len(produtos)} produtos encontrados")
-    return produtos
+def buscar_por_keyword(keyword, limit=8):
+    """Busca produtos por keyword via ScraperAPI."""
+    url = f"https://api.mercadolibre.com/sites/MLB/search?q={requests.utils.quote(keyword)}&sort=best_seller&limit={limit}"
+    data = scraper_get(url)
+    if not data:
+        return []
+    return data.get("results", [])
 
 
 def buscar_todos_produtos():
-    return buscar_com_playwright()
+    if not SCRAPERAPI_KEY:
+        log("ML ScraperAPI: SCRAPERAPI_KEY não configurada")
+        return []
+
+    log("ML ScraperAPI: iniciando busca...")
+    todos  = []
+    vistos = set()
+    total_bruto = 0
+
+    # Busca por categorias
+    cats = random.sample(CATEGORIAS, min(4, len(CATEGORIAS)))
+    for cat_id, cat_nome in cats:
+        try:
+            items = buscar_por_categoria(cat_id, cat_nome, limit=10)
+            total_bruto += len(items)
+            for item in items:
+                p = processar_item(item)
+                if p:
+                    chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                    if chave not in vistos:
+                        vistos.add(chave)
+                        todos.append(p)
+            time.sleep(1)
+        except Exception as e:
+            log(f"ML categoria {cat_nome} erro: {e}")
+            continue
+
+    # Busca por keywords
+    kws = random.sample(KEYWORDS, min(6, len(KEYWORDS)))
+    for kw in kws:
+        try:
+            items = buscar_por_keyword(kw, limit=8)
+            total_bruto += len(items)
+            for item in items:
+                p = processar_item(item)
+                if p:
+                    chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                    if chave not in vistos:
+                        vistos.add(chave)
+                        todos.append(p)
+            time.sleep(1)
+        except Exception as e:
+            log(f"ML keyword '{kw}' erro: {e}")
+            continue
+
+    log(f"Mercado Livre (ScraperAPI): {total_bruto} brutos → {len(todos)} com desconto >= {DESCONTO_MINIMO}%")
+    return todos
