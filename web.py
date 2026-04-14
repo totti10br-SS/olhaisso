@@ -281,6 +281,7 @@ HTML = """<!DOCTYPE html>
     <div class="tab" onclick="trocarAba('produto')">🛍️ Link de Produto</div>
     <div class="tab" onclick="trocarAba('busca')">🔍 Busca Induzida</div>
     <div class="tab" onclick="trocarAba('web')">🌐 Busca na Internet</div>
+    <div class="tab" onclick="trocarAba('ml')">🟡 Gerar Link ML</div>
   </div>
 
   <!-- FLUXO 1: Link de afiliado pronto -->
@@ -451,11 +452,27 @@ HTML = """<!DOCTYPE html>
 
     <div id="wb_resultados" style="margin-top:16px;"></div>
   </div>
+  <!-- FLUXO 5: Gerador de Link ML Oficial -->
+  <div class="card" id="card_ml">
+    <h2>🟡 Gerar Link ML Oficial (meli.la)</h2>
+    <div class="info">💡 Cola o link de qualquer produto do Mercado Livre — gera o meli.la com sua tag de afiliado via endpoint oficial</div>
+
+    <label>📎 Link do produto (Mercado Livre)</label>
+    <div style="display:flex; gap:10px; margin-bottom:14px;">
+      <input type="url" id="ml_link" placeholder="https://www.mercadolivre.com.br/..." style="margin-bottom:0; flex:1;">
+      <button onclick="abrirLink('ml_link')" style="background:#2a2a2a; border:1px solid #444; border-radius:10px; color:#FF6B1A; font-size:22px; padding:0 16px; cursor:pointer;" title="Abrir em nova aba">🔗</button>
+    </div>
+
+    <button class="btn" id="btn_ml" onclick="gerarLinkML()" style="background:#FFE600;color:#333;">🟡 Gerar Link meli.la</button>
+    <div class="loader" id="loader_ml">⏳ Gerando link afiliado ML...</div>
+
+    <div id="ml_resultado" style="margin-top:16px;"></div>
+  </div>
 </div>
 
 <script>
 function trocarAba(aba) {
-  const abas = ['afiliado', 'produto', 'busca', 'web'];
+  const abas = ['afiliado', 'produto', 'busca', 'web', 'ml'];
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', aba === abas[i]));
   abas.forEach(a => {
     const card = document.getElementById('card_' + a);
@@ -635,6 +652,49 @@ async function buscarInduzido() {
   } finally {
     btn.disabled = false;
     document.getElementById('loader_bk').style.display = 'none';
+  }
+}
+
+async function gerarLinkML() {
+  const link = document.getElementById('ml_link').value.trim();
+  if (!link) return alert('Cole o link do produto ML!');
+  if (!link.includes('mercadolivre.com.br') && !link.includes('meli.la')) {
+    return alert('Use apenas links do Mercado Livre!');
+  }
+
+  const btn = document.getElementById('btn_ml');
+  const loader = document.getElementById('loader_ml');
+  const resultado = document.getElementById('ml_resultado');
+  btn.disabled = true;
+  loader.style.display = 'block';
+  resultado.innerHTML = '';
+
+  try {
+    const resp = await fetch('/gerar_link_ml', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url: link })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      resultado.innerHTML = `
+        <div class="msg msg-ok">
+          ✅ Link gerado com sucesso!<br><br>
+          <strong>🟡 meli.la:</strong><br>
+          <a href="${data.link}" target="_blank" style="color:#FFE600;word-break:break-all;">${data.link}</a><br><br>
+          <button onclick="navigator.clipboard.writeText('${data.link}'); this.textContent='✅ Copiado!'; setTimeout(()=>this.textContent='📋 Copiar link',2000)"
+            style="background:#2a2a2a;border:1px solid #555;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;">
+            📋 Copiar link
+          </button>
+        </div>`;
+    } else {
+      resultado.innerHTML = `<div class="msg msg-err">❌ ${data.erro}</div>`;
+    }
+  } catch(e) {
+    resultado.innerHTML = `<div class="msg msg-err">❌ Erro: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    loader.style.display = 'none';
   }
 }
 
@@ -864,6 +924,26 @@ def buscar_induzido():
 
         return jsonify({"ok": True, "msg": f"{publicados} Oferta(s) Premium publicadas para '{keyword}'"})
 
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/gerar_link_ml", methods=["POST"])
+def gerar_link_ml():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Não autorizado"}), 401
+
+    data = request.json
+    url  = data.get("url", "").strip()
+    if not url:
+        return jsonify({"ok": False, "erro": "URL obrigatória"})
+
+    try:
+        from mercadolivre_link import gerar_link_afiliado_ml
+        link = gerar_link_afiliado_ml(url)
+        if link:
+            return jsonify({"ok": True, "link": link})
+        return jsonify({"ok": False, "erro": "Não foi possível gerar o link. Verifique se ML_COOKIES_JSON está configurado no Railway."})
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
 
