@@ -1267,19 +1267,31 @@ def dados_produto_ml():
         if m:
             preco_orig = float(m.group(1))
 
-        # Extrai imagem principal
+        # Extrai imagem principal — força resolucao maxima (-F.jpg)
+        def ml_img_hd(url):
+            """Converte qualquer URL de imagem ML para versao HD (-F.jpg)."""
+            import re as _re
+            url = _re.sub(r'-[A-Z]\.jpg', '-F.jpg', url)
+            url = _re.sub(r'\.webp$', '.jpg', url)
+            return url
+
         imagem = ""
-        m = re.search(r'"picture_url"\s*:\s*"(https://[^"]+mlstatic[^"]+)"', html)
-        if m:
-            imagem = m.group(1)
+        # Tenta pegar de "pictures" no JSON da pagina (lista de fotos HD)
+        pics = re.findall(r'"url"\s*:\s*"(https://[^"]+mlstatic[^"]+\.jpg[^"]*)"', html)
+        if pics:
+            imagem = ml_img_hd(pics[0])
+        if not imagem:
+            m = re.search(r'"picture_url"\s*:\s*"(https://[^"]+mlstatic[^"]+)"', html)
+            if m:
+                imagem = ml_img_hd(m.group(1))
         if not imagem:
             m = re.search(r'"thumbnail"\s*:\s*"(https://[^"]+mlstatic[^"]+)"', html)
             if m:
-                imagem = m.group(1).replace("-I.jpg", "-O.jpg")
+                imagem = ml_img_hd(m.group(1))
         if not imagem:
             m = re.search(r'<img[^>]+class="[^"]*ui-pdp-image[^"]*"[^>]+src="([^"]+)"', html)
             if m:
-                imagem = m.group(1)
+                imagem = ml_img_hd(m.group(1))
 
         if not nome and not preco:
             return jsonify({"ok": False, "erro": "Nao foi possivel extrair dados do produto. Tente preencher manualmente."})
