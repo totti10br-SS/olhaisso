@@ -454,17 +454,49 @@ HTML = """<!DOCTYPE html>
   </div>
   <!-- FLUXO 5: Gerador de Link ML Oficial -->
   <div class="card" id="card_ml">
-    <h2>🟡 Gerar Link ML Oficial (meli.la)</h2>
-    <div class="info">💡 Cola o link de qualquer produto do Mercado Livre — gera o meli.la com sua tag de afiliado via endpoint oficial</div>
+    <h2>🟡 Publicar com Link ML Oficial (meli.la)</h2>
+    <div class="info">💡 Cola o link do produto ML — gera o meli.la com sua tag e publica no Telegram + WhatsApp</div>
 
-    <label>📎 Link do produto (Mercado Livre)</label>
+    <label>📎 Link do produto (Mercado Livre) *</label>
     <div style="display:flex; gap:10px; margin-bottom:14px;">
       <input type="url" id="ml_link" placeholder="https://www.mercadolivre.com.br/..." style="margin-bottom:0; flex:1;">
       <button onclick="abrirLink('ml_link')" style="background:#2a2a2a; border:1px solid #444; border-radius:10px; color:#FF6B1A; font-size:22px; padding:0 16px; cursor:pointer;" title="Abrir em nova aba">🔗</button>
     </div>
 
-    <button class="btn" id="btn_ml" onclick="gerarLinkML()" style="background:#FFE600;color:#333;">🟡 Gerar Link meli.la</button>
-    <div class="loader" id="loader_ml">⏳ Gerando link afiliado ML...</div>
+    <label>📝 Nome do produto *</label>
+    <input type="text" id="ml_nome" placeholder="Ex: Smart TV Samsung 50 4K QLED">
+
+    <div class="row2">
+      <div>
+        <label>💰 Preço atual (R$) *</label>
+        <input type="number" id="ml_preco" step="0.01" placeholder="Ex: 1299.90">
+      </div>
+      <div>
+        <label>💵 Preço original (R$)</label>
+        <input type="number" id="ml_preco_orig" step="0.01" placeholder="Ex: 1999.90">
+      </div>
+    </div>
+
+    <label>🖼️ URL da imagem *</label>
+    <input type="url" id="ml_imagem" placeholder="Cole a URL da imagem do produto">
+
+    <label>⭐ Texto em destaque (opcional)</label>
+    <input type="text" id="ml_destaque" placeholder="Ex: OFERTA DO DIA, MAIS VENDIDO...">
+
+    <label style="margin-bottom:8px;">📢 Publicar em:</label>
+    <div class="destinos">
+      <label class="destino on" id="dest_tg_ml">
+        <input type="checkbox" id="ml_telegram" checked onchange="toggleDestino('dest_tg_ml', this)">
+        <span>✈️ Telegram</span>
+      </label>
+      <label class="destino on" id="dest_wa_ml">
+        <input type="checkbox" id="ml_whatsapp" checked onchange="toggleDestino('dest_wa_ml', this)">
+        <span>📱 WhatsApp</span>
+      </label>
+    </div>
+
+    <button class="btn" id="btn_ml" onclick="publicarML()" style="background:#FFE600;color:#333;font-size:16px;">🟡 Gerar link e publicar</button>
+    <div class="loader" id="loader_ml">⏳ Gerando link meli.la...</div>
 
     <div id="ml_resultado" style="margin-top:16px;"></div>
   </div>
@@ -655,46 +687,76 @@ async function buscarInduzido() {
   }
 }
 
-async function gerarLinkML() {
-  const link = document.getElementById('ml_link').value.trim();
-  if (!link) return alert('Cole o link do produto ML!');
-  if (!link.includes('mercadolivre.com.br') && !link.includes('meli.la')) {
-    return alert('Use apenas links do Mercado Livre!');
-  }
+async function publicarML() {
+  const link      = document.getElementById('ml_link').value.trim();
+  const nome      = document.getElementById('ml_nome').value.trim();
+  const preco     = parseFloat(document.getElementById('ml_preco').value) || 0;
+  const preco_orig= parseFloat(document.getElementById('ml_preco_orig').value) || 0;
+  const imagem    = document.getElementById('ml_imagem').value.trim();
+  const destaque  = document.getElementById('ml_destaque').value.trim();
+  const telegram  = document.getElementById('ml_telegram').checked;
+  const whatsapp  = document.getElementById('ml_whatsapp').checked;
+
+  if (!link)   return alert('Cole o link do produto ML!');
+  if (!link.includes('mercadolivre.com.br')) return alert('Use apenas links do Mercado Livre!');
+  if (!nome)   return alert('Preencha o nome do produto!');
+  if (!preco)  return alert('Preencha o preço atual!');
+  if (!imagem) return alert('Cole a URL da imagem!');
+  if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
 
   const btn = document.getElementById('btn_ml');
   const loader = document.getElementById('loader_ml');
   const resultado = document.getElementById('ml_resultado');
   btn.disabled = true;
   loader.style.display = 'block';
+  loader.textContent = '⏳ Gerando link meli.la...';
   resultado.innerHTML = '';
 
   try {
-    const resp = await fetch('/gerar_link_ml', {
+    // 1. Gera o link meli.la
+    const respLink = await fetch('/gerar_link_ml', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ url: link })
     });
-    const data = await resp.json();
-    if (data.ok) {
+    const dataLink = await respLink.json();
+    if (!dataLink.ok) {
+      resultado.innerHTML = `<div class="msg msg-err">❌ ${dataLink.erro}</div>`;
+      return;
+    }
+    const linkFinal = dataLink.link;
+
+    // 2. Publica com o link gerado
+    loader.textContent = '⏳ Gerando imagem e publicando...';
+    const respPub = await fetch('/publicar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ nome, preco, preco_orig, loja: 'MERCADOLIVRE', link: linkFinal, imagem, destaque, telegram, whatsapp })
+    });
+    const dataPub = await respPub.json();
+
+    if (dataPub.ok) {
       resultado.innerHTML = `
         <div class="msg msg-ok">
-          ✅ Link gerado com sucesso!<br><br>
-          <strong>🟡 meli.la:</strong><br>
-          <a href="${data.link}" target="_blank" style="color:#FFE600;word-break:break-all;">${data.link}</a><br><br>
-          <button onclick="navigator.clipboard.writeText('${data.link}'); this.textContent='✅ Copiado!'; setTimeout(()=>this.textContent='📋 Copiar link',2000)"
+          ✅ ${dataPub.msg}<br><br>
+          <strong>🟡 Link gerado:</strong><br>
+          <a href="${linkFinal}" target="_blank" style="color:#FFE600;word-break:break-all;">${linkFinal}</a><br><br>
+          <button onclick="navigator.clipboard.writeText('${linkFinal}'); this.textContent='✅ Copiado!'; setTimeout(()=>this.textContent='📋 Copiar link',2000)"
             style="background:#2a2a2a;border:1px solid #555;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;">
             📋 Copiar link
           </button>
         </div>`;
+      // Limpa campos
+      ['ml_link','ml_nome','ml_preco','ml_preco_orig','ml_imagem','ml_destaque'].forEach(id => document.getElementById(id).value = '');
     } else {
-      resultado.innerHTML = `<div class="msg msg-err">❌ ${data.erro}</div>`;
+      resultado.innerHTML = `<div class="msg msg-err">❌ ${dataPub.erro}</div>`;
     }
   } catch(e) {
     resultado.innerHTML = `<div class="msg msg-err">❌ Erro: ${e.message}</div>`;
   } finally {
     btn.disabled = false;
     loader.style.display = 'none';
+    loader.textContent = '⏳ Gerando link meli.la...';
   }
 }
 
