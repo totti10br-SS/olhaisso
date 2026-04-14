@@ -1228,7 +1228,7 @@ def dados_produto_ml():
             "country_code": "br",
             "render":       "false",
         }
-        r = requests.get("https://api.scraperapi.com", params=payload, timeout=30)
+        r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
         if r.status_code != 200:
             return jsonify({"ok": False, "erro": "Erro ao acessar pagina do produto"})
 
@@ -1267,14 +1267,12 @@ def dados_produto_ml():
         if m:
             preco_orig = float(m.group(1))
 
-        # Extrai imagem principal — força resolucao maxima HD
+        # Extrai imagem principal — força resolucao maxima (-F.jpg)
         def ml_img_hd(url):
-            """Converte URL de imagem ML para versao HD (2X -F.webp)."""
+            """Converte qualquer URL de imagem ML para versao HD (-F.jpg)."""
             import re as _re
-            # D_Q_NP_ → D_NQ_NP_2X_
-            url = url.replace("D_Q_NP_", "D_NQ_NP_2X_")
-            # qualquer sufixo de tamanho (-R, -O, -I, etc) + extensao → -F.webp
-            url = _re.sub(r'-[A-Z]\.(jpg|jpeg|png|webp)$', '-F.webp', url)
+            url = _re.sub(r'-[A-Z]\.jpg', '-F.jpg', url)
+            url = _re.sub(r'\.webp$', '.jpg', url)
             return url
 
         imagem = ""
