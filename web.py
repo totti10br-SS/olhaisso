@@ -38,48 +38,56 @@ def postar_whatsapp_grupo(produto, imagem_path, group_id):
         link    = produto.get("link_afiliado", "")
         loja    = produto.get("loja", "")
         img_url = produto.get("imagem_url", "")
-        loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon", "MERCADOLIVRE": "🟡 Mercado Livre"}.get(loja, loja)
-        badge = "🔥 VIRAL AGORA" if produto.get("score", 0) >= 3 else "📈 TENDÊNCIA" if produto.get("score", 0) == 2 else "💰 OFERTA DO DIA"
-        def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        texto  = f"👀 *OlhaissO* — {badge}
-"
-        texto += f"━━━━━━━━━━━━━━━━━━━━
-
-"
-        texto += f"*{nome}*
-
-"
+        loja_label = {
+            "ALIEXPRESS": "AliExpress", "SHOPEE": "Shopee",
+            "AMAZON": "Amazon", "MERCADOLIVRE": "Mercado Livre"
+        }.get(loja, loja)
+        badge = "VIRAL AGORA" if produto.get("score", 0) >= 3 else "TENDENCIA" if produto.get("score", 0) == 2 else "OFERTA DO DIA"
+        def fmt(v):
+            return "R$ {:,.2f}".format(v).replace(",", "X").replace(".", ",").replace("X", ".")
+        linhas = [
+            "*OlhaissoTech* -- " + badge,
+            "--------------------",
+            "",
+            "*" + nome + "*",
+            "",
+        ]
         if desc > 0:
             eco = round(orig - preco, 2)
-            texto += f"🏷️ *{desc}% OFF*  |  Economia de *{fmt(eco)}*
-"
+            linhas.append(str(desc) + "% OFF  |  Economia de " + fmt(eco))
         if orig > preco:
-            texto += f"
-💵 De {fmt(orig)} por apenas
-"
-        texto += f"💰 *{fmt(preco)}*
-
-"
-        texto += f"{loja_label}
-"
-        texto += f"
-🛒 *COMPRAR AGORA:*
-{link}
-"
-        texto += f"
-━━━━━━━━━━━━━━━━━━━━
-"
-        texto += f"👀 OlhaissoTech | Gadgets com o melhor preço"
+            linhas.append("")
+            linhas.append("De " + fmt(orig) + " por apenas")
+        linhas.append(fmt(preco))
+        linhas.append("")
+        linhas.append(loja_label)
+        linhas.append("")
+        linhas.append("COMPRAR AGORA:")
+        linhas.append(link)
+        linhas.append("")
+        linhas.append("--------------------")
+        linhas.append("OlhaissoTech | Gadgets com o melhor preco")
+        texto = "\n".join(linhas)
         headers = {"apikey": EVOLUTION_APIKEY, "Content-Type": "application/json"}
         if img_url:
-            payload = {"number": group_id, "mediatype": "image", "mimetype": "image/jpeg", "caption": texto, "media": img_url}
-            r = _req.post(f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}", json=payload, headers=headers, timeout=30)
+            payload = {
+                "number": group_id, "mediatype": "image",
+                "mimetype": "image/jpeg", "caption": texto, "media": img_url,
+            }
+            r = _req.post(
+                EVOLUTION_URL + "/message/sendMedia/" + EVOLUTION_INSTANCE,
+                json=payload, headers=headers, timeout=30
+            )
             if r.status_code in (200, 201):
                 return
         payload_txt = {"number": group_id, "text": texto}
-        _req.post(f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}", json=payload_txt, headers=headers, timeout=30)
+        _req.post(
+            EVOLUTION_URL + "/message/sendText/" + EVOLUTION_INSTANCE,
+            json=payload_txt, headers=headers, timeout=30
+        )
     except Exception as e:
-        print(f"WhatsApp grupo erro: {e}")
+        print("WhatsApp grupo erro: " + str(e))
+
 
 app = Flask(__name__)
 app.secret_key = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
