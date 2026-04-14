@@ -141,6 +141,9 @@ def processar_item(item):
                 cdata = c.get(ctype, c)
                 log(f"     [{ctype}] → {str(cdata)[:150]}")
 
+        # ID do item (para link de afiliado oficial)
+        item_id = metadata.get("id", "")
+
         # URL do produto
         url_prod = metadata.get("url", "")
         if url_prod and not url_prod.startswith("http"):
@@ -216,9 +219,13 @@ def processar_item(item):
         if desconto < DESCONTO_MINIMO:
             return None
 
-        frete_txt     = "✅ Frete grátis" if frete_ok else "🚚 Frete a calcular"
-        link_afiliado = gerar_link_afiliado(url_prod)
-        link_curto    = encurtar_link(link_afiliado)
+        frete_txt = "✅ Frete grátis" if frete_ok else "🚚 Frete a calcular"
+        # Gera link meli.la via endpoint oficial; fallback para tinyurl se falhar
+        try:
+            from mercadolivre_link import gerar_link_afiliado_ml
+            link_curto = gerar_link_afiliado_ml(url_prod, item_id) or encurtar_link(gerar_link_afiliado(url_prod))
+        except Exception:
+            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
 
         log(f"  ✅ {nome[:45]} | R${preco} | {desconto}% {'⭐' if mais_vendido else ''}")
 
