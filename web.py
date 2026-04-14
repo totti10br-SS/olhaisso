@@ -18,7 +18,68 @@ from bot import (
     postar_telegram,
     postar_whatsapp,
     AMAZON_TAG,
+    EVOLUTION_URL,
+    EVOLUTION_APIKEY,
+    EVOLUTION_INSTANCE,
+    WHATSAPP_GROUP_ID,
+    WHATSAPP_TEST_GROUP_ID,
 )
+import requests as _req
+
+def postar_whatsapp_grupo(produto, imagem_path, group_id):
+    """Posta no grupo WhatsApp especificado."""
+    if not EVOLUTION_URL or not group_id:
+        return
+    try:
+        nome    = produto.get("nome", "")
+        preco   = produto.get("preco", 0)
+        orig    = produto.get("preco_original", 0)
+        desc    = produto.get("desconto", 0)
+        link    = produto.get("link_afiliado", "")
+        loja    = produto.get("loja", "")
+        img_url = produto.get("imagem_url", "")
+        loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon", "MERCADOLIVRE": "🟡 Mercado Livre"}.get(loja, loja)
+        badge = "🔥 VIRAL AGORA" if produto.get("score", 0) >= 3 else "📈 TENDÊNCIA" if produto.get("score", 0) == 2 else "💰 OFERTA DO DIA"
+        def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        texto  = f"👀 *OlhaissO* — {badge}
+"
+        texto += f"━━━━━━━━━━━━━━━━━━━━
+
+"
+        texto += f"*{nome}*
+
+"
+        if desc > 0:
+            eco = round(orig - preco, 2)
+            texto += f"🏷️ *{desc}% OFF*  |  Economia de *{fmt(eco)}*
+"
+        if orig > preco:
+            texto += f"
+💵 De {fmt(orig)} por apenas
+"
+        texto += f"💰 *{fmt(preco)}*
+
+"
+        texto += f"{loja_label}
+"
+        texto += f"
+🛒 *COMPRAR AGORA:*
+{link}
+"
+        texto += f"
+━━━━━━━━━━━━━━━━━━━━
+"
+        texto += f"👀 OlhaissoTech | Gadgets com o melhor preço"
+        headers = {"apikey": EVOLUTION_APIKEY, "Content-Type": "application/json"}
+        if img_url:
+            payload = {"number": group_id, "mediatype": "image", "mimetype": "image/jpeg", "caption": texto, "media": img_url}
+            r = _req.post(f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}", json=payload, headers=headers, timeout=30)
+            if r.status_code in (200, 201):
+                return
+        payload_txt = {"number": group_id, "text": texto}
+        _req.post(f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}", json=payload_txt, headers=headers, timeout=30)
+    except Exception as e:
+        print(f"WhatsApp grupo erro: {e}")
 
 app = Flask(__name__)
 app.secret_key = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
@@ -237,6 +298,13 @@ HTML = """<!DOCTYPE html>
   .destino.on { border-color: #00BB44; background: #0d2a0d; }
   .destino input[type=checkbox] { width: 18px; height: 18px; accent-color: #00BB44; cursor: pointer; }
   .destino span { font-size: 14px; font-weight: 600; }
+  .wa-grupo { background:#2a2a2a; border:1px solid #333; border-radius:10px; padding:10px 14px; margin-bottom:14px; }
+  .wa-grupo label { color:#aaa; font-size:12px; margin-bottom:6px; display:block; }
+  .wa-grupo .opcoes { display:flex; gap:8px; flex-wrap:wrap; }
+  .wa-grupo .op { flex:1; min-width:100px; display:flex; align-items:center; gap:6px; background:#1a1a1a; border:2px solid #333;
+                  border-radius:8px; padding:8px 10px; cursor:pointer; font-size:13px; font-weight:600; color:#aaa; transition:all 0.2s; }
+  .wa-grupo .op.on { border-color:#25D366; color:#25D366; background:#0d2a1a; }
+  .wa-grupo .op input[type=checkbox] { width:16px; height:16px; accent-color:#25D366; cursor:pointer; }
   .msg { padding: 13px 16px; border-radius: 10px; margin-bottom: 14px; font-size: 14px; }
   .msg-ok  { background: #003d1a; color: #00ee66; border: 1px solid #00BB44; }
   .msg-err { background: #3d0000; color: #ff6666; border: 1px solid #ff4444; }
@@ -331,9 +399,22 @@ HTML = """<!DOCTYPE html>
         <span>✈️ Telegram</span>
       </label>
       <label class="destino on" id="dest_wa_af">
-        <input type="checkbox" id="af_whatsapp" checked onchange="toggleDestino('dest_wa_af', this)">
+        <input type="checkbox" id="af_whatsapp" checked onchange="toggleDestino('dest_wa_af', this); document.getElementById('wa_grupo_af').style.display=this.checked?'block':'none';">
         <span>📱 WhatsApp</span>
       </label>
+    </div>
+    <div class="wa-grupo" id="wa_grupo_af">
+      <label>📱 Grupo WhatsApp:</label>
+      <div class="opcoes">
+        <label class="op on" id="op_af_principal">
+          <input type="checkbox" id="af_wa_principal" checked onchange="toggleGrupo('op_af_principal', this)">
+          <span>👥 Principal</span>
+        </label>
+        <label class="op" id="op_af_teste">
+          <input type="checkbox" id="af_wa_teste" onchange="toggleGrupo('op_af_teste', this)">
+          <span>🧪 Teste</span>
+        </label>
+      </div>
     </div>
 
     <button class="btn btn-green" id="btn_af" onclick="publicarAfiliado()">📢 Publicar agora</button>
@@ -375,9 +456,22 @@ HTML = """<!DOCTYPE html>
         <span>✈️ Telegram</span>
       </label>
       <label class="destino on" id="dest_wa_pr">
-        <input type="checkbox" id="pr_whatsapp" checked onchange="toggleDestino('dest_wa_pr', this)">
+        <input type="checkbox" id="pr_whatsapp" checked onchange="toggleDestino('dest_wa_pr', this); document.getElementById('wa_grupo_pr').style.display=this.checked?'block':'none';">
         <span>📱 WhatsApp</span>
       </label>
+    </div>
+    <div class="wa-grupo" id="wa_grupo_pr">
+      <label>📱 Grupo WhatsApp:</label>
+      <div class="opcoes">
+        <label class="op on" id="op_pr_principal">
+          <input type="checkbox" id="pr_wa_principal" checked onchange="toggleGrupo('op_pr_principal', this)">
+          <span>👥 Principal</span>
+        </label>
+        <label class="op" id="op_pr_teste">
+          <input type="checkbox" id="pr_wa_teste" onchange="toggleGrupo('op_pr_teste', this)">
+          <span>🧪 Teste</span>
+        </label>
+      </div>
     </div>
 
     <button class="btn btn-green" id="btn_pr" onclick="publicarProduto()">📢 Publicar agora</button>
@@ -416,9 +510,22 @@ HTML = """<!DOCTYPE html>
         <span>✈️ Telegram</span>
       </label>
       <label class="destino on" id="dest_wa_bk">
-        <input type="checkbox" id="bk_whatsapp" checked onchange="toggleDestino('dest_wa_bk', this)">
+        <input type="checkbox" id="bk_whatsapp" checked onchange="toggleDestino('dest_wa_bk', this); document.getElementById('wa_grupo_bk').style.display=this.checked?'block':'none';">
         <span>📱 WhatsApp</span>
       </label>
+    </div>
+    <div class="wa-grupo" id="wa_grupo_bk">
+      <label>📱 Grupo WhatsApp:</label>
+      <div class="opcoes">
+        <label class="op on" id="op_bk_principal">
+          <input type="checkbox" id="bk_wa_principal" checked onchange="toggleGrupo('op_bk_principal', this)">
+          <span>👥 Principal</span>
+        </label>
+        <label class="op" id="op_bk_teste">
+          <input type="checkbox" id="bk_wa_teste" onchange="toggleGrupo('op_bk_teste', this)">
+          <span>🧪 Teste</span>
+        </label>
+      </div>
     </div>
 
     <button class="btn btn-orange" id="btn_bk" onclick="buscarInduzido()">🔍 Buscar e publicar Oferta Premium</button>
@@ -490,9 +597,22 @@ HTML = """<!DOCTYPE html>
         <span>✈️ Telegram</span>
       </label>
       <label class="destino on" id="dest_wa_ml">
-        <input type="checkbox" id="ml_whatsapp" checked onchange="toggleDestino('dest_wa_ml', this)">
+        <input type="checkbox" id="ml_whatsapp" checked onchange="toggleDestino('dest_wa_ml', this); document.getElementById('wa_grupo_ml').style.display=this.checked?'block':'none';">
         <span>📱 WhatsApp</span>
       </label>
+    </div>
+    <div class="wa-grupo" id="wa_grupo_ml">
+      <label>📱 Grupo WhatsApp:</label>
+      <div class="opcoes">
+        <label class="op on" id="op_ml_principal">
+          <input type="checkbox" id="ml_wa_principal" checked onchange="toggleGrupo('op_ml_principal', this)">
+          <span>👥 Principal</span>
+        </label>
+        <label class="op" id="op_ml_teste">
+          <input type="checkbox" id="ml_wa_teste" onchange="toggleGrupo('op_ml_teste', this)">
+          <span>🧪 Teste</span>
+        </label>
+      </div>
     </div>
 
     <button class="btn" id="btn_ml" onclick="publicarML()" style="background:#FFE600;color:#333;font-size:16px;">🟡 Gerar link e publicar</button>
@@ -514,6 +634,16 @@ function trocarAba(aba) {
 
 function toggleDestino(id, checkbox) {
   document.getElementById(id).classList.toggle('on', checkbox.checked);
+}
+
+function toggleGrupo(id, checkbox) {
+  document.getElementById(id).classList.toggle('on', checkbox.checked);
+}
+
+function getGruposWA(prefixo) {
+  const principal = document.getElementById(prefixo + '_wa_principal')?.checked;
+  const teste     = document.getElementById(prefixo + '_wa_teste')?.checked;
+  return { wa_principal: principal || false, wa_teste: teste || false };
 }
 
 function abrirLink(inputId) {
@@ -580,15 +710,17 @@ async function publicarAfiliado() {
   const destaque  = document.getElementById('af_destaque').value.trim();
   const telegram  = document.getElementById('af_telegram').checked;
   const whatsapp  = document.getElementById('af_whatsapp').checked;
+  const grupos    = getGruposWA('af');
 
   if (!link)   return alert('Cole o link de afiliado!');
   if (!nome)   return alert('Preencha o nome do produto!');
   if (!preco)  return alert('Preencha o preço atual!');
   if (!imagem) return alert('Cole a URL da imagem!');
   if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
+  if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert('Selecione ao menos um grupo do WhatsApp!');
 
   await enviar(
-    { nome, preco, preco_orig, loja, link, imagem, destaque, telegram, whatsapp },
+    { nome, preco, preco_orig, loja, link, imagem, destaque, telegram, whatsapp, ...grupos },
     'btn_af', 'loader_af',
     ['af_link', 'af_nome', 'af_preco', 'af_preco_orig', 'af_imagem', 'af_destaque']
   );
@@ -602,11 +734,13 @@ async function publicarProduto() {
   const destaque  = document.getElementById('pr_destaque').value.trim();
   const telegram  = document.getElementById('pr_telegram').checked;
   const whatsapp  = document.getElementById('pr_whatsapp').checked;
+  const grupos    = getGruposWA('pr');
 
   if (!link)   return alert('Cole o link do produto!');
   if (!preco)  return alert('Preencha o preço atual!');
   if (!imagem) return alert('Cole a URL da imagem!');
   if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
+  if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert('Selecione ao menos um grupo do WhatsApp!');
 
   const btn = document.getElementById('btn_pr');
   btn.disabled = true;
@@ -627,7 +761,7 @@ async function publicarProduto() {
     document.getElementById('loader_pr').textContent = '⏳ Gerando imagem e publicando...';
 
     await enviar(
-      { nome, preco, preco_orig, loja, link: linkFinal, imagem, destaque, telegram, whatsapp },
+      { nome, preco, preco_orig, loja, link: linkFinal, imagem, destaque, telegram, whatsapp, ...grupos },
       'btn_pr', 'loader_pr',
       ['pr_link', 'pr_preco', 'pr_preco_orig', 'pr_imagem', 'pr_destaque']
     );
@@ -646,6 +780,7 @@ async function buscarInduzido() {
   const desconto_min = document.getElementById('bk_desconto_min').value;
   const telegram     = document.getElementById('bk_telegram').checked;
   const whatsapp     = document.getElementById('bk_whatsapp').checked;
+  const grupos       = getGruposWA('bk');
 
   if (!keyword)  return alert('Digite uma palavra-chave!');
   if (!preco_min) return alert('Informe o preço mínimo!');
@@ -666,7 +801,7 @@ async function buscarInduzido() {
     const resp = await fetch('/buscar_induzido', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ keyword: keyword_final, preco_min, preco_max, desconto_min: parseInt(desconto_min), telegram, whatsapp })
+      body: JSON.stringify({ keyword: keyword_final, preco_min, preco_max, desconto_min: parseInt(desconto_min), telegram, whatsapp, ...grupos })
     });
     const data = await resp.json();
     if (data.ok) {
@@ -696,6 +831,7 @@ async function publicarML() {
   const destaque  = document.getElementById('ml_destaque').value.trim();
   const telegram  = document.getElementById('ml_telegram').checked;
   const whatsapp  = document.getElementById('ml_whatsapp').checked;
+  const grupos    = getGruposWA('ml');
 
   if (!link)   return alert('Cole o link do produto ML!');
   if (!link.includes('mercadolivre.com.br')) return alert('Use apenas links do Mercado Livre!');
@@ -703,6 +839,7 @@ async function publicarML() {
   if (!preco)  return alert('Preencha o preço atual!');
   if (!imagem) return alert('Cole a URL da imagem!');
   if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
+  if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert('Selecione ao menos um grupo do WhatsApp!');
 
   const btn = document.getElementById('btn_ml');
   const loader = document.getElementById('loader_ml');
@@ -731,7 +868,7 @@ async function publicarML() {
     const respPub = await fetch('/publicar', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ nome, preco, preco_orig, loja: 'MERCADOLIVRE', link: linkFinal, imagem, destaque, telegram, whatsapp })
+      body: JSON.stringify({ nome, preco, preco_orig, loja: 'MERCADOLIVRE', link: linkFinal, imagem, destaque, telegram, whatsapp, ...grupos })
     });
     const dataPub = await respPub.json();
 
@@ -883,8 +1020,10 @@ def publicar():
     link       = data.get("link", "")
     imagem     = data.get("imagem", "")
     destaque   = data.get("destaque", "").strip()
-    pub_tg     = data.get("telegram", True)
-    pub_wa     = data.get("whatsapp", True)
+    pub_tg        = data.get("telegram", True)
+    pub_wa        = data.get("whatsapp", True)
+    wa_principal  = data.get("wa_principal", True)
+    wa_teste      = data.get("wa_teste", False)
 
     if not nome or not preco or not link:
         return jsonify({"ok": False, "erro": "Dados incompletos"})
@@ -917,8 +1056,17 @@ def publicar():
             resultados.append("Telegram ✅" if ok_tg else "Telegram ❌")
 
         if pub_wa:
-            postar_whatsapp(produto, imagem_path)
-            resultados.append("WhatsApp ✅")
+            grupos_postados = []
+            if wa_principal:
+                postar_whatsapp_grupo(produto, imagem_path, WHATSAPP_GROUP_ID)
+                grupos_postados.append("Principal")
+            if wa_teste:
+                postar_whatsapp_grupo(produto, imagem_path, WHATSAPP_TEST_GROUP_ID)
+                grupos_postados.append("Teste")
+            if not wa_principal and not wa_teste:
+                postar_whatsapp(produto, imagem_path)
+                grupos_postados.append("Principal")
+            resultados.append(f"WhatsApp ✅ ({', '.join(grupos_postados)})")
 
         msg = "Publicado em: " + " | ".join(resultados)
         return jsonify({"ok": True, "msg": msg})
@@ -937,8 +1085,10 @@ def buscar_induzido():
     preco_min  = float(data.get("preco_min", 0) or 0)
     preco_max  = float(data.get("preco_max", 0) or 0)
     desc_min   = int(data.get("desconto_min", 0) or 0)
-    pub_tg     = data.get("telegram", True)
-    pub_wa     = data.get("whatsapp", True)
+    pub_tg        = data.get("telegram", True)
+    pub_wa        = data.get("whatsapp", True)
+    wa_principal  = data.get("wa_principal", True)
+    wa_teste      = data.get("wa_teste", False)
 
     if not keyword:
         return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
@@ -976,7 +1126,12 @@ def buscar_induzido():
                     produto_tg = {**produto, "imagem_url": ""}
                     postar_telegram(produto_tg, imagem_path)
                 if pub_wa:
-                    postar_whatsapp(produto, imagem_path)
+                    if wa_principal:
+                        postar_whatsapp_grupo(produto, imagem_path, WHATSAPP_GROUP_ID)
+                    if wa_teste:
+                        postar_whatsapp_grupo(produto, imagem_path, WHATSAPP_TEST_GROUP_ID)
+                    if not wa_principal and not wa_teste:
+                        postar_whatsapp(produto, imagem_path)
                 publicados += 1
                 import time as _t
                 _t.sleep(8)
