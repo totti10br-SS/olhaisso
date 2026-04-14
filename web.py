@@ -573,9 +573,17 @@ HTML = """<!DOCTYPE html>
     <div class="info">💡 Cola o link do produto ML — gera o meli.la com sua tag e publica no Telegram + WhatsApp</div>
 
     <label>📎 Link do produto (Mercado Livre) *</label>
-    <div style="display:flex; gap:10px; margin-bottom:14px;">
+    <div style="display:flex; gap:10px; margin-bottom:10px;">
       <input type="url" id="ml_link" placeholder="https://www.mercadolivre.com.br/..." style="margin-bottom:0; flex:1;">
       <button onclick="abrirLink('ml_link')" style="background:#2a2a2a; border:1px solid #444; border-radius:10px; color:#FF6B1A; font-size:22px; padding:0 16px; cursor:pointer;" title="Abrir em nova aba">🔗</button>
+    </div>
+    <button id="btn_ml_preencher" onclick="preencherDadosML()" style="width:100%;background:#1a3a5c;border:1px solid #0088cc;border-radius:10px;color:#4db8ff;font-size:14px;font-weight:700;padding:10px;cursor:pointer;margin-bottom:14px;">🔍 Preencher dados automaticamente</button>
+    <div id="ml_preview" style="display:none;background:#111;border:1px solid #333;border-radius:12px;padding:12px;margin-bottom:14px;display:none;align-items:center;gap:12px;">
+      <img id="ml_preview_img" src="" style="width:72px;height:72px;object-fit:contain;border-radius:8px;background:#222;flex-shrink:0;">
+      <div style="flex:1;min-width:0;">
+        <div id="ml_preview_nome" style="font-size:13px;font-weight:700;color:#fff;line-height:1.3;margin-bottom:4px;"></div>
+        <div id="ml_preview_preco" style="font-size:14px;color:#FF6B1A;font-weight:800;"></div>
+      </div>
     </div>
 
     <label>📝 Nome do produto *</label>
@@ -827,6 +835,52 @@ async function buscarInduzido() {
   } finally {
     btn.disabled = false;
     document.getElementById('loader_bk').style.display = 'none';
+  }
+}
+
+async function preencherDadosML() {
+  const link = document.getElementById('ml_link').value.trim();
+  if (!link) return alert('Cole o link do produto ML primeiro!');
+  if (!link.includes('mercadolivre.com.br')) return alert('Use apenas links do Mercado Livre!');
+
+  const btn = document.getElementById('btn_ml_preencher');
+  btn.disabled = true;
+  btn.textContent = '⏳ Buscando dados...';
+
+  try {
+    const resp = await fetch('/dados_produto_ml', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url: link })
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      alert('Erro: ' + data.erro);
+      return;
+    }
+    // Preenche os campos
+    if (data.nome)       document.getElementById('ml_nome').value = data.nome;
+    if (data.preco)      document.getElementById('ml_preco').value = data.preco;
+    if (data.preco_orig) document.getElementById('ml_preco_orig').value = data.preco_orig;
+    if (data.imagem)     document.getElementById('ml_imagem').value = data.imagem;
+
+    // Mostra preview
+    if (data.imagem || data.nome) {
+      const preview = document.getElementById('ml_preview');
+      preview.style.display = 'flex';
+      if (data.imagem) document.getElementById('ml_preview_img').src = data.imagem;
+      if (data.nome)   document.getElementById('ml_preview_nome').textContent = data.nome;
+      if (data.preco) {
+        const orig = data.preco_orig ? ' (de R$ ' + data.preco_orig + ')' : '';
+        document.getElementById('ml_preview_preco').textContent = 'R$ ' + data.preco + orig;
+      }
+    }
+    btn.textContent = '✅ Dados preenchidos!';
+    setTimeout(() => { btn.textContent = '🔍 Preencher dados automaticamente'; }, 3000);
+  } catch(e) {
+    alert('Erro ao buscar dados: ' + e.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -1148,6 +1202,95 @@ def buscar_induzido():
                 continue
 
         return jsonify({"ok": True, "msg": f"{publicados} Oferta(s) Premium publicadas para '{keyword}'"})
+
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/dados_produto_ml", methods=["POST"])
+def dados_produto_ml():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Nao autorizado"}), 401
+
+    data = request.json
+    url  = data.get("url", "").strip()
+    if not url:
+        return jsonify({"ok": False, "erro": "URL obrigatoria"})
+
+    SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
+    if not SCRAPERAPI_KEY:
+        return jsonify({"ok": False, "erro": "SCRAPERAPI_KEY nao configurada no Railway"})
+
+    try:
+        payload = {
+            "api_key":      SCRAPERAPI_KEY,
+            "url":          url,
+            "country_code": "br",
+            "render":       "false",
+        }
+        r = requests.get("https://api.scraperapi.com", params=payload, timeout=30)
+        if r.status_code != 200:
+            return jsonify({"ok": False, "erro": "Erro ao acessar pagina do produto"})
+
+        html = r.text
+
+        # Extrai nome
+        nome = ""
+        m = re.search(r'"product_title"\s*:\s*"([^"]{10,200})"', html)
+        if m:
+            nome = m.group(1)
+        if not nome:
+            m = re.search(r'<h1[^>]*class="[^"]*ui-pdp-title[^"]*"[^>]*>([^<]{10,200})</h1>', html)
+            if m:
+                nome = m.group(1).strip()
+        if not nome:
+            m = re.search(r'"name"\s*:\s*"([^"]{10,200})"', html)
+            if m:
+                nome = m.group(1)
+
+        # Extrai preço atual
+        preco = 0.0
+        m = re.search(r'"price"\s*:\s*([\d]+\.?\d*)', html)
+        if m:
+            preco = float(m.group(1))
+        if not preco:
+            m = re.search(r'class="andes-money-amount__fraction"[^>]*>(\d[\d\.]*)<', html)
+            if m:
+                try:
+                    preco = float(m.group(1).replace(".", ""))
+                except:
+                    pass
+
+        # Extrai preço original
+        preco_orig = 0.0
+        m = re.search(r'"original_price"\s*:\s*([\d]+\.?\d*)', html)
+        if m:
+            preco_orig = float(m.group(1))
+
+        # Extrai imagem principal
+        imagem = ""
+        m = re.search(r'"picture_url"\s*:\s*"(https://[^"]+mlstatic[^"]+)"', html)
+        if m:
+            imagem = m.group(1)
+        if not imagem:
+            m = re.search(r'"thumbnail"\s*:\s*"(https://[^"]+mlstatic[^"]+)"', html)
+            if m:
+                imagem = m.group(1).replace("-I.jpg", "-O.jpg")
+        if not imagem:
+            m = re.search(r'<img[^>]+class="[^"]*ui-pdp-image[^"]*"[^>]+src="([^"]+)"', html)
+            if m:
+                imagem = m.group(1)
+
+        if not nome and not preco:
+            return jsonify({"ok": False, "erro": "Nao foi possivel extrair dados do produto. Tente preencher manualmente."})
+
+        return jsonify({
+            "ok":        True,
+            "nome":      nome,
+            "preco":     round(preco, 2) if preco else None,
+            "preco_orig": round(preco_orig, 2) if preco_orig > preco else None,
+            "imagem":    imagem,
+        })
 
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
