@@ -26,8 +26,29 @@ from bot import (
 )
 import requests as _req
 
+def fazer_upload_imgbb(imagem_path):
+    """Faz upload da imagem gerada para imgbb e retorna URL publica HD."""
+    IMGBB_KEY = os.getenv("IMGBB_KEY", "")
+    if not IMGBB_KEY or not imagem_path:
+        return None
+    try:
+        import base64
+        with open(imagem_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+        r = _req.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": IMGBB_KEY, "image": img_b64},
+            timeout=20
+        )
+        if r.status_code == 200:
+            return r.json()["data"]["url"]
+    except Exception as e:
+        print("imgbb upload erro: " + str(e))
+    return None
+
+
 def postar_whatsapp_grupo(produto, imagem_path, group_id):
-    """Posta no grupo WhatsApp especificado."""
+    """Posta no grupo WhatsApp especificado usando imagem gerada pelo bot (HD)."""
     if not EVOLUTION_URL or not group_id:
         return
     try:
@@ -37,7 +58,6 @@ def postar_whatsapp_grupo(produto, imagem_path, group_id):
         desc    = produto.get("desconto", 0)
         link    = produto.get("link_afiliado", "")
         loja    = produto.get("loja", "")
-        img_url = produto.get("imagem_url", "")
         loja_label = {
             "ALIEXPRESS": "AliExpress", "SHOPEE": "Shopee",
             "AMAZON": "Amazon", "MERCADOLIVRE": "Mercado Livre"
@@ -69,6 +89,10 @@ def postar_whatsapp_grupo(produto, imagem_path, group_id):
         linhas.append("OlhaissoTech | Gadgets com o melhor preco")
         texto = "\n".join(linhas)
         headers = {"apikey": EVOLUTION_APIKEY, "Content-Type": "application/json"}
+
+        # Usa imagem gerada pelo bot (1080x1080 HD) via imgbb
+        img_url = fazer_upload_imgbb(imagem_path)
+
         if img_url:
             payload = {
                 "number": group_id, "mediatype": "image",
@@ -80,6 +104,7 @@ def postar_whatsapp_grupo(produto, imagem_path, group_id):
             )
             if r.status_code in (200, 201):
                 return
+
         payload_txt = {"number": group_id, "text": texto}
         _req.post(
             EVOLUTION_URL + "/message/sendText/" + EVOLUTION_INSTANCE,
