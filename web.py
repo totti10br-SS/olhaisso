@@ -1267,12 +1267,14 @@ def dados_produto_ml():
         if m:
             preco_orig = float(m.group(1))
 
-        # Extrai imagem principal — força resolucao maxima (-F.jpg)
+        # Extrai imagem principal — força resolucao maxima HD
         def ml_img_hd(url):
-            """Converte qualquer URL de imagem ML para versao HD (-F.jpg)."""
+            """Converte URL de imagem ML para versao HD (2X -F.webp)."""
             import re as _re
-            url = _re.sub(r'-[A-Z]\.jpg', '-F.jpg', url)
-            url = _re.sub(r'\.webp$', '.jpg', url)
+            # D_Q_NP_ → D_NQ_NP_2X_
+            url = url.replace("D_Q_NP_", "D_NQ_NP_2X_")
+            # qualquer sufixo de tamanho (-R, -O, -I, etc) + extensao → -F.webp
+            url = _re.sub(r'-[A-Z]\.(jpg|jpeg|png|webp)$', '-F.webp', url)
             return url
 
         imagem = ""
