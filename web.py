@@ -90,8 +90,8 @@ def postar_whatsapp_grupo(produto, imagem_path, group_id):
         texto = "\n".join(linhas)
         headers = {"apikey": EVOLUTION_APIKEY, "Content-Type": "application/json"}
 
-        # Usa imagem gerada pelo bot (1080x1080 HD) via imgbb
-        img_url = fazer_upload_imgbb(imagem_path)
+        # Usa imagem HD do produto diretamente (foto limpa, sem card gerado)
+        img_url = produto.get('imagem_url', '')
 
         if img_url:
             payload = {
