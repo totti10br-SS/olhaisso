@@ -726,11 +726,17 @@ TEMAS = [
     ("fritadeira",   ["fritadeira", "air fryer", "airfryer"]),
     ("projetor",     ["projetor", "projector"]),
     ("hub usb",      ["hub usb", "docking station"]),
-    ("ssd",          ["ssd", "hd externo", "pendrive"]),
+    ("ssd",          ["ssd", "nvme", "m.2", "hd externo", "pendrive", "pen drive", "armazenamento"]),
     ("webcam",       ["webcam"]),
     ("led",          ["fita led", "led strip", "luminaria", "lampada"]),
-    ("ram",          ["memoria ram", "ram ddr", "ram 4gb", "ram 8gb", "ram 16gb", "ram 32gb"]),
-    ("processador",  ["processador", "processor", "intel core", "amd ryzen"]),
+    ("ram",          ["memoria ram", "ram ddr", "ddr4", "ddr5", "ddr3", "ram 4gb", "ram 8gb",
+                      "ram 16gb", "ram 32gb", "memory ram", "memória ddr"]),
+    ("processador",  ["processador", "processor", "intel core", "amd ryzen", "xeon", "cpu"]),
+    ("placa mae",    ["placa-mae", "placa mae", "motherboard", "placa mãe"]),
+    ("placa video",  ["placa grafica", "placa gráfica", "gpu", "geforce", "radeon", "rx580",
+                      "rtx ", "gtx ", "rx 580", "rx 570", "vga card", "graphics card"]),
+    ("cooler",       ["cooler", "ventoinha", "fan cooler", "cpu cooler", "water cooler"]),
+    ("cabo",         ["cabo usb", "cabo tipo c", "cabo hdmi", "cabo lightning"]),
 ]
 
 def hora_atual_str():
@@ -827,7 +833,7 @@ def limitar_por_tema(produtos):
     for p in produtos:
         tema = detectar_tema(p.get("nome", ""))
         count = contagem.get(tema, 0)
-        if tema == "outros" or count < MAX_POR_TEMA:
+        if count < MAX_POR_TEMA:
             contagem[tema] = count + 1
             resultado.append(p)
         else:
