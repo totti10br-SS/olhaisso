@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
 from shopee_api import buscar_todos_produtos as buscar_shopee
+from mercadolivre_api import buscar_todos_produtos as buscar_ml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -855,11 +856,14 @@ def montar_pipeline():
     log.info("Buscando Shopee API...")
     produtos_shopee = buscar_shopee()
 
+    log.info("Buscando Mercado Livre...")
+    produtos_ml = buscar_ml()
+
     log.info("Buscando Amazon Best Sellers...")
     produtos_amazon = buscar_amazon_best_sellers()
 
     # Aplica score em todos
-    todos_raw = produtos_ali + produtos_shopee + produtos_amazon
+    todos_raw = produtos_ali + produtos_shopee + produtos_ml + produtos_amazon
     for p in todos_raw:
         calcular_score(p, tg, tt, tr)
 
@@ -873,7 +877,7 @@ def montar_pipeline():
     # Filtra por preço e desconto
     todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
 
-    # Remove já postados
+    # Remove já postados (ML incluído no SQLite)
     antes = len(todos_raw)
     todos_raw = [p for p in todos_raw if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
     filtrados = antes - len(todos_raw)
@@ -884,24 +888,27 @@ def montar_pipeline():
     def filtrar_fonte(lista, loja):
         return sorted([p for p in lista if p.get("loja") == loja], key=lambda x: x.get("score", 0), reverse=True)
 
+    pool_ml     = filtrar_fonte(todos_raw, "MERCADOLIVRE")
     pool_ali    = filtrar_fonte(todos_raw, "ALIEXPRESS")
     pool_shopee = filtrar_fonte(todos_raw, "SHOPEE")
-    pool_outros = [p for p in todos_raw if p.get("loja") not in ("ALIEXPRESS", "SHOPEE")]
+    pool_outros = [p for p in todos_raw if p.get("loja") not in ("MERCADOLIVRE", "ALIEXPRESS", "SHOPEE")]
 
-    # Monta fila — intercala Ali e Shopee 50/50
+    # Distribuição: 50% ML, 25% Shopee, 25% AliExpress
+    # Em 12 posts: 6 ML + 3 Shopee + 3 Ali
+    qtd_ml     = max(1, round(POSTS_POR_CICLO * 0.50))
+    qtd_ali    = max(1, round(POSTS_POR_CICLO * 0.25))
+    qtd_shopee = max(1, POSTS_POR_CICLO - qtd_ml - qtd_ali)
+
+    log.info(f"Distribuição alvo: {qtd_ml} ML | {qtd_ali} Ali | {qtd_shopee} Shopee")
+
     fila = []
-    idx_ali = idx_shopee = 0
-    ordem = ["ALIEXPRESS", "SHOPEE"] * (POSTS_POR_CICLO + 2)
-    for loja_alvo in ordem:
-        if len(fila) >= POSTS_POR_CICLO * 2:
-            break
-        if loja_alvo == "ALIEXPRESS" and idx_ali < len(pool_ali):
-            fila.append(pool_ali[idx_ali]); idx_ali += 1
-        elif loja_alvo == "SHOPEE" and idx_shopee < len(pool_shopee):
-            fila.append(pool_shopee[idx_shopee]); idx_shopee += 1
+    fila += pool_ml[:qtd_ml]
+    fila += pool_ali[:qtd_ali]
+    fila += pool_shopee[:qtd_shopee]
 
-    # Completa com outros se faltar
-    for p in pool_outros:
+    # Completa com o que sobrar se não tiver produtos suficientes
+    todos_extras = pool_ml[qtd_ml:] + pool_ali[qtd_ali:] + pool_shopee[qtd_shopee:] + pool_outros
+    for p in todos_extras:
         if len(fila) >= POSTS_POR_CICLO * 2:
             break
         fila.append(p)
