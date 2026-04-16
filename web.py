@@ -920,6 +920,18 @@ HTML = """<!DOCTYPE html>
 </div>
 
 <script>
+function copiarLink(btn) {
+  const link = btn.dataset.link;
+  navigator.clipboard.writeText(link).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✅ Copiado!';
+    setTimeout(() => btn.textContent = orig, 2000);
+  }).catch(() => {
+    btn.textContent = '❌';
+    setTimeout(() => btn.textContent = '📋', 2000);
+  });
+}
+
 function trocarAba(aba) {
   const abas = ['afiliado', 'produto', 'busca', 'web', 'ml', 'historico'];
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', aba === abas[i]));
@@ -1234,7 +1246,7 @@ async function publicarML() {
           ✅ ${dataPub.msg}<br><br>
           <strong>🟡 Link gerado:</strong><br>
           <a href="${linkFinal}" target="_blank" style="color:#FFE600;word-break:break-all;">${linkFinal}</a><br><br>
-          <button onclick="navigator.clipboard.writeText(this.dataset.link);this.textContent='✅ Copiado!';setTimeout(()=>this.textContent='📋 Copiar link',2000)"
+          <button onclick="copiarLink(this)"
             data-link="${linkFinal}"
             style="background:#2a2a2a;border:1px solid #555;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;">
             📋 Copiar link
@@ -1449,7 +1461,7 @@ async function buscarInternet() {
               ${r.loja  ? `<span style="color:#aaa;font-size:12px;">🏪 ${r.loja}</span>` : ''}
             </div>
             <div style="display:flex;gap:6px;">
-              <button onclick="navigator.clipboard.writeText('${linkSafe}').then(()=>this.textContent='✅').catch(()=>this.textContent='❌');setTimeout(()=>this.textContent='📋',2000)"
+              <button onclick="copiarLink(this)" data-link="${linkSafe}" 
                 style="background:#0088cc;color:#fff;border:none;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:14px;font-weight:700;">
                 📋 Copiar
               </button>
