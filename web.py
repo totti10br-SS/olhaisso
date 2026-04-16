@@ -867,10 +867,7 @@ HTML = """<!DOCTYPE html>
         style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#666;cursor:pointer;font-size:16px;" title="Limpar">✕</button>
     </div>
 
-    <div id="hist_loader" style="text-align:center;color:#FF6B1A;padding:20px;display:none;">⏳ Carregando...</div>
-    <div id="hist_area"></div>
-
-    <div style="margin-top:24px;background:#111;border:1px solid #2a2a2a;border-radius:14px;padding:18px;">
+    <div style="background:#111;border:1px solid #2a2a2a;border-radius:14px;padding:18px;margin-bottom:16px;">
       <h3 style="color:#FF6B1A;font-size:14px;margin-bottom:14px;">🎮 Disparar Ciclo Manual</h3>
 
       <div class="row2" style="margin-bottom:12px;">
@@ -916,6 +913,12 @@ HTML = """<!DOCTYPE html>
       <button class="btn btn-orange" id="btn_ciclo" onclick="dispararCiclo()">🚀 Disparar Ciclo Agora</button>
       <div class="loader" id="loader_ciclo">⏳ Iniciando ciclo...</div>
     </div>
+
+    <div style="margin-top:20px;">
+      <h3 style="color:#FF6B1A;font-size:14px;margin-bottom:12px;">📋 Histórico de Postagens</h3>
+    </div>
+    <div id="hist_loader" style="text-align:center;color:#FF6B1A;padding:20px;display:none;">⏳ Carregando...</div>
+    <div id="hist_area"></div>
   </div>
 </div>
 

@@ -754,6 +754,16 @@ TEMAS = [
                       "rtx ", "gtx ", "rx 580", "rx 570", "vga card", "graphics card"]),
     ("cooler",       ["cooler", "ventoinha", "fan cooler", "cpu cooler", "water cooler"]),
     ("cabo",         ["cabo usb", "cabo tipo c", "cabo hdmi", "cabo lightning"]),
+    ("microscopio",  ["microscopio", "microscópio", "lupa", "telescopio", "telescópio",
+                      "estetoscopio", "termometro clinico"]),
+    ("movel",        ["sofa", "sofá", "colchao", "colchão", "travesseiro", "edredom",
+                      "cortina", "tapete", "guarda-roupa", "armario"]),
+    ("vestuario",    ["camisa", "camiseta", "calca", "vestido", "sapato", "sandalia",
+                      "tenis", "bota", "chinelo", "bolsa", "carteira", "perfume"]),
+    ("saude",        ["suplemento", "creatina", "whey", "vitamina", "remedio",
+                      "medicamento", "shampoo", "condicionador", "sabonete"]),
+    ("jardim",       ["cortador de grama", "vaso de planta", "mangueira", "regador",
+                      "churrasqueira", "fogao a lenha"]),
 ]
 
 def hora_atual_str():
@@ -1189,8 +1199,10 @@ def iniciar_api_historico():
                     import threading as _th
                     def _rodar():
                         try:
+                            import time as _t
                             log.info(f"🎮 Ciclo manual via Web — {qtde} post(s)")
                             produtos = montar_pipeline()
+                            log.info(f"🎮 Pipeline retornou {len(produtos)} produto(s)")
                             # Filtra lojas se necessário
                             if not usar_ml:
                                 produtos = [p for p in produtos if p.get("loja") != "MERCADOLIVRE"]
@@ -1198,27 +1210,39 @@ def iniciar_api_historico():
                                 produtos = [p for p in produtos if p.get("loja") != "SHOPEE"]
                             if not usar_ali:
                                 produtos = [p for p in produtos if p.get("loja") != "ALIEXPRESS"]
+                            log.info(f"🎮 Após filtro lojas: {len(produtos)} produto(s)")
+                            if not produtos:
+                                log.warning("🎮 Nenhum produto disponível para ciclo manual")
+                                return
                             postou = 0
                             for produto in produtos:
                                 if postou >= qtde:
                                     break
                                 log.info(f"🎮 Postando: {produto['nome'][:50]}")
-                                imagem = gerar_imagem(produto)
-                                ok = False
-                                if usar_tg:
-                                    produto_tg = {**produto, "imagem_url": ""}
-                                    ok = postar_telegram(produto_tg, imagem)
-                                if usar_wa_pri:
-                                    postar_whatsapp_custom(produto, imagem, WHATSAPP_GROUP_ID)
-                                    ok = True
-                                if usar_wa_tst:
-                                    postar_whatsapp_custom(produto, imagem, WHATSAPP_TEST_GROUP_ID)
-                                    ok = True
-                                if ok:
-                                    registrar_post(produto, "WEB_MANUAL")
-                                    postou += 1
-                                import time as _t
-                                _t.sleep(8)
+                                try:
+                                    imagem = gerar_imagem(produto)
+                                    publicou = False
+                                    if usar_tg:
+                                        produto_tg = {**produto, "imagem_url": ""}
+                                        ok_tg = postar_telegram(produto_tg, imagem)
+                                        if ok_tg:
+                                            publicou = True
+                                            log.info("🎮 ✅ Telegram OK")
+                                    if usar_wa_pri:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_GROUP_ID)
+                                        publicou = True
+                                        log.info("🎮 ✅ WhatsApp Principal OK")
+                                    if usar_wa_tst:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_TEST_GROUP_ID)
+                                        publicou = True
+                                        log.info("🎮 ✅ WhatsApp Teste OK")
+                                    if publicou:
+                                        registrar_post(produto, "WEB_MANUAL")
+                                        postou += 1
+                                    _t.sleep(8)
+                                except Exception as ep:
+                                    log.error(f"🎮 Erro ao postar produto: {ep}")
+                                    continue
                             log.info(f"🎮 Ciclo manual concluído — {postou} post(s)")
                         except Exception as e:
                             log.error(f"🎮 Ciclo manual erro: {e}")
