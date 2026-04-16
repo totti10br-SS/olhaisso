@@ -1093,6 +1093,58 @@ def ciclo_teste():
         log.error(f"🧪 Ciclo teste erro: {e}")
 
 
+def iniciar_api_historico():
+    """Sobe mini servidor HTTP para expor historico do banco."""
+    import json as _json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    WEB_API_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass  # silencia logs do servidor
+
+        def do_GET(self):
+            if self.path.startswith("/historico"):
+                # Verifica API key
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    self.wfile.write(b'{"erro": "Nao autorizado"}')
+                    return
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    c.execute("""
+                        SELECT id, nome, preco, loja, postado_em
+                        FROM postados
+                        ORDER BY postado_em DESC
+                        LIMIT 100
+                    """)
+                    rows = c.fetchall()
+                    conn.close()
+                    data = [{"id": r[0], "nome": r[1], "preco": r[2], "loja": r[3], "postado_em": r[4]} for r in rows]
+                    body = _json.dumps(data).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(body)
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"erro": str(e)}).encode())
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+    port = int(os.getenv("BOT_API_PORT", "8081"))
+    server = HTTPServer(("0.0.0.0", port), Handler)
+    log.info(f"📊 API histórico rodando na porta {port}")
+    server.serve_forever()
+
+
 def main():
     init_db()
     log.info("🤖 OlhaissoTech Bot v6.0 iniciado!")
@@ -1103,6 +1155,10 @@ def main():
     log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
+    # Sobe API de histórico em thread separada
+    import threading
+    t = threading.Thread(target=iniciar_api_historico, daemon=True)
+    t.start()
     # Dispara 1 oferta de teste no grupo teste a cada deploy
     ciclo_teste()
     log.info("⏳ Aguardando próximo horário agendado...")

@@ -540,6 +540,7 @@ HTML = """<!DOCTYPE html>
     <div class="tab" onclick="trocarAba('busca')">🔍 Busca Induzida</div>
     <div class="tab" onclick="trocarAba('web')">🌐 Busca na Internet</div>
     <div class="tab" onclick="trocarAba('ml')">🟡 Gerar Link ML</div>
+    <div class="tab" onclick="trocarAba('historico'); carregarHistorico()">📊 Histórico</div>
   </div>
 
   <!-- FLUXO 1: Link de afiliado pronto -->
@@ -842,11 +843,30 @@ HTML = """<!DOCTYPE html>
 
     <div id="ml_resultado" style="margin-top:16px;"></div>
   </div>
+  <!-- FLUXO 6: Histórico de postagens -->
+  <div class="card" id="card_historico">
+    <h2>📊 Histórico de Postagens</h2>
+    <div class="info">💡 Últimos 100 produtos publicados pelo bot</div>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <select id="hist_loja" onchange="carregarHistorico()" style="flex:1;min-width:120px;margin-bottom:0;">
+        <option value="">Todas as lojas</option>
+        <option value="MERCADOLIVRE">🟡 Mercado Livre</option>
+        <option value="SHOPEE">🧡 Shopee</option>
+        <option value="ALIEXPRESS">🛍️ AliExpress</option>
+        <option value="AMAZON">📦 Amazon</option>
+      </select>
+      <button onclick="carregarHistorico()" style="background:#333;border:1px solid #555;color:#fff;border-radius:10px;padding:0 16px;cursor:pointer;font-size:14px;">🔄 Atualizar</button>
+    </div>
+
+    <div id="hist_loader" style="text-align:center;color:#FF6B1A;padding:20px;display:none;">⏳ Carregando...</div>
+    <div id="hist_area"></div>
+  </div>
 </div>
 
 <script>
 function trocarAba(aba) {
-  const abas = ['afiliado', 'produto', 'busca', 'web', 'ml'];
+  const abas = ['afiliado', 'produto', 'busca', 'web', 'ml', 'historico'];
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', aba === abas[i]));
   abas.forEach(a => {
     const card = document.getElementById('card_' + a);
@@ -1172,6 +1192,63 @@ async function publicarML() {
     btn.disabled = false;
     loader.style.display = 'none';
     loader.textContent = '⏳ Gerando link meli.la...';
+  }
+}
+
+async function carregarHistorico() {
+  const loja = document.getElementById('hist_loja')?.value || '';
+  const area = document.getElementById('hist_area');
+  const loader = document.getElementById('hist_loader');
+  if (!area) return;
+  loader.style.display = 'block';
+  area.innerHTML = '';
+
+  try {
+    const BOT_URL = window.location.origin.replace('-web-', '-') + '/historico';
+    const resp = await fetch('/historico_proxy?loja=' + encodeURIComponent(loja));
+    const data = await resp.json();
+
+    if (!data.ok) {
+      area.innerHTML = '<div class="msg msg-err">❌ ' + (data.erro || 'Erro ao carregar') + '</div>';
+      return;
+    }
+
+    const rows = data.rows;
+    if (!rows || rows.length === 0) {
+      area.innerHTML = '<div class="info">Nenhum registro encontrado.</div>';
+      return;
+    }
+
+    const lojaEmoji = { MERCADOLIVRE: '🟡', SHOPEE: '🧡', ALIEXPRESS: '🛍️', AMAZON: '📦' };
+
+    let html = '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + rows.length + ' registro(s)</div>';
+    html += '<div style="overflow-x:auto;">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+    html += '<thead><tr style="color:#FF6B1A;border-bottom:1px solid #333;">';
+    html += '<th style="text-align:left;padding:8px 6px;">Produto</th>';
+    html += '<th style="text-align:center;padding:8px 6px;">Loja</th>';
+    html += '<th style="text-align:right;padding:8px 6px;">Preço</th>';
+    html += '<th style="text-align:right;padding:8px 6px;">Data</th>';
+    html += '</tr></thead><tbody>';
+
+    rows.forEach((r, i) => {
+      const bg = i % 2 === 0 ? '#1a1a1a' : '#111';
+      const emoji = lojaEmoji[r.loja] || '🏪';
+      const preco = r.preco ? 'R$ ' + parseFloat(r.preco).toFixed(2).replace('.', ',') : '-';
+      const data_fmt = r.postado_em ? r.postado_em.replace('T', ' ').substring(0, 16) : '-';
+      html += '<tr style="background:' + bg + ';border-bottom:1px solid #222;">';
+      html += '<td style="padding:8px 6px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + r.nome + '">' + r.nome + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;">' + emoji + ' ' + (r.loja || '-') + '</td>';
+      html += '<td style="padding:8px 6px;text-align:right;color:#FF6B1A;font-weight:700;">' + preco + '</td>';
+      html += '<td style="padding:8px 6px;text-align:right;color:#888;">' + data_fmt + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    area.innerHTML = html;
+  } catch(e) {
+    area.innerHTML = '<div class="msg msg-err">❌ Erro: ' + e.message + '</div>';
+  } finally {
+    loader.style.display = 'none';
   }
 }
 
@@ -1536,6 +1613,33 @@ def dados_produto_ml():
             "imagem":    imagem,
         })
 
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/historico_proxy")
+def historico_proxy():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Nao autorizado"}), 401
+    try:
+        loja = request.args.get("loja", "").strip()
+        BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+        WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        params = {}
+        if loja:
+            params["loja"] = loja
+        r = requests.get(
+            BOT_API_URL + "/historico",
+            headers={"X-API-Key": WEB_SECRET_KEY},
+            params=params,
+            timeout=10
+        )
+        if r.status_code == 200:
+            rows = r.json()
+            if loja:
+                rows = [x for x in rows if x.get("loja") == loja]
+            return jsonify({"ok": True, "rows": rows})
+        return jsonify({"ok": False, "erro": "Bot API retornou " + str(r.status_code)})
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
 
