@@ -849,7 +849,7 @@ HTML = """<!DOCTYPE html>
     <h2>📊 Histórico de Postagens</h2>
     <div class="info">💡 Últimos 100 produtos publicados pelo bot</div>
 
-    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
       <select id="hist_loja" onchange="carregarHistorico()" style="flex:1;min-width:120px;margin-bottom:0;">
         <option value="">Todas as lojas</option>
         <option value="MERCADOLIVRE">🟡 Mercado Livre</option>
@@ -858,6 +858,13 @@ HTML = """<!DOCTYPE html>
         <option value="AMAZON">📦 Amazon</option>
       </select>
       <button onclick="carregarHistorico()" style="background:#333;border:1px solid #555;color:#fff;border-radius:10px;padding:0 16px;cursor:pointer;font-size:14px;">🔄 Atualizar</button>
+    </div>
+    <div style="position:relative;margin-bottom:14px;">
+      <input type="text" id="hist_busca" placeholder="🔍 Filtrar por nome do produto..."
+        oninput="filtrarHistorico()"
+        style="width:100%;background:#2a2a2a;border:1px solid #444;border-radius:10px;color:#fff;padding:11px 16px;font-size:14px;outline:none;">
+      <button onclick="document.getElementById('hist_busca').value='';filtrarHistorico()"
+        style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#666;cursor:pointer;font-size:16px;" title="Limpar">✕</button>
     </div>
 
     <div id="hist_loader" style="text-align:center;color:#FF6B1A;padding:20px;display:none;">⏳ Carregando...</div>
@@ -1199,6 +1206,72 @@ async function publicarML() {
   }
 }
 
+let _histRows = [];
+
+function filtrarHistorico() {
+  const busca = (document.getElementById('hist_busca')?.value || '').toLowerCase().trim();
+  const rows = busca ? _histRows.filter(r => r.nome && r.nome.toLowerCase().includes(busca)) : _histRows;
+  renderHistorico(rows);
+}
+
+function renderHistorico(rows) {
+  const area = document.getElementById('hist_area');
+  if (!area) return;
+
+  const lojaEmoji = { MERCADOLIVRE: '🟡', SHOPEE: '🧡', ALIEXPRESS: '🛍️', AMAZON: '📦' };
+
+  function fmtData(dt) {
+    if (!dt) return '-';
+    const d = dt.replace('T', ' ');
+    const parts = d.substring(0, 16).split(' ');
+    const ymd = parts[0].split('-');
+    return ymd[2] + '/' + ymd[1] + '/' + ymd[0].substring(2) + ' ' + (parts[1] || '');
+  }
+
+  function fmtPreco(v) {
+    if (!v) return '-';
+    return 'R$ ' + parseFloat(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+  if (!rows || rows.length === 0) {
+    area.innerHTML = '<div class="info">Nenhum registro encontrado.</div>';
+    return;
+  }
+
+  let html = '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + rows.length + ' registro(s)</div>';
+  html += '<div style="overflow-x:auto;border-radius:10px;border:1px solid #2a2a2a;">';
+  html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+  html += '<thead><tr style="background:#222;color:#FF6B1A;border-bottom:2px solid #333;">';
+  html += '<th style="text-align:left;padding:10px 8px;font-weight:700;">Produto</th>';
+  html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Loja</th>';
+  html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Preço</th>';
+  html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Origem</th>';
+  html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Link</th>';
+  html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Data</th>';
+  html += '</tr></thead><tbody>';
+
+  rows.forEach((r, i) => {
+    const bg = i % 2 === 0 ? '#1a1a1a' : '#141414';
+    const emoji = lojaEmoji[r.loja] || '🏪';
+    const origemBadge = r.origem === 'WEB'
+      ? '<span style="background:#1a3a5c;color:#4db8ff;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;">🌐 WEB</span>'
+      : '<span style="background:#1a2a1a;color:#00cc44;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;">🤖 BOT</span>';
+    const linkBtn = r.link
+      ? '<a href="' + r.link + '" target="_blank" style="background:#2a2a2a;border:1px solid #444;color:#FF6B1A;padding:4px 10px;border-radius:6px;font-size:12px;text-decoration:none;white-space:nowrap;">🔗 Abrir</a>'
+      : '<span style="color:#555;font-size:12px;">—</span>';
+    html += '<tr style="background:' + bg + ';border-bottom:1px solid #222;">';
+    html += '<td style="padding:10px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;" title="' + r.nome + '">' + r.nome + '</td>';
+    html += '<td style="padding:10px 8px;text-align:center;white-space:nowrap;">' + emoji + ' ' + (r.loja || '-') + '</td>';
+    html += '<td style="padding:10px 8px;text-align:right;color:#FF6B1A;font-weight:700;white-space:nowrap;">' + fmtPreco(r.preco) + '</td>';
+    html += '<td style="padding:10px 8px;text-align:center;">' + origemBadge + '</td>';
+    html += '<td style="padding:10px 8px;text-align:center;">' + linkBtn + '</td>';
+    html += '<td style="padding:10px 8px;text-align:right;color:#888;white-space:nowrap;font-size:12px;">' + fmtData(r.postado_em) + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  area.innerHTML = html;
+}
+
 async function carregarHistorico() {
   const loja = document.getElementById('hist_loja')?.value || '';
   const area = document.getElementById('hist_area');
@@ -1217,59 +1290,9 @@ async function carregarHistorico() {
       return;
     }
 
-    const rows = data.rows;
-    if (!rows || rows.length === 0) {
-      area.innerHTML = '<div class="info">Nenhum registro encontrado.</div>';
-      return;
-    }
-
-    const lojaEmoji = { MERCADOLIVRE: '🟡', SHOPEE: '🧡', ALIEXPRESS: '🛍️', AMAZON: '📦' };
-
-    function fmtData(dt) {
-      if (!dt) return '-';
-      const d = dt.replace('T', ' ');
-      const parts = d.substring(0, 16).split(' ');
-      const ymd = parts[0].split('-');
-      return ymd[2] + '/' + ymd[1] + '/' + ymd[0].substring(2) + ' ' + (parts[1] || '');
-    }
-
-    function fmtPreco(v) {
-      if (!v) return '-';
-      return 'R$ ' + parseFloat(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
-    }
-
-    let html = '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + rows.length + ' registro(s)</div>';
-    html += '<div style="overflow-x:auto;border-radius:10px;border:1px solid #2a2a2a;">';
-    html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
-    html += '<thead><tr style="background:#222;color:#FF6B1A;border-bottom:2px solid #333;">';
-    html += '<th style="text-align:left;padding:10px 8px;font-weight:700;">Produto</th>';
-    html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Loja</th>';
-    html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Preço</th>';
-    html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Origem</th>';
-    html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Link</th>';
-    html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Data</th>';
-    html += '</tr></thead><tbody>';
-
-    rows.forEach((r, i) => {
-      const bg = i % 2 === 0 ? '#1a1a1a' : '#141414';
-      const emoji = lojaEmoji[r.loja] || '🏪';
-      const origemBadge = r.origem === 'WEB'
-        ? '<span style="background:#1a3a5c;color:#4db8ff;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;">🌐 WEB</span>'
-        : '<span style="background:#1a2a1a;color:#00cc44;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;">🤖 BOT</span>';
-      html += '<tr style="background:' + bg + ';border-bottom:1px solid #222;">';
-      html += '<td style="padding:10px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;" title="' + r.nome + '">' + r.nome + '</td>';
-      html += '<td style="padding:10px 8px;text-align:center;white-space:nowrap;">' + emoji + ' ' + (r.loja || '-') + '</td>';
-      html += '<td style="padding:10px 8px;text-align:right;color:#FF6B1A;font-weight:700;white-space:nowrap;">' + fmtPreco(r.preco) + '</td>';
-      html += '<td style="padding:10px 8px;text-align:center;">' + origemBadge + '</td>';
-      const linkBtn = r.link
-        ? '<a href="' + r.link + '" target="_blank" style="background:#2a2a2a;border:1px solid #444;color:#FF6B1A;padding:4px 10px;border-radius:6px;font-size:12px;text-decoration:none;white-space:nowrap;">🔗 Abrir</a>'
-        : '<span style="color:#555;font-size:12px;">—</span>';
-      html += '<td style="padding:10px 8px;text-align:center;">' + linkBtn + '</td>';
-      html += '<td style="padding:10px 8px;text-align:right;color:#888;white-space:nowrap;font-size:12px;">' + fmtData(r.postado_em) + '</td>';
-      html += '</tr>';
-    });
-    html += '</tbody></table></div>';
-    area.innerHTML = html;
+    _histRows = data.rows || [];
+    document.getElementById('hist_busca').value = '';
+    renderHistorico(_histRows);
   } catch(e) {
     area.innerHTML = '<div class="msg msg-err">❌ Erro: ' + e.message + '</div>';
   } finally {
