@@ -1251,7 +1251,7 @@ async function carregarHistorico() {
       const origemBadge = r.origem === 'WEB'
         ? '<span style="background:#1a3a5c;color:#4db8ff;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;">🌐 WEB</span>'
         : '<span style="background:#1a2a1a;color:#00cc44;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;">🤖 BOT</span>';
-      html += '<tr style="background:' + bg + ';border-bottom:1px solid #222;transition:background 0.1s;" onmouseover="this.style.background='#252525'" onmouseout="this.style.background='' + bg + ''">';
+      html += '<tr style="background:' + bg + ';border-bottom:1px solid #222;">';
       html += '<td style="padding:10px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;" title="' + r.nome + '">' + r.nome + '</td>';
       html += '<td style="padding:10px 8px;text-align:center;white-space:nowrap;">' + emoji + ' ' + (r.loja || '-') + '</td>';
       html += '<td style="padding:10px 8px;text-align:right;color:#FF6B1A;font-weight:700;white-space:nowrap;">' + fmtPreco(r.preco) + '</td>';
