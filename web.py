@@ -247,6 +247,51 @@ def busca_shopee_sem_filtro(keyword, limit=10):
         return []
 
 
+def busca_ml_por_keyword(keyword, limit=10):
+    """Busca produtos no ML por keyword via API publica."""
+    SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
+    if not SCRAPERAPI_KEY:
+        return []
+    try:
+        from mercadolivre_link import gerar_link_afiliado_ml
+        kw_encoded = keyword.replace(" ", "+")
+        url_busca = f"https://api.mercadolibre.com/sites/MLB/search?q={kw_encoded}&sort=best_seller&limit={limit}"
+        payload = {"api_key": SCRAPERAPI_KEY, "url": url_busca, "country_code": "br"}
+        r = requests.get("https://api.scraperapi.com", params=payload, timeout=30)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        results = data.get("results", [])
+        produtos = []
+        for item in results:
+            try:
+                nome   = item.get("title", "")
+                preco  = float(item.get("price", 0) or 0)
+                orig   = float(item.get("original_price") or 0)
+                link   = item.get("permalink", "")
+                thumb  = item.get("thumbnail", "")
+                if not nome or not preco or not link:
+                    continue
+                desconto = int((1 - preco / orig) * 100) if orig > preco else 0
+                # Converte thumbnail para HD
+                img_hd = thumb.replace("-I.jpg", "-F.jpg").replace("-O.jpg", "-F.jpg") if thumb else ""
+                # Gera link afiliado
+                link_af = gerar_link_afiliado_ml(link) or link
+                produtos.append({
+                    "nome": nome, "preco": round(preco, 2),
+                    "preco_original": round(orig, 2) if orig > preco else 0,
+                    "desconto": desconto, "loja": "MERCADOLIVRE",
+                    "frete": "", "link_afiliado": link_af,
+                    "imagem_url": img_hd, "score": 1, "fontes": [],
+                })
+            except Exception:
+                continue
+        return produtos
+    except Exception as e:
+        print(f"busca_ml_por_keyword erro: {e}")
+        return []
+
+
 def busca_aliexpress_sem_filtro(keyword, limit=10):
     """Busca AliExpress sem filtros — para busca induzida do painel."""
     try:
@@ -1227,16 +1272,7 @@ def buscar_induzido():
             produtos_raw += busca_aliexpress_sem_filtro(keyword, limit=10)
         if usar_ml:
             try:
-                from mercadolivre_link import gerar_link_afiliado_ml
-                SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
-                if SCRAPERAPI_KEY:
-                    from mercadolivre_api import buscar_todos_produtos as _buscar_ml
-                    produtos_ml_raw = _buscar_ml()
-                    # Filtra por keyword
-                    kw_lower = keyword.lower()
-                    for p in produtos_ml_raw:
-                        if kw_lower in p.get("nome", "").lower():
-                            produtos_raw.append(p)
+                produtos_raw += busca_ml_por_keyword(keyword, limit=15)
             except Exception as e:
                 print(f"ML busca induzida erro: {e}")
 
