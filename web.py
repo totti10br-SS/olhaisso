@@ -247,45 +247,157 @@ def busca_shopee_sem_filtro(keyword, limit=10):
         return []
 
 
-def busca_ml_por_keyword(keyword, limit=10):
-    """Busca produtos no ML por keyword via API publica (sem ScraperAPI)."""
+def busca_ml_por_keyword(keyword, limit=20):
+    """Busca ML por keyword — mesmo processo do mercadolivre_api.py via ScraperAPI."""
+    import json as _json, hashlib as _hashlib
+    SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
+    if not SCRAPERAPI_KEY:
+        print("busca_ml_por_keyword: SCRAPERAPI_KEY nao configurada")
+        return []
     try:
         from mercadolivre_link import gerar_link_afiliado_ml
-        kw_encoded = keyword.replace(" ", "%20")
-        url_busca = "https://api.mercadolibre.com/sites/MLB/search?q=" + kw_encoded + "&sort=best_seller&limit=" + str(limit)
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json",
-        }
-        r = requests.get(url_busca, headers=headers, timeout=15)
-        if r.status_code != 200:
-            print("ML API busca status: " + str(r.status_code) + " - " + r.text[:100])
-            return []
-        results = r.json().get("results", [])
-        produtos = []
-        for item in results[:limit]:
+
+        # Mesma função scraper_fetch do mercadolivre_api.py
+        def _scraper_fetch(url):
             try:
-                nome  = item.get("title", "")
-                preco = float(item.get("price", 0) or 0)
-                orig  = float(item.get("original_price") or 0)
-                link  = item.get("permalink", "")
-                thumb = item.get("thumbnail", "")
-                if not nome or not preco or not link:
-                    continue
-                desconto = int((1 - preco / orig) * 100) if orig > preco else 0
-                img_hd = thumb.replace("-I.jpg", "-F.jpg").replace("-O.jpg", "-F.jpg") if thumb else ""
-                link_af = gerar_link_afiliado_ml(link) or link
-                produtos.append({
+                payload = {
+                    "api_key": SCRAPERAPI_KEY,
+                    "url": url,
+                    "country_code": "br",
+                    "render": "false",
+                }
+                r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
+                print("ML busca ScraperAPI " + str(r.status_code) + " -> " + url[:60])
+                if r.status_code == 200:
+                    return r.text
+                return None
+            except Exception as e:
+                print("ML busca scraper erro: " + str(e))
+                return None
+
+        # Mesma função extrair_produtos_html do mercadolivre_api.py
+        def _extrair(html):
+            if not html:
+                return []
+            try:
+                idx = html.find('"results":[{')
+                if idx == -1:
+                    idx = html.find('"items":[{')
+                if idx == -1:
+                    return []
+                start = html.rfind('[', 0, idx + 15)
+                depth, end = 0, start
+                for i, c in enumerate(html[start:], start):
+                    if c == '[': depth += 1
+                    elif c == ']':
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+                    if i - start > 500000:
+                        break
+                data = _json.loads(html[start:end])
+                if isinstance(data, list) and len(data) > 0:
+                    return data
+            except Exception as e:
+                print("ML busca parse erro: " + str(e))
+            return []
+
+        # Mesma função processar_item do mercadolivre_api.py
+        def _processar(item, kw_lower):
+            try:
+                if not isinstance(item, dict):
+                    return None
+                card = item.get("card", {})
+                if not card:
+                    return None
+                metadata   = card.get("metadata", {}) or {}
+                components = card.get("components", []) or []
+                pictures   = card.get("pictures", []) or []
+                item_id    = metadata.get("id", "")
+                url_prod   = metadata.get("url", "")
+                if url_prod and not url_prod.startswith("http"):
+                    url_prod = "https://" + url_prod
+                if not url_prod:
+                    return None
+                nome = ""
+                preco = 0.0
+                preco_orig = 0.0
+                imagem = ""
+                frete_ok = False
+                for comp in components:
+                    if not isinstance(comp, dict):
+                        continue
+                    ctype = comp.get("type", "").lower()
+                    cdata = comp.get(ctype, {})
+                    if not isinstance(cdata, dict):
+                        cdata = {}
+                    if ctype == "title":
+                        nome = cdata.get("text", "") or nome
+                    elif ctype == "price":
+                        curr = cdata.get("current_price", {}) or {}
+                        prev = cdata.get("previous_price", {}) or {}
+                        preco = float(curr.get("value", 0) or 0)
+                        preco_orig = float(prev.get("value", 0) or 0)
+                    elif ctype == "shipping":
+                        if "grátis" in cdata.get("text", "").lower():
+                            frete_ok = True
+                if not nome:
+                    nome = metadata.get("title", "")
+                nome = nome.strip()
+                if not nome:
+                    return None
+                # Filtra por keyword
+                if kw_lower and kw_lower not in nome.lower():
+                    return None
+                if preco <= 0:
+                    return None
+                desconto = int((1 - preco / preco_orig) * 100) if preco_orig > preco else 0
+                # Imagem igual ao mercadolivre_api.py
+                if not imagem and isinstance(pictures, dict):
+                    try:
+                        pics_list = pictures.get("pictures", [])
+                        if pics_list and isinstance(pics_list[0], dict):
+                            pic_id = pics_list[0].get("id", "")
+                            if pic_id:
+                                imagem = "https://http2.mlstatic.com/D_NQ_NP_" + pic_id + "-F.jpg"
+                    except Exception:
+                        pass
+                frete_txt = "✅ Frete grátis" if frete_ok else "🚚 Frete a calcular"
+                link_curto = gerar_link_afiliado_ml(url_prod, item_id) or url_prod
+                return {
                     "nome": nome, "preco": round(preco, 2),
-                    "preco_original": round(orig, 2) if orig > preco else 0,
+                    "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
                     "desconto": desconto, "loja": "MERCADOLIVRE",
-                    "frete": "", "link_afiliado": link_af,
-                    "imagem_url": img_hd, "score": 1, "fontes": [],
-                })
-            except Exception:
-                continue
-        print("ML busca: " + str(len(produtos)) + " produtos para '" + keyword + "'")
-        return produtos
+                    "frete": frete_txt, "link_afiliado": link_curto,
+                    "imagem_url": imagem, "score": 1, "fontes": [],
+                }
+            except Exception as e:
+                print("ML processar erro: " + str(e))
+                return None
+
+        # URL de busca por keyword — mesmo formato das categorias
+        kw_encoded = keyword.replace(" ", "+")
+        url = "https://www.mercadolivre.com.br/ofertas?q=" + kw_encoded
+        html = _scraper_fetch(url)
+        items = _extrair(html)
+        print("ML busca: " + str(len(items)) + " itens brutos para '" + keyword + "'")
+
+        kw_lower = keyword.lower()
+        todos = []
+        vistos = set()
+        for item in items:
+            p = _processar(item, kw_lower)
+            if p:
+                chave = _hashlib.md5(p["nome"].encode()).hexdigest()
+                if chave not in vistos:
+                    vistos.add(chave)
+                    todos.append(p)
+            if len(todos) >= limit:
+                break
+
+        print("ML busca: " + str(len(todos)) + " produtos validos para '" + keyword + "'")
+        return todos
     except Exception as e:
         print("busca_ml_por_keyword erro: " + str(e))
         return []
