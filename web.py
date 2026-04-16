@@ -462,6 +462,7 @@ HTML = """<!DOCTYPE html>
   .header { background: #FF6B1A; padding: 16px 20px; display: flex; align-items: center; gap: 10px; }
   .header h1 { font-size: 20px; font-weight: 800; }
   .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+  .container.wide { max-width: 1100px; }
   .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
   .tab { flex: 1; padding: 12px; border-radius: 10px; border: 2px solid #333; background: #1a1a1a;
          color: #aaa; font-size: 14px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.2s; }
@@ -872,6 +873,9 @@ function trocarAba(aba) {
     const card = document.getElementById('card_' + a);
     if (card) card.classList.toggle('active', aba === a);
   });
+  // Expande container para aba historico
+  const cont = document.querySelector('.container');
+  if (cont) cont.classList.toggle('wide', aba === 'historico');
 }
 
 function toggleDestino(id, checkbox) {
