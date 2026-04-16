@@ -673,7 +673,7 @@ HTML = """<!DOCTYPE html>
   <!-- FLUXO 3: Busca Induzida -->
   <div class="card" id="card_busca">
     <h2>🔍 Busca Induzida — Oferta Premium</h2>
-    <div class="info">💡 Busca nas lojas selecionadas com seus próprios filtros — ignora variáveis do Railway</div>
+    <div class="info">💡 Busca em Shopee + AliExpress com seus próprios filtros — ignora variáveis do Railway</div>
 
     <label>🔑 Palavra-chave *</label>
     <input type="text" id="bk_keyword" placeholder="Ex: monitor curvo, headset gamer, notebook...">
@@ -683,10 +683,7 @@ HTML = """<!DOCTYPE html>
 
     <label style="margin-bottom:8px;">🏪 Buscar em:</label>
     <div class="destinos" style="margin-bottom:14px;">
-      <label class="destino on" id="dest_bk_ml" style="border-color:#FFE600;">
-        <input type="checkbox" id="bk_usar_ml" checked onchange="toggleDestino('dest_bk_ml', this)" style="accent-color:#FFE600;">
-        <span>🟡 ML</span>
-      </label>
+
       <label class="destino on" id="dest_bk_shopee">
         <input type="checkbox" id="bk_usar_shopee" checked onchange="toggleDestino('dest_bk_shopee', this)">
         <span>🧡 Shopee</span>
@@ -1097,12 +1094,12 @@ async function buscarInduzido() {
   const telegram     = document.getElementById('bk_telegram').checked;
   const whatsapp     = document.getElementById('bk_whatsapp').checked;
   const grupos       = getGruposWA('bk');
-  const usar_ml      = document.getElementById('bk_usar_ml').checked;
+  const usar_ml      = false;
   const usar_shopee  = document.getElementById('bk_usar_shopee').checked;
   const usar_ali     = document.getElementById('bk_usar_ali').checked;
 
   if (!keyword)  return alert('Digite uma palavra-chave!');
-  if (!usar_ml && !usar_shopee && !usar_ali) return alert('Selecione ao menos uma loja!');
+  if (!usar_shopee && !usar_ali) return alert('Selecione ao menos uma loja!');
   if (!preco_min) return alert('Informe o preço mínimo!');
   if (!preco_max) return alert('Informe o preço máximo!');
   if (preco_max <= preco_min) return alert('Preço máximo deve ser maior que o mínimo!');
@@ -1647,17 +1644,18 @@ def buscar_induzido():
         return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
 
     try:
-        # Busca nas lojas selecionadas
+        # Busca nas lojas selecionadas (ML removido — não funciona por keyword)
         produtos_raw = []
         if usar_shopee:
-            produtos_raw += busca_shopee_sem_filtro(keyword, limit=10)
+            r_shopee = busca_shopee_sem_filtro(keyword, limit=10)
+            print(f"Busca induzida Shopee: {len(r_shopee)} produtos para '{keyword}'")
+            produtos_raw += r_shopee
         if usar_ali:
-            produtos_raw += busca_aliexpress_sem_filtro(keyword, limit=10)
-        if usar_ml:
-            try:
-                produtos_raw += busca_ml_por_keyword(keyword, limit=15)
-            except Exception as e:
-                print(f"ML busca induzida erro: {e}")
+            r_ali = busca_aliexpress_sem_filtro(keyword, limit=10)
+            print(f"Busca induzida Ali: {len(r_ali)} produtos para '{keyword}'")
+            produtos_raw += r_ali
+
+        print(f"Busca induzida total bruto: {len(produtos_raw)} | filtros: R${preco_min}-{preco_max} desc>={desc_min}%")
 
         # Aplica filtros informados pelo usuário
         produtos = []
@@ -1669,6 +1667,7 @@ def buscar_induzido():
             if desc_min > 0 and p.get("desconto", 0) < desc_min:
                 continue
             produtos.append(p)
+        print(f"Busca induzida após filtro: {len(produtos)} produtos")
 
         # Ordena por maior desconto e limita pela qtde solicitada
         produtos.sort(key=lambda p: p.get("desconto", 0), reverse=True)
