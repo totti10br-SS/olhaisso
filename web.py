@@ -1656,6 +1656,9 @@ def buscar_induzido():
             produtos_raw += r_ali
 
         print(f"Busca induzida total bruto: {len(produtos_raw)} | filtros: R${preco_min}-{preco_max} desc>={desc_min}%")
+        # Debug: mostra preço e desconto de cada produto bruto
+        for p in produtos_raw[:5]:
+            print(f"  -> {p['loja']} | R${p['preco']} | {p.get('desconto',0)}% | {p['nome'][:50]}")
 
         # Aplica filtros informados pelo usuário
         produtos = []
