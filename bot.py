@@ -767,57 +767,108 @@ KEYWORDS_MONITOR = [
     "tela monitor", "display monitor",
 ]
 
-def montar_ciclo_misto(produtos):
+def distribuir_50_25_25(pool_ml, pool_ali, pool_shopee, pool_outros, total):
+    """Monta fila com distribuição 50% ML, 25% Ali, 25% Shopee."""
+    qtd_ml     = max(1, round(total * 0.50))
+    qtd_ali    = max(1, round(total * 0.25))
+    qtd_shopee = max(1, total - qtd_ml - qtd_ali)
+    log.info(f"Distribuição alvo: {qtd_ml} ML | {qtd_ali} Ali | {qtd_shopee} Shopee")
+    fila = []
+    fila += pool_ml[:qtd_ml]
+    fila += pool_ali[:qtd_ali]
+    fila += pool_shopee[:qtd_shopee]
+    # Completa com extras se faltar
+    extras = pool_ml[qtd_ml:] + pool_ali[qtd_ali:] + pool_shopee[qtd_shopee:] + pool_outros
+    for p in extras:
+        if len(fila) >= total * 2:
+            break
+        fila.append(p)
+    return fila
+
+
+def _is_smartphone(nome):
+    return any(kw in nome.lower() for kw in KEYWORDS_SMARTPHONE)
+
+def _is_monitor(nome):
+    return any(kw in nome.lower() for kw in KEYWORDS_MONITOR)
+
+
+def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros):
     """
     Ciclo misto (12:30 e 20:30): metade smartphones + metade monitores.
-    Cada metade = POSTS_POR_CICLO // 2 produtos.
+    Proporção 50% ML, 25% Ali, 25% Shopee mantida dentro de cada categoria.
     """
     metade = POSTS_POR_CICLO // 2
-    smartphones = [p for p in produtos if any(kw in p.get("nome", "").lower() for kw in KEYWORDS_SMARTPHONE)]
-    monitores   = [p for p in produtos if any(kw in p.get("nome", "").lower() for kw in KEYWORDS_MONITOR)]
-    outros      = [p for p in produtos if p not in smartphones and p not in monitores]
 
-    log.info(f"🔀 CICLO MISTO — {metade} smartphone(s) + {metade} monitor(es)")
-    log.info(f"   Disponíveis: {len(smartphones)} smartphones | {len(monitores)} monitores")
+    # Separa por categoria
+    def split_cat(pool):
+        phones  = [p for p in pool if _is_smartphone(p.get("nome",""))]
+        monitors= [p for p in pool if _is_monitor(p.get("nome",""))]
+        outros  = [p for p in pool if not _is_smartphone(p.get("nome","")) and not _is_monitor(p.get("nome",""))]
+        return phones, monitors, outros
 
-    # Pega metade de cada, completa com outros se faltar
-    resultado = smartphones[:metade] + monitores[:metade]
+    ml_ph,  ml_mo,  ml_ot  = split_cat(pool_ml)
+    ali_ph, ali_mo, ali_ot = split_cat(pool_ali)
+    sh_ph,  sh_mo,  sh_ot  = split_cat(pool_shopee)
+
+    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es)")
+
+    # Smartphones com proporção 50/25/25
+    qtd_ml_ph  = max(0, round(metade * 0.50))
+    qtd_ali_ph = max(0, round(metade * 0.25))
+    qtd_sh_ph  = max(0, metade - qtd_ml_ph - qtd_ali_ph)
+    smartphones = ml_ph[:qtd_ml_ph] + ali_ph[:qtd_ali_ph] + sh_ph[:qtd_sh_ph]
+    # Completa se faltar
+    extras_ph = ml_ph[qtd_ml_ph:] + ali_ph[qtd_ali_ph:] + sh_ph[qtd_sh_ph:]
+    smartphones += extras_ph[:max(0, metade - len(smartphones))]
+
+    # Monitores com proporção 50/25/25
+    qtd_ml_mo  = max(0, round(metade * 0.50))
+    qtd_ali_mo = max(0, round(metade * 0.25))
+    qtd_sh_mo  = max(0, metade - qtd_ml_mo - qtd_ali_mo)
+    monitores = ml_mo[:qtd_ml_mo] + ali_mo[:qtd_ali_mo] + sh_mo[:qtd_sh_mo]
+    extras_mo = ml_mo[qtd_ml_mo:] + ali_mo[qtd_ali_mo:] + sh_mo[qtd_sh_mo:]
+    monitores += extras_mo[:max(0, metade - len(monitores))]
+
+    resultado = smartphones + monitores
     faltando = POSTS_POR_CICLO - len(resultado)
     if faltando > 0:
-        resultado += outros[:faltando]
-        if faltando > 0:
-            log.info(f"   Completado com {min(faltando, len(outros))} produto(s) genérico(s)")
+        extras = ml_ot + ali_ot + sh_ot + pool_outros
+        resultado += extras[:faltando]
+        log.info(f"   Completado com {min(faltando, len(extras))} produto(s) genérico(s)")
+
+    log.info(f"   {len(smartphones)} smartphone(s) | {len(monitores)} monitor(es)")
     return resultado
 
-def filtrar_ciclo_especial(produtos):
+
+def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_outros):
     """
-    Horário misto   → retorna metade smartphones + metade monitores.
-    Horário monitor → retorna apenas monitores.
-    Horário normal  → remove smartphones e monitores do ciclo.
+    Recebe pools separados por loja e retorna lista filtrada por tipo de ciclo,
+    mantendo proporção 50% ML / 25% Ali / 25% Shopee em todos os ciclos.
     """
     if permitir_misto():
-        return montar_ciclo_misto(produtos)
+        return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros)
 
     if permitir_monitor_dedicado():
-        log.info("🖥️ CICLO DEDICADO — apenas Monitores")
-        resultado = [p for p in produtos if any(kw in p.get("nome", "").lower() for kw in KEYWORDS_MONITOR)]
-        log.info(f"🖥️ {len(resultado)} monitor(es) disponíveis para o ciclo")
-        return resultado
+        log.info("🖥️ CICLO DEDICADO — apenas Monitores (50% ML / 25% Ali / 25% Shopee)")
+        ml_mo  = [p for p in pool_ml  if _is_monitor(p.get("nome",""))]
+        ali_mo = [p for p in pool_ali if _is_monitor(p.get("nome",""))]
+        sh_mo  = [p for p in pool_shopee if _is_monitor(p.get("nome",""))]
+        total = len(ml_mo) + len(ali_mo) + len(sh_mo)
+        log.info(f"🖥️ {total} monitor(es) disponíveis (ML:{len(ml_mo)} Ali:{len(ali_mo)} Sh:{len(sh_mo)})")
+        return distribuir_50_25_25(ml_mo, ali_mo, sh_mo, [], POSTS_POR_CICLO)
 
     # Ciclo normal — remove smartphones e monitores
-    antes = len(produtos)
-    resultado = []
-    for p in produtos:
-        nome_lower = p.get("nome", "").lower()
-        if any(kw in nome_lower for kw in KEYWORDS_SMARTPHONE):
-            continue
-        if any(kw in nome_lower for kw in KEYWORDS_MONITOR):
-            continue
-        resultado.append(p)
-    removidos = antes - len(resultado)
+    def filtrar_normal(pool):
+        return [p for p in pool if not _is_smartphone(p.get("nome","")) and not _is_monitor(p.get("nome",""))]
+
+    ml_n  = filtrar_normal(pool_ml)
+    ali_n = filtrar_normal(pool_ali)
+    sh_n  = filtrar_normal(pool_shopee)
+    removidos = (len(pool_ml) - len(ml_n)) + (len(pool_ali) - len(ali_n)) + (len(pool_shopee) - len(sh_n))
     if removidos > 0:
         log.info(f"🔒 {removidos} produto(s) reservados para ciclos especiais")
-    return resultado
+    return distribuir_50_25_25(ml_n, ali_n, sh_n, pool_outros, POSTS_POR_CICLO)
 
 def detectar_tema(nome):
     nome_lower = nome.lower()
@@ -871,9 +922,6 @@ def montar_pipeline():
         log.warning("Sem produtos — usando mock")
         todos_raw = produtos_mock()
 
-    # Filtra/organiza por ciclo especial ou normal
-    todos_raw = filtrar_ciclo_especial(todos_raw)
-
     # Filtra por preço e desconto
     todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
 
@@ -884,7 +932,7 @@ def montar_pipeline():
     if filtrados > 0:
         log.info(f"SQLite: {filtrados} produtos já postados recentemente removidos")
 
-    # Separa por fonte e ordena por score
+    # Separa por fonte e ordena por score ANTES do filtro de ciclo
     def filtrar_fonte(lista, loja):
         return sorted([p for p in lista if p.get("loja") == loja], key=lambda x: x.get("score", 0), reverse=True)
 
@@ -893,25 +941,8 @@ def montar_pipeline():
     pool_shopee = filtrar_fonte(todos_raw, "SHOPEE")
     pool_outros = [p for p in todos_raw if p.get("loja") not in ("MERCADOLIVRE", "ALIEXPRESS", "SHOPEE")]
 
-    # Distribuição: 50% ML, 25% Shopee, 25% AliExpress
-    # Em 12 posts: 6 ML + 3 Shopee + 3 Ali
-    qtd_ml     = max(1, round(POSTS_POR_CICLO * 0.50))
-    qtd_ali    = max(1, round(POSTS_POR_CICLO * 0.25))
-    qtd_shopee = max(1, POSTS_POR_CICLO - qtd_ml - qtd_ali)
-
-    log.info(f"Distribuição alvo: {qtd_ml} ML | {qtd_ali} Ali | {qtd_shopee} Shopee")
-
-    fila = []
-    fila += pool_ml[:qtd_ml]
-    fila += pool_ali[:qtd_ali]
-    fila += pool_shopee[:qtd_shopee]
-
-    # Completa com o que sobrar se não tiver produtos suficientes
-    todos_extras = pool_ml[qtd_ml:] + pool_ali[qtd_ali:] + pool_shopee[qtd_shopee:] + pool_outros
-    for p in todos_extras:
-        if len(fila) >= POSTS_POR_CICLO * 2:
-            break
-        fila.append(p)
+    # Filtra/organiza por ciclo especial mantendo proporção 50/25/25
+    fila = filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_outros)
 
     # Remove duplicatas mantendo ordem
     vistos = set()

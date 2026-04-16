@@ -514,13 +514,29 @@ HTML = """<!DOCTYPE html>
   <!-- FLUXO 3: Busca Induzida -->
   <div class="card" id="card_busca">
     <h2>🔍 Busca Induzida — Oferta Premium</h2>
-    <div class="info">💡 Busca em Shopee + AliExpress com seus próprios filtros — ignora variáveis do Railway</div>
+    <div class="info">💡 Busca nas lojas selecionadas com seus próprios filtros — ignora variáveis do Railway</div>
 
     <label>🔑 Palavra-chave *</label>
     <input type="text" id="bk_keyword" placeholder="Ex: monitor curvo, headset gamer, notebook...">
 
     <label>🏷️ Marca (opcional)</label>
     <input type="text" id="bk_marca" placeholder="Ex: DELL, ACER, INTEL, SAMSUNG... (opcional)">
+
+    <label style="margin-bottom:8px;">🏪 Buscar em:</label>
+    <div class="destinos" style="margin-bottom:14px;">
+      <label class="destino on" id="dest_bk_ml" style="border-color:#FFE600;">
+        <input type="checkbox" id="bk_usar_ml" checked onchange="toggleDestino('dest_bk_ml', this)" style="accent-color:#FFE600;">
+        <span>🟡 ML</span>
+      </label>
+      <label class="destino on" id="dest_bk_shopee">
+        <input type="checkbox" id="bk_usar_shopee" checked onchange="toggleDestino('dest_bk_shopee', this)">
+        <span>🧡 Shopee</span>
+      </label>
+      <label class="destino on" id="dest_bk_ali">
+        <input type="checkbox" id="bk_usar_ali" checked onchange="toggleDestino('dest_bk_ali', this)">
+        <span>🛍️ AliExpress</span>
+      </label>
+    </div>
 
     <div class="row2">
       <div>
@@ -533,8 +549,16 @@ HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <label>🏷️ Desconto mínimo (%) *</label>
-    <input type="number" id="bk_desconto_min" step="1" min="0" max="99" placeholder="Ex: 20 (use 0 para sem limite)">
+    <div class="row2">
+      <div>
+        <label>🏷️ Desconto mínimo (%) *</label>
+        <input type="number" id="bk_desconto_min" step="1" min="0" max="99" placeholder="Ex: 20 (use 0 para sem limite)">
+      </div>
+      <div>
+        <label>📦 Qtde de postagens *</label>
+        <input type="number" id="bk_qtde" step="1" min="1" max="20" placeholder="Ex: 3" value="3">
+      </div>
+    </div>
 
     <label style="margin-bottom:8px;">📢 Publicar em:</label>
     <div class="destinos">
@@ -819,30 +843,39 @@ async function buscarInduzido() {
   const preco_min    = parseFloat(document.getElementById('bk_preco_min').value) || 0;
   const preco_max    = parseFloat(document.getElementById('bk_preco_max').value) || 0;
   const desconto_min = document.getElementById('bk_desconto_min').value;
+  const qtde         = parseInt(document.getElementById('bk_qtde').value) || 3;
   const telegram     = document.getElementById('bk_telegram').checked;
   const whatsapp     = document.getElementById('bk_whatsapp').checked;
   const grupos       = getGruposWA('bk');
+  const usar_ml      = document.getElementById('bk_usar_ml').checked;
+  const usar_shopee  = document.getElementById('bk_usar_shopee').checked;
+  const usar_ali     = document.getElementById('bk_usar_ali').checked;
 
   if (!keyword)  return alert('Digite uma palavra-chave!');
+  if (!usar_ml && !usar_shopee && !usar_ali) return alert('Selecione ao menos uma loja!');
   if (!preco_min) return alert('Informe o preço mínimo!');
   if (!preco_max) return alert('Informe o preço máximo!');
   if (preco_max <= preco_min) return alert('Preço máximo deve ser maior que o mínimo!');
   if (desconto_min === '') return alert('Informe o desconto mínimo (use 0 para sem limite)!');
   if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
 
-  // Monta keyword final — marca é opcional
   const keyword_final = marca ? `${keyword} ${marca}` : keyword;
+  const lojas = [];
+  if (usar_ml) lojas.push('ML');
+  if (usar_shopee) lojas.push('Shopee');
+  if (usar_ali) lojas.push('AliExpress');
 
   const btn = document.getElementById('btn_bk');
   btn.disabled = true;
   document.getElementById('loader_bk').style.display = 'block';
-  document.getElementById('loader_bk').textContent = '⏳ Buscando ofertas em Shopee + AliExpress...';
+  document.getElementById('loader_bk').textContent = `⏳ Buscando ${qtde} oferta(s) em ${lojas.join(' + ')}...`;
 
   try {
     const resp = await fetch('/buscar_induzido', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ keyword: keyword_final, preco_min, preco_max, desconto_min: parseInt(desconto_min), telegram, whatsapp, ...grupos })
+      body: JSON.stringify({ keyword: keyword_final, preco_min, preco_max, desconto_min: parseInt(desconto_min),
+        qtde, usar_ml, usar_shopee, usar_ali, telegram, whatsapp, ...grupos })
     });
     const data = await resp.json();
     if (data.ok) {
@@ -852,6 +885,7 @@ async function buscarInduzido() {
       document.getElementById('bk_preco_min').value = '';
       document.getElementById('bk_preco_max').value = '';
       document.getElementById('bk_desconto_min').value = '';
+      document.getElementById('bk_qtde').value = '3';
     } else {
       mostrarMsg(`<div class="msg msg-err">❌ Erro: ${data.erro}</div>`);
     }
@@ -1172,6 +1206,10 @@ def buscar_induzido():
     preco_min  = float(data.get("preco_min", 0) or 0)
     preco_max  = float(data.get("preco_max", 0) or 0)
     desc_min   = int(data.get("desconto_min", 0) or 0)
+    qtde       = int(data.get("qtde", 3) or 3)
+    usar_ml    = data.get("usar_ml", True)
+    usar_shopee= data.get("usar_shopee", True)
+    usar_ali   = data.get("usar_ali", True)
     pub_tg        = data.get("telegram", True)
     pub_wa        = data.get("whatsapp", True)
     wa_principal  = data.get("wa_principal", True)
@@ -1181,10 +1219,26 @@ def buscar_induzido():
         return jsonify({"ok": False, "erro": "Palavra-chave obrigatória"})
 
     try:
-        # Usa funções próprias SEM filtros do Railway
+        # Busca nas lojas selecionadas
         produtos_raw = []
-        produtos_raw += busca_shopee_sem_filtro(keyword, limit=10)
-        produtos_raw += busca_aliexpress_sem_filtro(keyword, limit=10)
+        if usar_shopee:
+            produtos_raw += busca_shopee_sem_filtro(keyword, limit=10)
+        if usar_ali:
+            produtos_raw += busca_aliexpress_sem_filtro(keyword, limit=10)
+        if usar_ml:
+            try:
+                from mercadolivre_link import gerar_link_afiliado_ml
+                SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
+                if SCRAPERAPI_KEY:
+                    from mercadolivre_api import buscar_todos_produtos as _buscar_ml
+                    produtos_ml_raw = _buscar_ml()
+                    # Filtra por keyword
+                    kw_lower = keyword.lower()
+                    for p in produtos_ml_raw:
+                        if kw_lower in p.get("nome", "").lower():
+                            produtos_raw.append(p)
+            except Exception as e:
+                print(f"ML busca induzida erro: {e}")
 
         # Aplica filtros informados pelo usuário
         produtos = []
@@ -1197,12 +1251,17 @@ def buscar_induzido():
                 continue
             produtos.append(p)
 
-        # Ordena por maior desconto
+        # Ordena por maior desconto e limita pela qtde solicitada
         produtos.sort(key=lambda p: p.get("desconto", 0), reverse=True)
-        produtos = produtos[:6]
+        produtos = produtos[:qtde]
+
+        lojas_buscadas = []
+        if usar_ml: lojas_buscadas.append("ML")
+        if usar_shopee: lojas_buscadas.append("Shopee")
+        if usar_ali: lojas_buscadas.append("AliExpress")
 
         if not produtos:
-            return jsonify({"ok": False, "erro": f"Nenhum produto encontrado para '{keyword}' com os filtros informados. Tente reduzir o preço mínimo, aumentar o preço máximo ou diminuir o desconto mínimo. Shopee e AliExpress raramente têm produtos acima de R$1.500."})
+            return jsonify({"ok": False, "erro": f"Nenhum produto encontrado para '{keyword}' em {', '.join(lojas_buscadas)} com os filtros informados."})
 
         publicados = 0
         for produto in produtos:
