@@ -380,7 +380,7 @@ def busca_ml_por_keyword(keyword, limit=20):
 
         # URL de busca por keyword — mesmo formato das categorias
         kw_encoded = keyword.replace(" ", "+")
-        url = "https://www.mercadolivre.com.br/ofertas?q=" + kw_encoded
+        url = "https://lista.mercadolivre.com.br/" + kw_encoded
         html = _scraper_fetch(url)
         items = _extrair(html)
         print("ML busca: " + str(len(items)) + " itens brutos para '" + keyword + "'")
