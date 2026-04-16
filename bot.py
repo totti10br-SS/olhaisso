@@ -97,9 +97,17 @@ def init_db():
             nome      TEXT,
             preco     REAL,
             loja      TEXT,
-            postado_em TEXT NOT NULL
+            postado_em TEXT NOT NULL,
+            origem    TEXT DEFAULT 'BOT'
         )
     """)
+    # Migration: adiciona coluna origem se nao existir
+    try:
+        c.execute("ALTER TABLE postados ADD COLUMN origem TEXT DEFAULT 'BOT'")
+        conn.commit()
+        log.info("SQLite: coluna 'origem' adicionada")
+    except Exception:
+        pass  # coluna ja existe
     conn.commit()
     conn.close()
     log.info(f"SQLite iniciado: {DB_PATH}")
@@ -120,7 +128,7 @@ def ja_postado(hash_produto):
         return False
 
 
-def registrar_post(produto):
+def registrar_post(produto, origem="BOT"):
     """Registra produto postado no banco."""
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -128,10 +136,10 @@ def registrar_post(produto):
         hash_p = hashlib.md5(produto["nome"].encode()).hexdigest()
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.execute("""
-            INSERT OR REPLACE INTO postados (hash, nome, preco, loja, postado_em)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO postados (hash, nome, preco, loja, postado_em, origem)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, (hash_p, produto["nome"][:200], produto.get("preco", 0),
-              produto.get("loja", ""), agora))
+              produto.get("loja", ""), agora, origem))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -1104,6 +1112,34 @@ def iniciar_api_historico():
         def log_message(self, format, *args):
             pass  # silencia logs do servidor
 
+        def do_POST(self):
+            if self.path.startswith("/registrar"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length))
+                    produto = {
+                        "nome": body.get("nome", ""),
+                        "preco": body.get("preco", 0),
+                        "loja": body.get("loja", ""),
+                    }
+                    origem = body.get("origem", "WEB")
+                    registrar_post(produto, origem)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok": true}')
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+            else:
+                self.send_response(404)
+                self.end_headers()
+
         def do_GET(self):
             if self.path.startswith("/historico"):
                 # Verifica API key
@@ -1117,14 +1153,14 @@ def iniciar_api_historico():
                     conn = sqlite3.connect(DB_PATH)
                     c = conn.cursor()
                     c.execute("""
-                        SELECT id, nome, preco, loja, postado_em
+                        SELECT id, nome, preco, loja, postado_em, COALESCE(origem, 'BOT')
                         FROM postados
                         ORDER BY postado_em DESC
                         LIMIT 100
                     """)
                     rows = c.fetchall()
                     conn.close()
-                    data = [{"id": r[0], "nome": r[1], "preco": r[2], "loja": r[3], "postado_em": r[4]} for r in rows]
+                    data = [{"id": r[0], "nome": r[1], "preco": r[2], "loja": r[3], "postado_em": r[4], "origem": r[5]} for r in rows]
                     body = _json.dumps(data).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")

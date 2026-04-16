@@ -1221,26 +1221,42 @@ async function carregarHistorico() {
 
     const lojaEmoji = { MERCADOLIVRE: '🟡', SHOPEE: '🧡', ALIEXPRESS: '🛍️', AMAZON: '📦' };
 
+    function fmtData(dt) {
+      if (!dt) return '-';
+      const d = dt.replace('T', ' ');
+      const parts = d.substring(0, 16).split(' ');
+      const ymd = parts[0].split('-');
+      return ymd[2] + '/' + ymd[1] + '/' + ymd[0].substring(2) + ' ' + (parts[1] || '');
+    }
+
+    function fmtPreco(v) {
+      if (!v) return '-';
+      return 'R$ ' + parseFloat(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+    }
+
     let html = '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + rows.length + ' registro(s)</div>';
-    html += '<div style="overflow-x:auto;">';
+    html += '<div style="overflow-x:auto;border-radius:10px;border:1px solid #2a2a2a;">';
     html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
-    html += '<thead><tr style="color:#FF6B1A;border-bottom:1px solid #333;">';
-    html += '<th style="text-align:left;padding:8px 6px;">Produto</th>';
-    html += '<th style="text-align:center;padding:8px 6px;">Loja</th>';
-    html += '<th style="text-align:right;padding:8px 6px;">Preço</th>';
-    html += '<th style="text-align:right;padding:8px 6px;">Data</th>';
+    html += '<thead><tr style="background:#222;color:#FF6B1A;border-bottom:2px solid #333;">';
+    html += '<th style="text-align:left;padding:10px 8px;font-weight:700;">Produto</th>';
+    html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Loja</th>';
+    html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Preço</th>';
+    html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Origem</th>';
+    html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Data</th>';
     html += '</tr></thead><tbody>';
 
     rows.forEach((r, i) => {
-      const bg = i % 2 === 0 ? '#1a1a1a' : '#111';
+      const bg = i % 2 === 0 ? '#1a1a1a' : '#141414';
       const emoji = lojaEmoji[r.loja] || '🏪';
-      const preco = r.preco ? 'R$ ' + parseFloat(r.preco).toFixed(2).replace('.', ',') : '-';
-      const data_fmt = r.postado_em ? r.postado_em.replace('T', ' ').substring(0, 16) : '-';
-      html += '<tr style="background:' + bg + ';border-bottom:1px solid #222;">';
-      html += '<td style="padding:8px 6px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + r.nome + '">' + r.nome + '</td>';
-      html += '<td style="padding:8px 6px;text-align:center;">' + emoji + ' ' + (r.loja || '-') + '</td>';
-      html += '<td style="padding:8px 6px;text-align:right;color:#FF6B1A;font-weight:700;">' + preco + '</td>';
-      html += '<td style="padding:8px 6px;text-align:right;color:#888;">' + data_fmt + '</td>';
+      const origemBadge = r.origem === 'WEB'
+        ? '<span style="background:#1a3a5c;color:#4db8ff;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;">🌐 WEB</span>'
+        : '<span style="background:#1a2a1a;color:#00cc44;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;">🤖 BOT</span>';
+      html += '<tr style="background:' + bg + ';border-bottom:1px solid #222;transition:background 0.1s;" onmouseover="this.style.background='#252525'" onmouseout="this.style.background='' + bg + ''">';
+      html += '<td style="padding:10px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;" title="' + r.nome + '">' + r.nome + '</td>';
+      html += '<td style="padding:10px 8px;text-align:center;white-space:nowrap;">' + emoji + ' ' + (r.loja || '-') + '</td>';
+      html += '<td style="padding:10px 8px;text-align:right;color:#FF6B1A;font-weight:700;white-space:nowrap;">' + fmtPreco(r.preco) + '</td>';
+      html += '<td style="padding:10px 8px;text-align:center;">' + origemBadge + '</td>';
+      html += '<td style="padding:10px 8px;text-align:right;color:#888;white-space:nowrap;font-size:12px;">' + fmtData(r.postado_em) + '</td>';
       html += '</tr>';
     });
     html += '</tbody></table></div>';
@@ -1423,6 +1439,19 @@ def publicar():
                 grupos_postados.append("Principal")
             resultados.append(f"WhatsApp ✅ ({', '.join(grupos_postados)})")
 
+        # Registra no banco do bot como origem WEB
+        try:
+            BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+            WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+            requests.post(
+                BOT_API_URL + "/registrar",
+                json={"nome": produto["nome"], "preco": produto["preco"],
+                      "loja": produto["loja"], "origem": "WEB"},
+                headers={"X-API-Key": WEB_SECRET_KEY},
+                timeout=5
+            )
+        except Exception:
+            pass
         msg = "Publicado em: " + " | ".join(resultados)
         return jsonify({"ok": True, "msg": msg})
 
