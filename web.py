@@ -1207,11 +1207,34 @@ async function publicarML() {
 }
 
 let _histRows = [];
+let _histSort = { col: 'postado_em', asc: false };
 
 function filtrarHistorico() {
   const busca = (document.getElementById('hist_busca')?.value || '').toLowerCase().trim();
-  const rows = busca ? _histRows.filter(r => r.nome && r.nome.toLowerCase().includes(busca)) : _histRows;
+  let rows = busca ? _histRows.filter(r => r.nome && r.nome.toLowerCase().includes(busca)) : [..._histRows];
+  rows = ordenarRows(rows);
   renderHistorico(rows);
+}
+
+function ordenarRows(rows) {
+  const { col, asc } = _histSort;
+  return [...rows].sort((a, b) => {
+    let va = a[col] ?? '', vb = b[col] ?? '';
+    if (col === 'preco') { va = parseFloat(va) || 0; vb = parseFloat(vb) || 0; }
+    if (va < vb) return asc ? -1 : 1;
+    if (va > vb) return asc ? 1 : -1;
+    return 0;
+  });
+}
+
+function sortBy(col) {
+  if (_histSort.col === col) {
+    _histSort.asc = !_histSort.asc;
+  } else {
+    _histSort.col = col;
+    _histSort.asc = col === 'nome';
+  }
+  filtrarHistorico();
 }
 
 function renderHistorico(rows) {
@@ -1233,6 +1256,11 @@ function renderHistorico(rows) {
     return 'R$ ' + parseFloat(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
   }
 
+  function thSort(label, col, align) {
+    const ico = _histSort.col === col ? (_histSort.asc ? ' ▲' : ' ▼') : ' ⇅';
+    return '<th onclick="sortBy('' + col + '')" style="text-align:' + align + ';padding:10px 8px;font-weight:700;white-space:nowrap;cursor:pointer;user-select:none;" title="Ordenar por ' + label + '">' + label + '<span style="font-size:10px;opacity:0.7;">' + ico + '</span></th>';
+  }
+
   if (!rows || rows.length === 0) {
     area.innerHTML = '<div class="info">Nenhum registro encontrado.</div>';
     return;
@@ -1242,12 +1270,12 @@ function renderHistorico(rows) {
   html += '<div style="overflow-x:auto;border-radius:10px;border:1px solid #2a2a2a;">';
   html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
   html += '<thead><tr style="background:#222;color:#FF6B1A;border-bottom:2px solid #333;">';
-  html += '<th style="text-align:left;padding:10px 8px;font-weight:700;">Produto</th>';
-  html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Loja</th>';
-  html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Preço</th>';
-  html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Origem</th>';
+  html += thSort('Produto', 'nome', 'left');
+  html += thSort('Loja', 'loja', 'center');
+  html += thSort('Preço', 'preco', 'right');
+  html += thSort('Origem', 'origem', 'center');
   html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Link</th>';
-  html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Data</th>';
+  html += thSort('Data', 'postado_em', 'right');
   html += '</tr></thead><tbody>';
 
   rows.forEach((r, i) => {
