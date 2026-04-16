@@ -849,24 +849,6 @@ HTML = """<!DOCTYPE html>
     <h2>📊 Histórico de Postagens</h2>
     <div class="info">💡 Últimos 100 produtos publicados pelo bot</div>
 
-    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-      <select id="hist_loja" onchange="carregarHistorico()" style="flex:1;min-width:120px;margin-bottom:0;">
-        <option value="">Todas as lojas</option>
-        <option value="MERCADOLIVRE">🟡 Mercado Livre</option>
-        <option value="SHOPEE">🧡 Shopee</option>
-        <option value="ALIEXPRESS">🛍️ AliExpress</option>
-        <option value="AMAZON">📦 Amazon</option>
-      </select>
-      <button onclick="carregarHistorico()" style="background:#333;border:1px solid #555;color:#fff;border-radius:10px;padding:0 16px;cursor:pointer;font-size:14px;">🔄 Atualizar</button>
-    </div>
-    <div style="position:relative;margin-bottom:14px;">
-      <input type="text" id="hist_busca" placeholder="🔍 Filtrar por nome do produto..."
-        oninput="filtrarHistorico()"
-        style="width:100%;background:#2a2a2a;border:1px solid #444;border-radius:10px;color:#fff;padding:11px 16px;font-size:14px;outline:none;">
-      <button onclick="document.getElementById('hist_busca').value='';filtrarHistorico()"
-        style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#666;cursor:pointer;font-size:16px;" title="Limpar">✕</button>
-    </div>
-
     <div style="background:#111;border:1px solid #2a2a2a;border-radius:14px;padding:18px;margin-bottom:16px;">
       <h3 style="color:#FF6B1A;font-size:14px;margin-bottom:14px;">🎮 Disparar Ciclo Manual</h3>
 
@@ -916,6 +898,24 @@ HTML = """<!DOCTYPE html>
 
     <div style="margin-top:20px;">
       <h3 style="color:#FF6B1A;font-size:14px;margin-bottom:12px;">📋 Histórico de Postagens</h3>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+      <select id="hist_loja" onchange="carregarHistorico()" style="flex:1;min-width:120px;margin-bottom:0;">
+        <option value="">Todas as lojas</option>
+        <option value="MERCADOLIVRE">🟡 Mercado Livre</option>
+        <option value="SHOPEE">🧡 Shopee</option>
+        <option value="ALIEXPRESS">🛍️ AliExpress</option>
+        <option value="AMAZON">📦 Amazon</option>
+      </select>
+      <button onclick="carregarHistorico()" style="background:#333;border:1px solid #555;color:#fff;border-radius:10px;padding:0 16px;cursor:pointer;font-size:14px;">🔄 Atualizar</button>
+    </div>
+    <div style="position:relative;margin-bottom:14px;">
+      <input type="text" id="hist_busca" placeholder="🔍 Filtrar por nome do produto..."
+        oninput="filtrarHistorico()"
+        style="width:100%;background:#2a2a2a;border:1px solid #444;border-radius:10px;color:#fff;padding:11px 16px;font-size:14px;outline:none;">
+      <button onclick="document.getElementById('hist_busca').value='';filtrarHistorico()"
+        style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#666;cursor:pointer;font-size:16px;" title="Limpar">✕</button>
     </div>
     <div id="hist_loader" style="text-align:center;color:#FF6B1A;padding:20px;display:none;">⏳ Carregando...</div>
     <div id="hist_area"></div>
