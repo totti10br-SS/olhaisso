@@ -1234,7 +1234,8 @@ async function publicarML() {
           ✅ ${dataPub.msg}<br><br>
           <strong>🟡 Link gerado:</strong><br>
           <a href="${linkFinal}" target="_blank" style="color:#FFE600;word-break:break-all;">${linkFinal}</a><br><br>
-          <button onclick="navigator.clipboard.writeText('${linkFinal}'); this.textContent='✅ Copiado!'; setTimeout(()=>this.textContent='📋 Copiar link',2000)"
+          <button onclick="navigator.clipboard.writeText(this.dataset.link);this.textContent='✅ Copiado!';setTimeout(()=>this.textContent='📋 Copiar link',2000)"
+            data-link="${linkFinal}"
             style="background:#2a2a2a;border:1px solid #555;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;">
             📋 Copiar link
           </button>
