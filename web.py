@@ -1318,7 +1318,12 @@ function renderHistorico(rows) {
 
   function thSort(label, col, align) {
     const ico = _histSort.col === col ? (_histSort.asc ? ' ▲' : ' ▼') : ' ⇅';
-    return '<th onclick="sortBy('' + col + '')" style="text-align:' + align + ';padding:10px 8px;font-weight:700;white-space:nowrap;cursor:pointer;user-select:none;" title="Ordenar por ' + label + '">' + label + '<span style="font-size:10px;opacity:0.7;">' + ico + '</span></th>';
+    const th = document.createElement('th');
+    th.setAttribute('onclick', 'sortBy("' + col + '")');
+    th.style.cssText = 'text-align:' + align + ';padding:10px 8px;font-weight:700;white-space:nowrap;cursor:pointer;user-select:none;';
+    th.title = 'Ordenar por ' + label;
+    th.innerHTML = label + '<span style="font-size:10px;opacity:0.7;">' + ico + '</span>';
+    return th.outerHTML;
   }
 
   if (!rows || rows.length === 0) {
