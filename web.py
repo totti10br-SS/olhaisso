@@ -349,6 +349,11 @@ def busca_ml_por_keyword(keyword, limit=20):
                     return None
                 if preco <= 0:
                     return None
+                # Filtra por keyword — qualquer palavra da busca deve estar no nome
+                if kw_lower:
+                    palavras = [w for w in kw_lower.split() if len(w) > 2]
+                    if palavras and not any(w in nome.lower() for w in palavras):
+                        return None
                 desconto = int((1 - preco / preco_orig) * 100) if preco_orig > preco else 0
                 # Imagem igual ao mercadolivre_api.py
                 if not imagem and isinstance(pictures, dict):
@@ -384,7 +389,7 @@ def busca_ml_por_keyword(keyword, limit=20):
         todos = []
         vistos = set()
         for item in items:
-            p = _processar(item, "")
+            p = _processar(item, kw_lower)
             if p:
                 chave = _hashlib.md5(p["nome"].encode()).hexdigest()
                 if chave not in vistos:
