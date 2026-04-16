@@ -108,6 +108,13 @@ def init_db():
         log.info("SQLite: coluna 'origem' adicionada")
     except Exception:
         pass  # coluna ja existe
+    # Migration: adiciona coluna link se nao existir
+    try:
+        c.execute("ALTER TABLE postados ADD COLUMN link TEXT DEFAULT ''")
+        conn.commit()
+        log.info("SQLite: coluna 'link' adicionada")
+    except Exception:
+        pass  # coluna ja existe
     conn.commit()
     conn.close()
     log.info(f"SQLite iniciado: {DB_PATH}")
@@ -135,11 +142,12 @@ def registrar_post(produto, origem="BOT"):
         c = conn.cursor()
         hash_p = hashlib.md5(produto["nome"].encode()).hexdigest()
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        link = produto.get("link_afiliado", "")
         c.execute("""
-            INSERT OR REPLACE INTO postados (hash, nome, preco, loja, postado_em, origem)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO postados (hash, nome, preco, loja, postado_em, origem, link)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (hash_p, produto["nome"][:200], produto.get("preco", 0),
-              produto.get("loja", ""), agora, origem))
+              produto.get("loja", ""), agora, origem, link))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -1126,6 +1134,7 @@ def iniciar_api_historico():
                         "nome": body.get("nome", ""),
                         "preco": body.get("preco", 0),
                         "loja": body.get("loja", ""),
+                        "link_afiliado": body.get("link", ""),
                     }
                     origem = body.get("origem", "WEB")
                     registrar_post(produto, origem)
@@ -1153,14 +1162,14 @@ def iniciar_api_historico():
                     conn = sqlite3.connect(DB_PATH)
                     c = conn.cursor()
                     c.execute("""
-                        SELECT id, nome, preco, loja, postado_em, COALESCE(origem, 'BOT')
+                        SELECT id, nome, preco, loja, postado_em, COALESCE(origem, 'BOT'), COALESCE(link, '')
                         FROM postados
                         ORDER BY postado_em DESC
                         LIMIT 100
                     """)
                     rows = c.fetchall()
                     conn.close()
-                    data = [{"id": r[0], "nome": r[1], "preco": r[2], "loja": r[3], "postado_em": r[4], "origem": r[5]} for r in rows]
+                    data = [{"id": r[0], "nome": r[1], "preco": r[2], "loja": r[3], "postado_em": r[4], "origem": r[5], "link": r[6]} for r in rows]
                     body = _json.dumps(data).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")

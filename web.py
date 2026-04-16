@@ -1246,6 +1246,7 @@ async function carregarHistorico() {
     html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Loja</th>';
     html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Preço</th>';
     html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Origem</th>';
+    html += '<th style="text-align:center;padding:10px 8px;font-weight:700;white-space:nowrap;">Link</th>';
     html += '<th style="text-align:right;padding:10px 8px;font-weight:700;white-space:nowrap;">Data</th>';
     html += '</tr></thead><tbody>';
 
@@ -1260,6 +1261,10 @@ async function carregarHistorico() {
       html += '<td style="padding:10px 8px;text-align:center;white-space:nowrap;">' + emoji + ' ' + (r.loja || '-') + '</td>';
       html += '<td style="padding:10px 8px;text-align:right;color:#FF6B1A;font-weight:700;white-space:nowrap;">' + fmtPreco(r.preco) + '</td>';
       html += '<td style="padding:10px 8px;text-align:center;">' + origemBadge + '</td>';
+      const linkBtn = r.link
+        ? '<a href="' + r.link + '" target="_blank" style="background:#2a2a2a;border:1px solid #444;color:#FF6B1A;padding:4px 10px;border-radius:6px;font-size:12px;text-decoration:none;white-space:nowrap;">🔗 Abrir</a>'
+        : '<span style="color:#555;font-size:12px;">—</span>';
+      html += '<td style="padding:10px 8px;text-align:center;">' + linkBtn + '</td>';
       html += '<td style="padding:10px 8px;text-align:right;color:#888;white-space:nowrap;font-size:12px;">' + fmtData(r.postado_em) + '</td>';
       html += '</tr>';
     });
@@ -1450,7 +1455,8 @@ def publicar():
             requests.post(
                 BOT_API_URL + "/registrar",
                 json={"nome": produto["nome"], "preco": produto["preco"],
-                      "loja": produto["loja"], "origem": "WEB"},
+                      "loja": produto["loja"], "origem": "WEB",
+                      "link": produto.get("link_afiliado", "")},
                 headers={"X-API-Key": WEB_SECRET_KEY},
                 timeout=5
             )
