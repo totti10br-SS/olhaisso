@@ -347,9 +347,6 @@ def busca_ml_por_keyword(keyword, limit=20):
                 nome = nome.strip()
                 if not nome:
                     return None
-                # Filtra por keyword
-                if kw_lower and kw_lower not in nome.lower():
-                    return None
                 if preco <= 0:
                     return None
                 desconto = int((1 - preco / preco_orig) * 100) if preco_orig > preco else 0
@@ -387,7 +384,7 @@ def busca_ml_por_keyword(keyword, limit=20):
         todos = []
         vistos = set()
         for item in items:
-            p = _processar(item, kw_lower)
+            p = _processar(item, "")
             if p:
                 chave = _hashlib.md5(p["nome"].encode()).hexdigest()
                 if chave not in vistos:
