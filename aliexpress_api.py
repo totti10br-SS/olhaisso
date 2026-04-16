@@ -192,6 +192,8 @@ PALAVRAS_BLOQUEADAS = [
     "detector de tensão", "detector de tensao",
     "termômetro infravermelho", "termometro infravermelho",
     # Ferramentas gerais
+    "microscopio", "microscópio", "microscopy", "binocular microscope", "optical microscope",
+    "telescopio", "telescópio", "estetoscopio", "termometro clinico", "balanca de precisao",
     "furadeira", "parafusadeira", "chave inglesa", "martelo",
     "serra", "esmerilhadeira", "lixadeira",
     "fogueira", "fogão", "fogao", "churrasqueira", "churrasco",
