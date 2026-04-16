@@ -869,6 +869,53 @@ HTML = """<!DOCTYPE html>
 
     <div id="hist_loader" style="text-align:center;color:#FF6B1A;padding:20px;display:none;">⏳ Carregando...</div>
     <div id="hist_area"></div>
+
+    <div style="margin-top:24px;background:#111;border:1px solid #2a2a2a;border-radius:14px;padding:18px;">
+      <h3 style="color:#FF6B1A;font-size:14px;margin-bottom:14px;">🎮 Disparar Ciclo Manual</h3>
+
+      <div class="row2" style="margin-bottom:12px;">
+        <div>
+          <label>📦 Qtde de postagens</label>
+          <input type="number" id="ciclo_qtde" value="4" min="1" max="20" step="1">
+        </div>
+        <div>
+          <label>🏪 Lojas</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+            <label class="destino on" id="dest_ciclo_ml" style="flex:none;border-color:#FFE600;">
+              <input type="checkbox" id="ciclo_ml" checked onchange="toggleDestino('dest_ciclo_ml',this)" style="accent-color:#FFE600;">
+              <span style="font-size:12px;">🟡 ML</span>
+            </label>
+            <label class="destino on" id="dest_ciclo_shopee" style="flex:none;">
+              <input type="checkbox" id="ciclo_shopee" checked onchange="toggleDestino('dest_ciclo_shopee',this)">
+              <span style="font-size:12px;">🧡 Shopee</span>
+            </label>
+            <label class="destino on" id="dest_ciclo_ali" style="flex:none;">
+              <input type="checkbox" id="ciclo_ali" checked onchange="toggleDestino('dest_ciclo_ali',this)">
+              <span style="font-size:12px;">🛍️ Ali</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <label style="margin-bottom:8px;">📢 Publicar em:</label>
+      <div class="destinos" style="margin-bottom:10px;">
+        <label class="destino on" id="dest_ciclo_tg">
+          <input type="checkbox" id="ciclo_telegram" checked onchange="toggleDestino('dest_ciclo_tg',this)">
+          <span>✈️ Telegram</span>
+        </label>
+        <label class="destino on" id="dest_ciclo_wa_pri">
+          <input type="checkbox" id="ciclo_wa_principal" checked onchange="toggleDestino('dest_ciclo_wa_pri',this)">
+          <span>👥 WA Principal</span>
+        </label>
+        <label class="destino" id="dest_ciclo_wa_tst">
+          <input type="checkbox" id="ciclo_wa_teste" onchange="toggleDestino('dest_ciclo_wa_tst',this)">
+          <span>🧪 WA Teste</span>
+        </label>
+      </div>
+
+      <button class="btn btn-orange" id="btn_ciclo" onclick="dispararCiclo()">🚀 Disparar Ciclo Agora</button>
+      <div class="loader" id="loader_ciclo">⏳ Iniciando ciclo...</div>
+    </div>
   </div>
 </div>
 
@@ -1300,6 +1347,42 @@ function renderHistorico(rows) {
   area.innerHTML = html;
 }
 
+async function dispararCiclo() {
+  const qtde       = parseInt(document.getElementById('ciclo_qtde').value) || 4;
+  const telegram   = document.getElementById('ciclo_telegram').checked;
+  const wa_principal = document.getElementById('ciclo_wa_principal').checked;
+  const wa_teste   = document.getElementById('ciclo_wa_teste').checked;
+  const usar_ml    = document.getElementById('ciclo_ml').checked;
+  const usar_shopee= document.getElementById('ciclo_shopee').checked;
+  const usar_ali   = document.getElementById('ciclo_ali').checked;
+
+  if (!telegram && !wa_principal && !wa_teste) return alert('Selecione ao menos um canal!');
+  if (!usar_ml && !usar_shopee && !usar_ali) return alert('Selecione ao menos uma loja!');
+
+  const btn = document.getElementById('btn_ciclo');
+  btn.disabled = true;
+  document.getElementById('loader_ciclo').style.display = 'block';
+
+  try {
+    const resp = await fetch('/disparar_ciclo', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ qtde, telegram, wa_principal, wa_teste, usar_ml, usar_shopee, usar_ali })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      mostrarMsg('<div class="msg msg-ok">🚀 ' + data.msg + '</div>');
+    } else {
+      mostrarMsg('<div class="msg msg-err">❌ ' + data.erro + '</div>');
+    }
+  } catch(e) {
+    mostrarMsg('<div class="msg msg-err">❌ Erro: ' + e.message + '</div>');
+  } finally {
+    btn.disabled = false;
+    document.getElementById('loader_ciclo').style.display = 'none';
+  }
+}
+
 async function carregarHistorico() {
   const loja = document.getElementById('hist_loja')?.value || '';
   const area = document.getElementById('hist_area');
@@ -1703,6 +1786,27 @@ def dados_produto_ml():
             "imagem":    imagem,
         })
 
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/disparar_ciclo", methods=["POST"])
+def disparar_ciclo():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Nao autorizado"}), 401
+    try:
+        data = request.json
+        BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+        WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        r = requests.post(
+            BOT_API_URL + "/ciclo",
+            json=data,
+            headers={"X-API-Key": WEB_SECRET_KEY},
+            timeout=15
+        )
+        if r.status_code == 200:
+            return jsonify(r.json())
+        return jsonify({"ok": False, "erro": f"Bot retornou {r.status_code}"})
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
 

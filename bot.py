@@ -1092,6 +1092,54 @@ def postar_whatsapp_teste(produto, imagem_path):
         log.error(f"WhatsApp teste erro: {e}")
 
 
+def postar_whatsapp_custom(produto, imagem_path, group_id):
+    """Posta no WhatsApp em grupo específico."""
+    if not EVOLUTION_URL or not group_id:
+        return
+    try:
+        nome  = produto.get("nome", "")
+        preco = produto.get("preco", 0)
+        orig  = produto.get("preco_original", 0)
+        desc  = produto.get("desconto", 0)
+        link  = produto.get("link_afiliado", "")
+        loja  = produto.get("loja", "")
+        img_url = produto.get("imagem_url", "")
+        loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee",
+                      "AMAZON": "📦 Amazon", "MERCADOLIVRE": "🟡 Mercado Livre"}.get(loja, loja)
+        badge = "🔥 VIRAL AGORA" if produto.get("score", 0) >= 3 else "📈 TENDÊNCIA" if produto.get("score", 0) == 2 else "💰 OFERTA DO DIA"
+        def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        texto  = f"👀 *OlhaissO* — {badge}\n"
+        texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        texto += f"*{nome}*\n\n"
+        if desc > 0:
+            eco = round(orig - preco, 2)
+            texto += f"🏷️ *{desc}% OFF*  |  Economia de *{fmt(eco)}*\n"
+        if orig > preco:
+            texto += f"\n💵 De {fmt(orig)} por apenas\n"
+        texto += f"💰 *{fmt(preco)}*\n\n"
+        texto += f"{loja_label}\n"
+        texto += f"\n🛒 *COMPRAR AGORA:*\n{link}\n"
+        texto += f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        texto += f"👀 OlhaissoTech | Gadgets com o melhor preço"
+        headers = {"apikey": EVOLUTION_APIKEY, "Content-Type": "application/json"}
+        if img_url:
+            r = requests.post(
+                f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
+                json={"number": group_id, "mediatype": "image", "mimetype": "image/jpeg",
+                      "caption": texto, "media": img_url},
+                headers=headers, timeout=30
+            )
+            if r.status_code in (200, 201):
+                return
+        requests.post(
+            f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}",
+            json={"number": group_id, "text": texto},
+            headers=headers, timeout=30
+        )
+    except Exception as e:
+        log.warning(f"WhatsApp custom erro: {e}")
+
+
 def ciclo_teste():
     """Busca 1 produto do ML e posta no grupo de teste."""
     log.info("🧪 Ciclo de teste iniciado...")
@@ -1121,7 +1169,71 @@ def iniciar_api_historico():
             pass  # silencia logs do servidor
 
         def do_POST(self):
-            if self.path.startswith("/registrar"):
+            if self.path.startswith("/ciclo"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    qtde        = int(body.get("qtde", POSTS_POR_CICLO))
+                    usar_tg     = body.get("telegram", True)
+                    usar_wa_pri = body.get("wa_principal", True)
+                    usar_wa_tst = body.get("wa_teste", False)
+                    usar_ml     = body.get("usar_ml", True)
+                    usar_shopee = body.get("usar_shopee", True)
+                    usar_ali    = body.get("usar_ali", True)
+
+                    import threading as _th
+                    def _rodar():
+                        try:
+                            log.info(f"🎮 Ciclo manual via Web — {qtde} post(s)")
+                            produtos = montar_pipeline()
+                            # Filtra lojas se necessário
+                            if not usar_ml:
+                                produtos = [p for p in produtos if p.get("loja") != "MERCADOLIVRE"]
+                            if not usar_shopee:
+                                produtos = [p for p in produtos if p.get("loja") != "SHOPEE"]
+                            if not usar_ali:
+                                produtos = [p for p in produtos if p.get("loja") != "ALIEXPRESS"]
+                            postou = 0
+                            for produto in produtos:
+                                if postou >= qtde:
+                                    break
+                                log.info(f"🎮 Postando: {produto['nome'][:50]}")
+                                imagem = gerar_imagem(produto)
+                                ok = False
+                                if usar_tg:
+                                    produto_tg = {**produto, "imagem_url": ""}
+                                    ok = postar_telegram(produto_tg, imagem)
+                                if usar_wa_pri:
+                                    postar_whatsapp_custom(produto, imagem, WHATSAPP_GROUP_ID)
+                                    ok = True
+                                if usar_wa_tst:
+                                    postar_whatsapp_custom(produto, imagem, WHATSAPP_TEST_GROUP_ID)
+                                    ok = True
+                                if ok:
+                                    registrar_post(produto, "WEB_MANUAL")
+                                    postou += 1
+                                import time as _t
+                                _t.sleep(8)
+                            log.info(f"🎮 Ciclo manual concluído — {postou} post(s)")
+                        except Exception as e:
+                            log.error(f"🎮 Ciclo manual erro: {e}")
+                    _th.Thread(target=_rodar, daemon=True).start()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write((_json.dumps({"ok": True, "msg": f"Ciclo iniciado — {qtde} post(s) agendados!"})).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
+            elif self.path.startswith("/registrar"):
                 api_key = self.headers.get("X-API-Key", "")
                 if api_key != WEB_API_KEY:
                     self.send_response(401)
