@@ -248,34 +248,59 @@ def busca_shopee_sem_filtro(keyword, limit=10):
 
 
 def busca_ml_por_keyword(keyword, limit=10):
-    """Busca produtos no ML por keyword via API publica."""
+    """Busca produtos no ML por keyword via ScraperAPI (igual ao bot)."""
     SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
     if not SCRAPERAPI_KEY:
+        print("busca_ml_por_keyword: SCRAPERAPI_KEY nao configurada")
         return []
     try:
         from mercadolivre_link import gerar_link_afiliado_ml
+        import json as _json, re as _re
         kw_encoded = keyword.replace(" ", "+")
-        url_busca = f"https://api.mercadolibre.com/sites/MLB/search?q={kw_encoded}&sort=best_seller&limit={limit}"
-        payload = {"api_key": SCRAPERAPI_KEY, "url": url_busca, "country_code": "br"}
-        r = requests.get("https://api.scraperapi.com", params=payload, timeout=30)
+        url_busca = "https://www.mercadolivre.com.br/jm/search?q=" + kw_encoded + "&sort=price_asc"
+        payload = {"api_key": SCRAPERAPI_KEY, "url": url_busca, "country_code": "br", "render": "false"}
+        r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
         if r.status_code != 200:
+            print("ML busca status: " + str(r.status_code))
             return []
-        data = r.json()
-        results = data.get("results", [])
+        html = r.text
+        # Extrai JSON interno da pagina de busca do ML
+        idx_json = html.find('"results":[{')
+        if idx_json == -1:
+            print("ML busca: JSON nao encontrado")
+            return []
+        start = html.rfind('[', 0, idx_json + 12)
+        depth, end = 0, start
+        for i, c in enumerate(html[start:], start):
+            if c == '[': depth += 1
+            elif c == ']':
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+            if i - start > 300000:
+                break
+        try:
+            results = _json.loads(html[start:end])
+        except Exception as e:
+            print("ML busca parse erro: " + str(e))
+            return []
         produtos = []
-        for item in results:
+        for item in results[:limit]:
             try:
-                nome   = item.get("title", "")
-                preco  = float(item.get("price", 0) or 0)
-                orig   = float(item.get("original_price") or 0)
-                link   = item.get("permalink", "")
-                thumb  = item.get("thumbnail", "")
+                if not isinstance(item, dict):
+                    continue
+                nome  = item.get("title", "") or item.get("name", "")
+                preco = float(item.get("price", 0) or 0)
+                orig  = float(item.get("original_price") or 0)
+                link  = item.get("permalink", "") or item.get("url", "")
+                thumb = item.get("thumbnail", "") or item.get("thumbnail_id", "")
                 if not nome or not preco or not link:
                     continue
+                if not link.startswith("http"):
+                    link = "https://www.mercadolivre.com.br" + link
                 desconto = int((1 - preco / orig) * 100) if orig > preco else 0
-                # Converte thumbnail para HD
                 img_hd = thumb.replace("-I.jpg", "-F.jpg").replace("-O.jpg", "-F.jpg") if thumb else ""
-                # Gera link afiliado
                 link_af = gerar_link_afiliado_ml(link) or link
                 produtos.append({
                     "nome": nome, "preco": round(preco, 2),
@@ -286,11 +311,11 @@ def busca_ml_por_keyword(keyword, limit=10):
                 })
             except Exception:
                 continue
+        print("ML busca: " + str(len(produtos)) + " produtos encontrados para '" + keyword + "'")
         return produtos
     except Exception as e:
-        print(f"busca_ml_por_keyword erro: {e}")
+        print("busca_ml_por_keyword erro: " + str(e))
         return []
-
 
 def busca_aliexpress_sem_filtro(keyword, limit=10):
     """Busca AliExpress sem filtros — para busca induzida do painel."""
