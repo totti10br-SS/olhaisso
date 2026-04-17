@@ -889,8 +889,12 @@ HTML = """<!DOCTYPE html>
         </label>
       </div>
 
-      <button class="btn btn-orange" id="btn_ciclo" onclick="dispararCiclo()">🚀 Disparar Ciclo Agora</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-orange" id="btn_ciclo" onclick="dispararCiclo()" style="flex:1;">🚀 Disparar Ciclo Agora</button>
+        <button class="btn" id="btn_ciclo_tb" onclick="dispararCicloTicketBaixo()" style="flex:1;background:#1a3a1a;border:2px solid #00cc44;color:#00cc44;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;">🤑 Disparar Ticket Baixo</button>
+      </div>
       <div class="loader" id="loader_ciclo">⏳ Iniciando ciclo...</div>
+      <div class="loader" id="loader_ciclo_tb">⏳ Iniciando ciclo ticket baixo...</div>
     </div>
 
     <div style="margin-top:20px;">
@@ -1365,6 +1369,30 @@ function renderHistorico(rows) {
   area.innerHTML = html;
 }
 
+async function dispararCicloTicketBaixo() {
+  const btn = document.getElementById('btn_ciclo_tb');
+  btn.disabled = true;
+  document.getElementById('loader_ciclo_tb').style.display = 'block';
+  try {
+    const resp = await fetch('/disparar_ciclo_tb', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({})
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      mostrarMsg('<div class="msg msg-ok">🤑 ' + data.msg + '</div>');
+    } else {
+      mostrarMsg('<div class="msg msg-err">❌ ' + data.erro + '</div>');
+    }
+  } catch(e) {
+    mostrarMsg('<div class="msg msg-err">❌ Erro: ' + e.message + '</div>');
+  } finally {
+    btn.disabled = false;
+    document.getElementById('loader_ciclo_tb').style.display = 'none';
+  }
+}
+
 async function dispararCiclo() {
   const qtde       = parseInt(document.getElementById('ciclo_qtde').value) || 4;
   const telegram   = document.getElementById('ciclo_telegram').checked;
@@ -1830,6 +1858,26 @@ def disparar_ciclo():
         if r.status_code == 200:
             return jsonify(r.json())
         return jsonify({"ok": False, "erro": f"Bot retornou {r.status_code}"})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/disparar_ciclo_tb", methods=["POST"])
+def disparar_ciclo_tb():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Nao autorizado"}), 401
+    try:
+        BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+        WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        r = requests.post(
+            BOT_API_URL + "/ciclo_tb",
+            json={},
+            headers={"X-API-Key": WEB_SECRET_KEY},
+            timeout=15
+        )
+        if r.status_code == 200:
+            return jsonify(r.json())
+        return jsonify({"ok": False, "erro": "Bot retornou " + str(r.status_code)})
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
 

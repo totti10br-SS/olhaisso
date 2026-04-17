@@ -1325,6 +1325,50 @@ def iniciar_api_historico():
                     self.end_headers()
                     self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
 
+            elif self.path.startswith("/ciclo_tb"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    import threading as _th
+                    def _rodar_tb():
+                        try:
+                            log.info("🤑 Ciclo Ticket Baixo manual via Web")
+                            produtos = montar_pipeline_ticket_baixo()
+                            if not produtos:
+                                log.warning("🤑 Nenhum produto ticket baixo disponível")
+                                return
+                            postou = 0
+                            import time as _t
+                            for produto in produtos[:POSTS_POR_CICLO]:
+                                log.info(f"🤑 Postando: {produto['nome'][:50]}")
+                                try:
+                                    imagem = gerar_imagem(produto)
+                                    ok = postar_telegram(produto, imagem)
+                                    if ok:
+                                        registrar_post(produto, "WEB_MANUAL")
+                                        postou += 1
+                                    postar_whatsapp(produto, imagem)
+                                    _t.sleep(8)
+                                except Exception as ep:
+                                    log.error(f"🤑 Erro produto: {ep}")
+                                    continue
+                            log.info(f"🤑 Ciclo Ticket Baixo concluído — {postou} post(s)")
+                        except Exception as e:
+                            log.error(f"🤑 Ciclo TB erro: {e}")
+                    _th.Thread(target=_rodar_tb, daemon=True).start()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write((_json.dumps({"ok": True, "msg": "Ciclo Ticket Baixo iniciado!"})).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
             elif self.path.startswith("/registrar"):
                 api_key = self.headers.get("X-API-Key", "")
                 if api_key != WEB_API_KEY:
