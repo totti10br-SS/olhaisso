@@ -202,6 +202,56 @@ PALAVRAS_BLOQUEADAS = [
 ]
 
 
+
+CATEGORIAS_TICKET_BAIXO = [
+    # Periféricos
+    "mouse gamer barato",
+    "mouse sem fio barato",
+    "teclado gamer barato",
+    "teclado mecanico barato",
+    "mousepad gamer",
+    "mousepad rgb",
+    "headset gamer barato",
+    "fone de ouvido bluetooth",
+    "fone bluetooth barato",
+    "earbuds bluetooth",
+    "webcam 1080p barato",
+    # Acessórios PC / setup
+    "hub usb barato",
+    "cabo usb-c",
+    "cabo hdmi",
+    "suporte notebook barato",
+    "cooler notebook",
+    "watercooler pc barato",
+    "cooler cpu barato",
+    "luminaria led mesa",
+    "fita led rgb barato",
+    # Acessórios celular
+    "capinha celular",
+    "carregador rapido",
+    "cabo carregador",
+    "suporte celular carro",
+    "pelicula celular",
+    "ring light selfie",
+    # Armazenamento barato
+    "pen drive",
+    "cartao sd",
+    "cartao memoria",
+    "ssd externo barato",
+    # Gadgets baratos
+    "power bank barato",
+    "caixinha bluetooth barata",
+    "tomada inteligente",
+    "lampada inteligente",
+    "smartwatch barato",
+    "relogio inteligente barato",
+    # Informática barata
+    "suporte monitor",
+    "organizador mesa escritorio",
+    "teclado bluetooth tablet",
+    "mouse bluetooth barato",
+]
+
 def produto_valido(nome):
     nome_lower = nome.lower()
     for palavra in PALAVRAS_BLOQUEADAS:
@@ -361,4 +411,30 @@ def buscar_todos_produtos():
             continue
 
     print(f"Shopee API: {len(todos)} produtos encontrados")
+    return todos
+
+
+def buscar_ticket_baixo():
+    """Busca dedicada para produtos até R$200 — ciclo das 19:00."""
+    import hashlib as _h
+    todos = []
+    vistos = set()
+    preco_teto = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))
+
+    for keyword in CATEGORIAS_TICKET_BAIXO:
+        try:
+            produtos = buscar_produtos_shopee(keyword, limit=8)
+            for p in produtos:
+                if p["preco"] > preco_teto:
+                    continue
+                chave = _h.md5(p["nome"].encode()).hexdigest()
+                if chave not in vistos:
+                    vistos.add(chave)
+                    todos.append(p)
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"Shopee ticket baixo erro ({keyword}): {e}")
+            continue
+
+    print(f"Shopee ticket baixo: {len(todos)} produtos encontrados (≤R${preco_teto:.0f})")
     return todos

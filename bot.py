@@ -24,7 +24,9 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
+from aliexpress_api import buscar_ticket_baixo as buscar_aliexpress_tb
 from shopee_api import buscar_todos_produtos as buscar_shopee
+from shopee_api import buscar_ticket_baixo as buscar_shopee_tb
 from mercadolivre_api import buscar_todos_produtos as buscar_ml
 
 logging.basicConfig(
@@ -834,19 +836,38 @@ def eh_ticket_baixo(produto):
     return produto.get("preco", 999) <= PRECO_TICKET_BAIXO
 
 
-def montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros):
-    """Ciclo 19:00 — apenas produtos até R$200."""
-    log.info(f"💰 CICLO TICKET BAIXO — apenas produtos até R${PRECO_TICKET_BAIXO:.0f}")
-    ml_tb  = [p for p in pool_ml     if eh_ticket_baixo(p)]
-    ali_tb = [p for p in pool_ali    if eh_ticket_baixo(p)]
-    sh_tb  = [p for p in pool_shopee if eh_ticket_baixo(p)]
-    out_tb = [p for p in pool_outros if eh_ticket_baixo(p)]
-    total  = len(ml_tb) + len(ali_tb) + len(sh_tb) + len(out_tb)
-    log.info(f"💰 {total} produto(s) ticket baixo (ML:{len(ml_tb)} Ali:{len(ali_tb)} Sh:{len(sh_tb)})")
-    resultado = distribuir_50_25_25(ml_tb, ali_tb, sh_tb, out_tb, POSTS_POR_CICLO)
-    for p in resultado:
-        p["ticket_baixo"] = True
+def montar_pipeline_ticket_baixo():
+    """Pipeline dedicado para ciclo das 19:00 — busca apenas produtos até R$200."""
+    log.info(f"💰 PIPELINE TICKET BAIXO — buscando produtos até R${PRECO_TICKET_BAIXO:.0f}")
+
+    log.info("💰 Buscando AliExpress ticket baixo...")
+    ali_tb = buscar_aliexpress_tb()
+
+    log.info("💰 Buscando Shopee ticket baixo...")
+    sh_tb = buscar_shopee_tb()
+
+    todos = ali_tb + sh_tb
+    log.info(f"💰 Total bruto: {len(todos)} (Ali:{len(ali_tb)} Sh:{len(sh_tb)})")
+
+    # Remove já postados
+    vistos = set()
+    resultado = []
+    for p in todos:
+        chave = hashlib.md5(p["nome"].encode()).hexdigest()
+        if chave not in vistos and not ja_postado(chave):
+            vistos.add(chave)
+            p["ticket_baixo"] = True
+            resultado.append(p)
+
+    # Ordena por desconto
+    resultado.sort(key=lambda x: x.get("desconto", 0), reverse=True)
+    log.info(f"💰 Prontos para postar: {len(resultado)} produtos ticket baixo")
     return resultado
+
+
+def montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros):
+    """Ciclo 19:00 — delega para pipeline dedicado."""
+    return []  # não usado mais, ver ciclo()
 
 
 def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros):
@@ -1044,7 +1065,10 @@ def ciclo():
     log.info(f"\n{'='*50}")
     log.info(f"Ciclo — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     limpar_historico_antigo()
-    produtos = montar_pipeline()
+    if permitir_ciclo_ticket_baixo():
+        produtos = montar_pipeline_ticket_baixo()
+    else:
+        produtos = montar_pipeline()
     postou = 0
     tentativas = 0
     max_tentativas = 3  # tenta até 3 vezes buscar mais produtos se faltar

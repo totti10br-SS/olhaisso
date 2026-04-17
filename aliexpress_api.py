@@ -231,6 +231,58 @@ PALAVRAS_BLOQUEADAS = [
 ]
 
 
+
+CATEGORIAS_TICKET_BAIXO = [
+    # Periféricos baratos
+    "gaming mouse cheap",
+    "wireless mouse cheap",
+    "gaming keyboard cheap",
+    "mechanical keyboard cheap",
+    "gaming mousepad rgb",
+    "large mousepad desk",
+    "gaming headset cheap",
+    "bluetooth earbuds cheap",
+    "tws earbuds cheap",
+    "wireless earphones cheap",
+    "webcam 1080p cheap",
+    # Setup e acessórios PC baratos
+    "usb hub cheap",
+    "usb-c cable fast charge",
+    "hdmi cable cheap",
+    "laptop stand cheap",
+    "laptop cooling fan cheap",
+    "cpu cooler cheap rgb",
+    "led desk lamp cheap",
+    "rgb led strip cheap",
+    # Acessórios celular
+    "phone case cheap",
+    "fast charger cheap",
+    "usb-c charging cable",
+    "car phone holder cheap",
+    "ring light selfie",
+    "phone screen protector",
+    # Armazenamento barato
+    "pen drive usb",
+    "memory card sd cheap",
+    "portable ssd cheap 256gb",
+    # Gadgets baratos
+    "power bank cheap",
+    "bluetooth speaker mini cheap",
+    "smart plug wifi cheap",
+    "smart bulb cheap",
+    "smartwatch cheap",
+    "fitness band cheap",
+    # Watercooler e cooler barato
+    "cpu water cooler cheap",
+    "pc case fan rgb cheap",
+    "thermal paste cheap",
+    # Informática barata
+    "monitor stand cheap",
+    "desk organizer cheap",
+    "bluetooth keyboard tablet",
+    "wireless mouse silent",
+]
+
 def produto_valido(nome):
     """Verifica se o produto não contém palavras bloqueadas."""
     nome_lower = nome.lower()
@@ -374,4 +426,81 @@ def buscar_todos_produtos():
             continue
 
     print(f"AliExpress API: {len(todos)} produtos encontrados")
+    return todos
+
+
+def buscar_ticket_baixo():
+    """Busca dedicada para produtos até R$200 — ciclo das 19:00."""
+    todos = []
+    vistos = set()
+    preco_teto = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))
+    # Teto em USD aproximado
+    preco_teto_usd = str(int(preco_teto / 5.5))
+
+    for keyword in CATEGORIAS_TICKET_BAIXO:
+        try:
+            timestamp = str(int(time.time() * 1000))
+            params = {
+                "app_key":         ALIEXPRESS_APP_KEY,
+                "timestamp":       timestamp,
+                "sign_method":     "md5",
+                "method":          "aliexpress.affiliate.product.query",
+                "keywords":        keyword,
+                "page_no":         str(random.randint(1, 3)),
+                "page_size":       "8",
+                "sort":            "LAST_VOLUME_DESC",
+                "min_sale_price":  PRECO_MIN_USD,
+                "max_sale_price":  preco_teto_usd,
+                "target_currency": "BRL",
+                "target_language": "PT",
+                "tracking_id":     ALIEXPRESS_TRACKING,
+                "ship_to_country": "BR",
+                "fields":          "product_id,product_title,target_sale_price,target_original_price,target_sale_price_currency,discount,evaluate_rate,lastest_volume,product_main_image_url,promotion_link",
+            }
+            params["sign"] = gerar_assinatura(params, ALIEXPRESS_APP_SECRET)
+            r = requests.post("https://api-sg.aliexpress.com/sync", data=params, timeout=15)
+            if r.status_code != 200:
+                continue
+            data = r.json()
+            resp = data.get("aliexpress_affiliate_product_query_response", {})
+            result = resp.get("resp_result", {})
+            if result.get("resp_code") != 200:
+                continue
+            items = result.get("result", {}).get("products", {}).get("product", [])
+            for item in items:
+                try:
+                    preco = float(str(item.get("target_sale_price", "0")).replace(",", "."))
+                    preco_orig = float(str(item.get("target_original_price", "0")).replace(",", "."))
+                except:
+                    continue
+                if preco < PRECO_MINIMO or preco > preco_teto:
+                    continue
+                desconto = int((1 - preco / preco_orig) * 100) if preco_orig > preco else 0
+                if desconto < DESCONTO_MINIMO:
+                    continue
+                nome = item.get("product_title", "")
+                link_original = item.get("promotion_link", "")
+                imagem = item.get("product_main_image_url", "")
+                if not nome or not link_original:
+                    continue
+                if not produto_valido(nome):
+                    continue
+                chave = hashlib.md5(nome.encode()).hexdigest()
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+                link = encurtar_link(link_original)
+                todos.append({
+                    "nome": nome, "preco": round(preco, 2),
+                    "preco_original": round(preco_orig, 2),
+                    "desconto": desconto, "loja": "ALIEXPRESS",
+                    "frete": "🚢 Frete grátis", "link_afiliado": link,
+                    "imagem_url": imagem, "score": 1, "fontes": ["aliexpress"],
+                })
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"AliExpress ticket baixo erro ({keyword}): {e}")
+            continue
+
+    print(f"AliExpress ticket baixo: {len(todos)} produtos encontrados (≤R${preco_teto:.0f})")
     return todos
