@@ -43,9 +43,12 @@ AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
-HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "17:30", "20:30", "22:30", "01:00"]
+HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "17:30", "19:00", "20:30", "22:30", "01:00"]
 HORARIOS_MISTO      = ["12:30", "20:30"]  # Ciclo misto: metade smartphones + metade monitores
 HORARIOS_MONITOR    = ["15:00"]           # Ciclo dedicado apenas monitores
+HORARIO_TICKET_BAIXO = ["19:00"]          # Ciclo dedicado produtos até R$200
+PRECO_TICKET_BAIXO   = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))  # Teto para ticket baixo
+POSTS_TICKET_BAIXO_NO_CICLO = 2          # Qtde de tickets baixos nos ciclos normais
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
 # Evolution API — WhatsApp
@@ -208,7 +211,9 @@ def carregar_fonte(tamanho, negrito=False):
     return ImageFont.load_default()
 
 
-def badge_score(score):
+def badge_score(score, ticket_baixo=False):
+    if ticket_baixo:
+        return ("🤑 BOM e BARATO", COR_VERDE)
     if score >= 3:
         return ("🔥 VIRAL AGORA", COR_LARANJA)
     elif score == 2:
@@ -242,7 +247,7 @@ def gerar_imagem(produto):
     draw = ImageDraw.Draw(img)
 
     # ── TOPO: badge único grande centralizado ──────────────────
-    label_score, cor_score = badge_score(produto.get("score", 0))
+    label_score, cor_score = badge_score(produto.get("score", 0), produto.get("ticket_baixo", False))
     f_badge = carregar_fonte(54, negrito=True)
     bw, bh = 580, 90
     bx = (W - bw) // 2
@@ -402,6 +407,8 @@ def montar_caption(produto):
         badge = "📈 <b>TENDÊNCIA</b>"
     else:
         badge = "💰 <b>OFERTA DO DIA</b>"
+    if produto.get("ticket_baixo", False):
+        badge = "🤑 <b>Momento BOM e BARATO</b>"
 
     # Badge de loja
     loja_badge = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
@@ -514,7 +521,8 @@ def postar_whatsapp(produto, imagem_path):
         img_url = produto.get("imagem_url", "")
 
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
-        badge = "🔥 VIRAL AGORA" if produto.get("score", 0) >= 3 else "📈 TENDÊNCIA" if produto.get("score", 0) == 2 else "💰 OFERTA DO DIA"
+        _sc = produto.get("score", 0)
+        badge = "🤑 Momento BOM e BARATO" if produto.get("ticket_baixo", False) else ("🔥 VIRAL AGORA" if _sc >= 3 else "📈 TENDÊNCIA" if _sc == 2 else "💰 OFERTA DO DIA")
 
         def fmt(v):
             return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -819,6 +827,28 @@ def _is_monitor(nome):
     return any(kw in nome.lower() for kw in KEYWORDS_MONITOR)
 
 
+def permitir_ciclo_ticket_baixo():
+    return horario_dentro_de(HORARIO_TICKET_BAIXO)
+
+def eh_ticket_baixo(produto):
+    return produto.get("preco", 999) <= PRECO_TICKET_BAIXO
+
+
+def montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros):
+    """Ciclo 19:00 — apenas produtos até R$200."""
+    log.info(f"💰 CICLO TICKET BAIXO — apenas produtos até R${PRECO_TICKET_BAIXO:.0f}")
+    ml_tb  = [p for p in pool_ml     if eh_ticket_baixo(p)]
+    ali_tb = [p for p in pool_ali    if eh_ticket_baixo(p)]
+    sh_tb  = [p for p in pool_shopee if eh_ticket_baixo(p)]
+    out_tb = [p for p in pool_outros if eh_ticket_baixo(p)]
+    total  = len(ml_tb) + len(ali_tb) + len(sh_tb) + len(out_tb)
+    log.info(f"💰 {total} produto(s) ticket baixo (ML:{len(ml_tb)} Ali:{len(ali_tb)} Sh:{len(sh_tb)})")
+    resultado = distribuir_50_25_25(ml_tb, ali_tb, sh_tb, out_tb, POSTS_POR_CICLO)
+    for p in resultado:
+        p["ticket_baixo"] = True
+    return resultado
+
+
 def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros):
     """
     Ciclo misto (12:30 e 20:30): metade smartphones + metade monitores.
@@ -884,6 +914,9 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_outros):
         log.info(f"🖥️ {total} monitor(es) disponíveis (ML:{len(ml_mo)} Ali:{len(ali_mo)} Sh:{len(sh_mo)})")
         return distribuir_50_25_25(ml_mo, ali_mo, sh_mo, [], POSTS_POR_CICLO)
 
+    if permitir_ciclo_ticket_baixo():
+        return montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros)
+
     # Ciclo normal — remove smartphones e monitores
     def filtrar_normal(pool):
         return [p for p in pool if not _is_smartphone(p.get("nome","")) and not _is_monitor(p.get("nome",""))]
@@ -894,7 +927,17 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_outros):
     removidos = (len(pool_ml) - len(ml_n)) + (len(pool_ali) - len(ali_n)) + (len(pool_shopee) - len(sh_n))
     if removidos > 0:
         log.info(f"🔒 {removidos} produto(s) reservados para ciclos especiais")
-    return distribuir_50_25_25(ml_n, ali_n, sh_n, pool_outros, POSTS_POR_CICLO)
+
+    # Ciclo normal: garante 2 tickets baixos na fila
+    todos_normal = distribuir_50_25_25(ml_n, ali_n, sh_n, pool_outros, POSTS_POR_CICLO * 3)
+    tickets_baixos = [p for p in todos_normal if eh_ticket_baixo(p)][:POSTS_TICKET_BAIXO_NO_CICLO]
+    for p in tickets_baixos:
+        p["ticket_baixo"] = True
+    tickets_altos  = [p for p in todos_normal if not eh_ticket_baixo(p)]
+    resultado = tickets_baixos + tickets_altos
+    if tickets_baixos:
+        log.info(f"💰 {len(tickets_baixos)} produto(s) ticket baixo incluídos no ciclo normal")
+    return resultado[:POSTS_POR_CICLO * 2]
 
 def detectar_tema(nome):
     nome_lower = nome.lower()
@@ -1116,7 +1159,8 @@ def postar_whatsapp_custom(produto, imagem_path, group_id):
         img_url = produto.get("imagem_url", "")
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee",
                       "AMAZON": "📦 Amazon", "MERCADOLIVRE": "🟡 Mercado Livre"}.get(loja, loja)
-        badge = "🔥 VIRAL AGORA" if produto.get("score", 0) >= 3 else "📈 TENDÊNCIA" if produto.get("score", 0) == 2 else "💰 OFERTA DO DIA"
+        _sc = produto.get("score", 0)
+        badge = "🤑 Momento BOM e BARATO" if produto.get("ticket_baixo", False) else ("🔥 VIRAL AGORA" if _sc >= 3 else "📈 TENDÊNCIA" if _sc == 2 else "💰 OFERTA DO DIA")
         def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         texto  = f"👀 *OlhaissO* — {badge}\n"
         texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1336,6 +1380,7 @@ def main():
     log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
+    log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
     # Sobe API de histórico em thread separada
     import threading
     t = threading.Thread(target=iniciar_api_historico, daemon=True)
