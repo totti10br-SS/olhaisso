@@ -1247,7 +1247,7 @@ def iniciar_api_historico():
             pass  # silencia logs do servidor
 
         def do_POST(self):
-            if self.path.startswith("/ciclo_tb"):
+            if self.path.startswith("/ciclo") and not self.path.startswith("/ciclo_tb"):
                 api_key = self.headers.get("X-API-Key", "")
                 if api_key != WEB_API_KEY:
                     self.send_response(401)
@@ -1325,7 +1325,7 @@ def iniciar_api_historico():
                     self.end_headers()
                     self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
 
-            elif self.path.startswith("/ciclo"):
+            elif self.path.startswith("/ciclo_tb"):
                 api_key = self.headers.get("X-API-Key", "")
                 if api_key != WEB_API_KEY:
                     self.send_response(401)
