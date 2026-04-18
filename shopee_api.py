@@ -105,6 +105,10 @@ PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
 PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
+# Regras exclusivas para ciclo Ticket Baixo — NAO afetam o ciclo normal
+TB_PRECO_MINIMO    = float(os.getenv("TB_PRECO_MINIMO", "10.00"))
+TB_DESCONTO_MINIMO = int(os.getenv("TB_DESCONTO_MINIMO", "10"))
+
 PALAVRAS_BLOQUEADAS = [
     "separador de tela", "manutenção", "desmontagem", "reparo", "solda",
     "placa mãe", "cabo flex", "ferramenta de", "kit de reparo",
@@ -415,7 +419,7 @@ def buscar_todos_produtos():
 
 
 def buscar_ticket_baixo():
-    """Busca dedicada para produtos até R$200 — ciclo das 19:00."""
+    """Busca dedicada para produtos ate R$200 — ciclo das 19:00."""
     import hashlib as _h
     todos = []
     vistos = set()
@@ -423,18 +427,86 @@ def buscar_ticket_baixo():
 
     for keyword in CATEGORIAS_TICKET_BAIXO:
         try:
-            produtos = buscar_produtos_shopee(keyword, limit=8)
-            for p in produtos:
-                if p["preco"] > preco_teto:
+            # Busca raw sem filtros de preco/desconto do ciclo normal
+            query = """query getProducts($keyword: String!, $limit: Int!, $page: Int!) {
+  productOfferV2(
+    listType: 0,
+    sortType: 2,
+    keyword: $keyword,
+    limit: $limit,
+    page: $page
+  ) {
+    nodes {
+      productName
+      priceMin
+      priceMax
+      priceDiscountRate
+      imageUrl
+      offerLink
+      productLink
+      commissionRate
+    }
+    pageInfo { hasNextPage }
+  }
+}"""
+            import random as _r, json as _j, hashlib as _hh
+            variables = {"keyword": keyword, "limit": 10, "page": _r.randint(1, 3)}
+            body = {"query": query, "operationName": "getProducts", "variables": variables}
+            payload_str = _j.dumps(body, separators=(",", ":"))
+            timestamp = int(time.time())
+            sign = gerar_assinatura(SHOPEE_APP_ID, timestamp, payload_str, SHOPEE_SECRET)
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"SHA256 Credential={SHOPEE_APP_ID},Timestamp={timestamp},Signature={sign}",
+            }
+            r = requests.post(SHOPEE_URL, data=payload_str, headers=headers, timeout=15)
+            if r.status_code != 200:
+                continue
+            data = r.json()
+            if "errors" in data:
+                continue
+            nodes = data.get("data", {}).get("productOfferV2", {}).get("nodes", []) or []
+
+            for item in nodes:
+                try:
+                    preco = float(str(item.get("priceMin", "0")).replace(",", "."))
+                    desc_raw = item.get("priceDiscountRate", "0") or "0"
+                    desconto = int(str(desc_raw).replace("%", "").strip() or 0)
+                except:
                     continue
-                chave = _h.md5(p["nome"].encode()).hexdigest()
-                if chave not in vistos:
-                    vistos.add(chave)
-                    todos.append(p)
+
+                # Filtros exclusivos TB — independentes do ciclo normal
+                if preco < TB_PRECO_MINIMO or preco > preco_teto:
+                    continue
+                if desconto < TB_DESCONTO_MINIMO:
+                    continue
+
+                nome = item.get("productName", "")
+                link_original = item.get("offerLink") or item.get("productLink", "")
+                imagem = item.get("imageUrl", "")
+                if not nome or not link_original:
+                    continue
+                if not produto_valido(nome):
+                    continue
+
+                chave = _hh.md5(nome.encode()).hexdigest()
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+
+                preco_orig = round(preco / (1 - desconto / 100), 2) if desconto > 0 else round(preco * 1.2, 2)
+                link = encurtar_link(link_original)
+                todos.append({
+                    "nome": nome, "preco": round(preco, 2),
+                    "preco_original": preco_orig,
+                    "desconto": desconto, "loja": "SHOPEE",
+                    "frete": "✅ Frete gratis", "link_afiliado": link,
+                    "imagem_url": imagem, "score": 1, "fontes": ["shopee"],
+                })
             time.sleep(0.5)
         except Exception as e:
             print(f"Shopee ticket baixo erro ({keyword}): {e}")
             continue
 
-    print(f"Shopee ticket baixo: {len(todos)} produtos encontrados (≤R${preco_teto:.0f})")
+    print(f"Shopee ticket baixo: {len(todos)} produtos encontrados (<=R${preco_teto:.0f})")
     return todos

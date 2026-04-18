@@ -122,6 +122,11 @@ PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
 PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
+# Regras exclusivas para ciclo Ticket Baixo — NAO afetam o ciclo normal
+TB_PRECO_MINIMO    = float(os.getenv("TB_PRECO_MINIMO", "10.00"))
+TB_DESCONTO_MINIMO = int(os.getenv("TB_DESCONTO_MINIMO", "10"))
+TB_COTACAO_USD     = float(os.getenv("TB_COTACAO_USD", "5.80"))  # cotacao para converter teto BRL->USD
+
 # Precos em USD para filtro na API (R$50=~$9 / R$3000=~$550)
 PRECO_MIN_USD = "9"
 PRECO_MAX_USD = "550"
@@ -434,8 +439,8 @@ def buscar_ticket_baixo():
     todos = []
     vistos = set()
     preco_teto = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))
-    # Teto em USD aproximado
-    preco_teto_usd = str(int(preco_teto / 5.5))
+    # Teto em USD usando cotacao configuravel (padrao 5.80)
+    preco_teto_usd = str(int(preco_teto / TB_COTACAO_USD))
 
     for keyword in CATEGORIAS_TICKET_BAIXO:
         try:
@@ -473,10 +478,10 @@ def buscar_ticket_baixo():
                     preco_orig = float(str(item.get("target_original_price", "0")).replace(",", "."))
                 except:
                     continue
-                if preco < PRECO_MINIMO or preco > preco_teto:
+                if preco < TB_PRECO_MINIMO or preco > preco_teto:
                     continue
                 desconto = int((1 - preco / preco_orig) * 100) if preco_orig > preco else 0
-                if desconto < DESCONTO_MINIMO:
+                if desconto < TB_DESCONTO_MINIMO:
                     continue
                 nome = item.get("product_title", "")
                 link_original = item.get("promotion_link", "")
