@@ -1332,25 +1332,44 @@ def iniciar_api_historico():
                     self.end_headers()
                     return
                 try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    usar_tg     = body.get("telegram", True)
+                    usar_wa_pri = body.get("wa_principal", True)
+                    usar_wa_tst = body.get("wa_teste", False)
+                    qtde        = int(body.get("qtde", POSTS_POR_CICLO))
                     import threading as _th
                     def _rodar_tb():
                         try:
-                            log.info("🤑 Ciclo Ticket Baixo manual via Web")
+                            import time as _t
+                            log.info(f"🤑 Ciclo Ticket Baixo manual — {qtde} post(s) | TG={usar_tg} PRI={usar_wa_pri} TST={usar_wa_tst}")
                             produtos = montar_pipeline_ticket_baixo()
                             if not produtos:
                                 log.warning("🤑 Nenhum produto ticket baixo disponível")
                                 return
+                            log.info(f"🤑 {len(produtos)} produto(s) disponíveis")
                             postou = 0
-                            import time as _t
-                            for produto in produtos[:POSTS_POR_CICLO]:
+                            for produto in produtos[:qtde]:
                                 log.info(f"🤑 Postando: {produto['nome'][:50]}")
                                 try:
                                     imagem = gerar_imagem(produto)
-                                    ok = postar_telegram(produto, imagem)
-                                    if ok:
+                                    publicou = False
+                                    if usar_tg:
+                                        produto_tg = {**produto, "imagem_url": ""}
+                                        if postar_telegram(produto_tg, imagem):
+                                            publicou = True
+                                            log.info("🤑 ✅ Telegram OK")
+                                    if usar_wa_pri:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_GROUP_ID)
+                                        publicou = True
+                                        log.info("🤑 ✅ WA Principal OK")
+                                    if usar_wa_tst:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_TEST_GROUP_ID)
+                                        publicou = True
+                                        log.info("🤑 ✅ WA Teste OK")
+                                    if publicou:
                                         registrar_post(produto, "WEB_MANUAL")
                                         postou += 1
-                                    postar_whatsapp(produto, imagem)
                                     _t.sleep(8)
                                 except Exception as ep:
                                     log.error(f"🤑 Erro produto: {ep}")
@@ -1362,7 +1381,7 @@ def iniciar_api_historico():
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
-                    self.wfile.write((_json.dumps({"ok": True, "msg": "Ciclo Ticket Baixo iniciado!"})).encode())
+                    self.wfile.write((_json.dumps({"ok": True, "msg": f"Ciclo Ticket Baixo iniciado — {qtde} post(s)!"})).encode())
                 except Exception as e:
                     self.send_response(500)
                     self.send_header("Content-Type", "application/json")

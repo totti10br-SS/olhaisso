@@ -1370,6 +1370,11 @@ function renderHistorico(rows) {
 }
 
 async function dispararCicloTicketBaixo() {
+  const telegram     = document.getElementById('ciclo_telegram').checked;
+  const wa_principal = document.getElementById('ciclo_wa_principal').checked;
+  const wa_teste     = document.getElementById('ciclo_wa_teste').checked;
+  const qtde         = parseInt(document.getElementById('ciclo_qtde').value) || 4;
+  if (!telegram && !wa_principal && !wa_teste) return alert('Selecione ao menos um canal!');
   const btn = document.getElementById('btn_ciclo_tb');
   btn.disabled = true;
   document.getElementById('loader_ciclo_tb').style.display = 'block';
@@ -1377,7 +1382,7 @@ async function dispararCicloTicketBaixo() {
     const resp = await fetch('/disparar_ciclo_tb', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({})
+      body: JSON.stringify({ telegram, wa_principal, wa_teste, qtde })
     });
     const data = await resp.json();
     if (data.ok) {
@@ -1869,9 +1874,15 @@ def disparar_ciclo_tb():
     try:
         BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
         WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        data = request.json or {}
         r = requests.post(
             BOT_API_URL + "/ciclo_tb",
-            json={},
+            json={
+                "telegram":     data.get("telegram", True),
+                "wa_principal": data.get("wa_principal", True),
+                "wa_teste":     data.get("wa_teste", False),
+                "qtde":         data.get("qtde", 4),
+            },
             headers={"X-API-Key": WEB_SECRET_KEY},
             timeout=15
         )
