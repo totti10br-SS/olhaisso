@@ -893,6 +893,15 @@ HTML = """<!DOCTYPE html>
       <div class="loader" id="loader_ciclo">⏳ Iniciando ciclo...</div>
       <button id="btn_ciclo_tb" style="width:100%;margin-top:4px;background:#1a3a1a;border:2px solid #00cc44;color:#00cc44;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;display:block;" onclick="dispararCicloTicketBaixo()">🤑 Disparar Ticket Baixo</button>
       <div class="loader" id="loader_ciclo_tb">⏳ Iniciando ciclo ticket baixo...</div>
+
+      <!-- PAINEL DE LOG DOS BOTÕES -->
+      <div id="ciclo_log_wrap" style="margin-top:14px;display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="color:#888;font-size:12px;font-weight:700;">📋 LOG DE DISPARO</span>
+          <button onclick="limparLogCiclo()" style="background:none;border:1px solid #444;color:#666;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">Limpar</button>
+        </div>
+        <div id="ciclo_log" style="background:#0a0a0a;border:1px solid #2a2a2a;border-radius:10px;padding:12px;font-family:monospace;font-size:12px;max-height:220px;overflow-y:auto;"></div>
+      </div>
     </div>
 
     <div style="margin-top:20px;">
@@ -1367,28 +1376,71 @@ function renderHistorico(rows) {
   area.innerHTML = html;
 }
 
+// ── Utilitários de log visual ──────────────────────────────────────────────
+function _logCiclo(tipo, msg, dados) {
+  const wrap = document.getElementById('ciclo_log_wrap');
+  const box  = document.getElementById('ciclo_log');
+  if (!wrap || !box) return;
+  wrap.style.display = 'block';
+  const cores = { INFO: '#888', PAYLOAD: '#4db8ff', OK: '#00cc44', ERRO: '#ff4444', HTTP: '#FFE600' };
+  const cor = cores[tipo] || '#ccc';
+  const ts  = new Date().toLocaleTimeString('pt-BR');
+  let linha = `<div style="margin-bottom:4px;"><span style="color:#555;">[${ts}]</span> <span style="color:${cor};font-weight:700;">[${tipo}]</span> <span style="color:#ccc;">${msg}</span>`;
+  if (dados !== undefined) {
+    linha += `<br><span style="color:#666;padding-left:16px;">${JSON.stringify(dados, null, 0)}</span>`;
+  }
+  linha += '</div>';
+  box.innerHTML += linha;
+  box.scrollTop = box.scrollHeight;
+  // Espelha no console do navegador também
+  console.log(`[OLHAISSO][${tipo}]`, msg, dados !== undefined ? dados : '');
+}
+
+function limparLogCiclo() {
+  const box = document.getElementById('ciclo_log');
+  if (box) box.innerHTML = '';
+  const wrap = document.getElementById('ciclo_log_wrap');
+  if (wrap) wrap.style.display = 'none';
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 async function dispararCicloTicketBaixo() {
   const telegram     = document.getElementById('ciclo_telegram').checked;
   const wa_principal = document.getElementById('ciclo_wa_principal').checked;
   const wa_teste     = document.getElementById('ciclo_wa_teste').checked;
   const qtde         = parseInt(document.getElementById('ciclo_qtde').value) || 4;
-  if (!telegram && !wa_principal && !wa_teste) return alert('Selecione ao menos um canal!');
+
+  _logCiclo('INFO', '🤑 Botão TICKET BAIXO clicado');
+  _logCiclo('PAYLOAD', 'Payload que será enviado para /disparar_ciclo_tb', { telegram, wa_principal, wa_teste, qtde });
+
+  if (!telegram && !wa_principal && !wa_teste) {
+    _logCiclo('ERRO', 'Nenhum canal selecionado — abortando');
+    return alert('Selecione ao menos um canal!');
+  }
+
   const btn = document.getElementById('btn_ciclo_tb');
   btn.disabled = true;
   document.getElementById('loader_ciclo_tb').style.display = 'block';
+
   try {
+    _logCiclo('HTTP', 'POST /disparar_ciclo_tb → aguardando resposta...');
     const resp = await fetch('/disparar_ciclo_tb', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ telegram, wa_principal, wa_teste, qtde })
     });
+    _logCiclo('HTTP', 'Resposta recebida', { status: resp.status, ok: resp.ok });
     const data = await resp.json();
+    _logCiclo('HTTP', 'Body da resposta', data);
     if (data.ok) {
+      _logCiclo('OK', '✅ Ciclo ticket baixo iniciado: ' + (data.msg || ''));
       mostrarMsg('<div class="msg msg-ok">🤑 ' + data.msg + '</div>');
     } else {
+      _logCiclo('ERRO', '❌ Retorno de erro do bot: ' + (data.erro || 'desconhecido'));
       mostrarMsg('<div class="msg msg-err">❌ ' + data.erro + '</div>');
     }
   } catch(e) {
+    _logCiclo('ERRO', '❌ Exceção JS ao chamar /disparar_ciclo_tb: ' + e.message);
     mostrarMsg('<div class="msg msg-err">❌ Erro: ' + e.message + '</div>');
   } finally {
     btn.disabled = false;
@@ -1397,34 +1449,49 @@ async function dispararCicloTicketBaixo() {
 }
 
 async function dispararCiclo() {
-  const qtde       = parseInt(document.getElementById('ciclo_qtde').value) || 4;
-  const telegram   = document.getElementById('ciclo_telegram').checked;
+  const qtde         = parseInt(document.getElementById('ciclo_qtde').value) || 4;
+  const telegram     = document.getElementById('ciclo_telegram').checked;
   const wa_principal = document.getElementById('ciclo_wa_principal').checked;
-  const wa_teste   = document.getElementById('ciclo_wa_teste').checked;
-  const usar_ml    = document.getElementById('ciclo_ml').checked;
-  const usar_shopee= document.getElementById('ciclo_shopee').checked;
-  const usar_ali   = document.getElementById('ciclo_ali').checked;
+  const wa_teste     = document.getElementById('ciclo_wa_teste').checked;
+  const usar_ml      = document.getElementById('ciclo_ml').checked;
+  const usar_shopee  = document.getElementById('ciclo_shopee').checked;
+  const usar_ali     = document.getElementById('ciclo_ali').checked;
 
-  if (!telegram && !wa_principal && !wa_teste) return alert('Selecione ao menos um canal!');
-  if (!usar_ml && !usar_shopee && !usar_ali) return alert('Selecione ao menos uma loja!');
+  _logCiclo('INFO', '🚀 Botão CICLO NORMAL clicado');
+  _logCiclo('PAYLOAD', 'Payload que será enviado para /disparar_ciclo', { qtde, telegram, wa_principal, wa_teste, usar_ml, usar_shopee, usar_ali });
+
+  if (!telegram && !wa_principal && !wa_teste) {
+    _logCiclo('ERRO', 'Nenhum canal selecionado — abortando');
+    return alert('Selecione ao menos um canal!');
+  }
+  if (!usar_ml && !usar_shopee && !usar_ali) {
+    _logCiclo('ERRO', 'Nenhuma loja selecionada — abortando');
+    return alert('Selecione ao menos uma loja!');
+  }
 
   const btn = document.getElementById('btn_ciclo');
   btn.disabled = true;
   document.getElementById('loader_ciclo').style.display = 'block';
 
   try {
+    _logCiclo('HTTP', 'POST /disparar_ciclo → aguardando resposta...');
     const resp = await fetch('/disparar_ciclo', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ qtde, telegram, wa_principal, wa_teste, usar_ml, usar_shopee, usar_ali })
     });
+    _logCiclo('HTTP', 'Resposta recebida', { status: resp.status, ok: resp.ok });
     const data = await resp.json();
+    _logCiclo('HTTP', 'Body da resposta', data);
     if (data.ok) {
+      _logCiclo('OK', '✅ Ciclo iniciado: ' + (data.msg || ''));
       mostrarMsg('<div class="msg msg-ok">🚀 ' + data.msg + '</div>');
     } else {
+      _logCiclo('ERRO', '❌ Retorno de erro do bot: ' + (data.erro || 'desconhecido'));
       mostrarMsg('<div class="msg msg-err">❌ ' + data.erro + '</div>');
     }
   } catch(e) {
+    _logCiclo('ERRO', '❌ Exceção JS ao chamar /disparar_ciclo: ' + e.message);
     mostrarMsg('<div class="msg msg-err">❌ Erro: ' + e.message + '</div>');
   } finally {
     btn.disabled = false;
