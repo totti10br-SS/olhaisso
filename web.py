@@ -1906,7 +1906,7 @@ def historico_proxy():
             BOT_API_URL + "/historico",
             headers={"X-API-Key": WEB_SECRET_KEY},
             params=params,
-            timeout=10
+            timeout=30
         )
         if r.status_code == 200:
             rows = r.json()
