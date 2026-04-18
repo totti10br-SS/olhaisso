@@ -889,11 +889,9 @@ HTML = """<!DOCTYPE html>
         </label>
       </div>
 
-      <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <button class="btn btn-orange" id="btn_ciclo" onclick="dispararCiclo()" style="flex:1;">🚀 Disparar Ciclo Agora</button>
-        <button class="btn" id="btn_ciclo_tb" onclick="dispararCicloTicketBaixo()" style="flex:1;background:#1a3a1a;border:2px solid #00cc44;color:#00cc44;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;">🤑 Disparar Ticket Baixo</button>
-      </div>
+      <button class="btn btn-orange" id="btn_ciclo" style="width:100%;margin-bottom:8px;" onclick="dispararCiclo()">🚀 Disparar Ciclo Agora</button>
       <div class="loader" id="loader_ciclo">⏳ Iniciando ciclo...</div>
+      <button id="btn_ciclo_tb" style="width:100%;margin-top:4px;background:#1a3a1a;border:2px solid #00cc44;color:#00cc44;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;display:block;" onclick="dispararCicloTicketBaixo()">🤑 Disparar Ticket Baixo</button>
       <div class="loader" id="loader_ciclo_tb">⏳ Iniciando ciclo ticket baixo...</div>
     </div>
 
