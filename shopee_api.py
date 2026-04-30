@@ -39,6 +39,9 @@ CATEGORIAS = [
     "suporte notebook",
     "relogio inteligente",
     "controle gamer",
+    "gabinete gamer",
+    "gabinete pc atx",
+    "gabinete mid tower",
     # Informática e upgrade
     "ssd nvme m2",
     "ssd 1tb interno",
