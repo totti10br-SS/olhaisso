@@ -1000,8 +1000,10 @@ def montar_pipeline():
     log.info("Buscando Mercado Livre...")
     produtos_ml = buscar_ml()
 
-    log.info("Buscando Amazon Best Sellers...")
-    produtos_amazon = buscar_amazon_best_sellers()
+    # AMAZON SUSPENSA — aguardando validação do link de afiliado
+    # log.info("Buscando Amazon Best Sellers...")
+    # produtos_amazon = buscar_amazon_best_sellers()
+    produtos_amazon = []
 
     # Aplica score em todos
     todos_raw = produtos_ali + produtos_shopee + produtos_ml + produtos_amazon
