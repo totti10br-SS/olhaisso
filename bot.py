@@ -984,21 +984,33 @@ def limitar_por_tema(produtos):
         log.info(f"🎯 Limite por tema ({MAX_POR_TEMA}/tema): {len(pulados)} removido(s) — {', '.join(set(pulados))}")
     return resultado
 
-def montar_pipeline():
+def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True):
     log.info("=== Pipeline v6.0 iniciado ===")
     tg = buscar_trends_google()
     tt = buscar_tiktok_trending()
     tr = buscar_reddit_gadgets()
     log.info(f"Tendências — Google: {len(tg)} | TikTok: {len(tt)} | Reddit: {len(tr)}")
 
-    log.info("Buscando AliExpress API...")
-    produtos_ali = buscar_aliexpress()
+    produtos_ali = []
+    if usar_ali:
+        log.info("Buscando AliExpress API...")
+        produtos_ali = buscar_aliexpress()
+    else:
+        log.info("AliExpress ignorado (não selecionado)")
 
-    log.info("Buscando Shopee API...")
-    produtos_shopee = buscar_shopee()
+    produtos_shopee = []
+    if usar_shopee:
+        log.info("Buscando Shopee API...")
+        produtos_shopee = buscar_shopee()
+    else:
+        log.info("Shopee ignorada (não selecionada)")
 
-    log.info("Buscando Mercado Livre...")
-    produtos_ml = buscar_ml()
+    produtos_ml = []
+    if usar_ml:
+        log.info("Buscando Mercado Livre...")
+        produtos_ml = buscar_ml()
+    else:
+        log.info("Mercado Livre ignorado (não selecionado)")
 
     # AMAZON SUSPENSA — aguardando validação do link de afiliado
     # log.info("Buscando Amazon Best Sellers...")
@@ -1271,9 +1283,9 @@ def iniciar_api_historico():
                         try:
                             import time as _t
                             log.info(f"🎮 Ciclo manual via Web — {qtde} post(s)")
-                            produtos = montar_pipeline()
+                            produtos = montar_pipeline(usar_ml=usar_ml, usar_shopee=usar_shopee, usar_ali=usar_ali)
                             log.info(f"🎮 Pipeline retornou {len(produtos)} produto(s)")
-                            # Filtra lojas se necessário
+                            # Filtra lojas se necessário (garantia dupla)
                             if not usar_ml:
                                 produtos = [p for p in produtos if p.get("loja") != "MERCADOLIVRE"]
                             if not usar_shopee:
