@@ -1930,7 +1930,7 @@ def disparar_ciclo():
             BOT_API_URL + "/ciclo",
             json=data,
             headers={"X-API-Key": WEB_SECRET_KEY},
-            timeout=15
+            timeout=180
         )
         if r.status_code == 200:
             return jsonify(r.json())
@@ -1956,7 +1956,7 @@ def disparar_ciclo_tb():
                 "qtde":         data.get("qtde", 4),
             },
             headers={"X-API-Key": WEB_SECRET_KEY},
-            timeout=15
+            timeout=180
         )
         if r.status_code == 200:
             return jsonify(r.json())

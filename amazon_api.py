@@ -83,7 +83,7 @@ def _fetch_url(url):
     if SCRAPERAPI_KEY:
         try:
             scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&country_code=br"
-            r = requests.get(scraper_url, timeout=30)
+            r = requests.get(scraper_url, timeout=12)
             if r.status_code == 200:
                 return r.text
         except Exception as e:
