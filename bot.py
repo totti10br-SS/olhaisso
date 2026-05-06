@@ -1188,13 +1188,13 @@ def postar_whatsapp_custom(produto, imagem_path, group_id):
 
 
 def ciclo_teste():
-    """Busca 1 produto do ML e posta no grupo de teste."""
+    """Busca 1 produto da Shopee e posta no grupo de teste."""
     log.info("🧪 Ciclo de teste iniciado...")
     try:
-        from mercadolivre_api import buscar_todos_produtos as buscar_ml
-        produtos = buscar_ml()
+        from shopee_api import buscar_todos_produtos as buscar_shopee_teste
+        produtos = buscar_shopee_teste()
         if not produtos:
-            log.warning("🧪 Ciclo teste: nenhum produto ML encontrado")
+            log.warning("🧪 Ciclo teste: nenhum produto Shopee encontrado")
             return
         produto = produtos[0]
         log.info(f"🧪 Testando: {produto.get('nome', '')[:50]}")
@@ -1444,8 +1444,9 @@ def main():
     import threading
     t = threading.Thread(target=iniciar_api_historico, daemon=True)
     t.start()
-    # Dispara 1 oferta de teste no grupo teste a cada deploy
-    ciclo_teste()
+    # Dispara 1 oferta de teste no grupo teste a cada deploy (em thread para não bloquear o boot)
+    t_teste = threading.Thread(target=ciclo_teste, daemon=True)
+    t_teste.start()
     log.info("⏳ Aguardando próximo horário agendado...")
     while True:
         schedule.run_pending()
