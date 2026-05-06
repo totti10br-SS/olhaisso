@@ -1506,12 +1506,12 @@ async function dispararCiclo() {
 }
 
 async function limparHistorico() {
-  if (!confirm('⚠️ Tem certeza que deseja limpar TODO o histórico de postagens?\n\nIsso permite que produtos já postados sejam repostados.')) return;
+  if (!confirm("⚠️ Tem certeza que deseja limpar TODO o historico de postagens?\n\nIsso permite que produtos ja postados sejam repostados.")) return;
   try {
     const resp = await fetch('/limpar_historico', { method: 'POST' });
     const data = await resp.json();
     if (data.ok) {
-      alert('✅ Histórico limpo! ' + data.msg);
+      alert('✅ Historico limpo! ' + data.msg);
       carregarHistorico();
     } else {
       alert('❌ Erro: ' + (data.erro || 'desconhecido'));
