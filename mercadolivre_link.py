@@ -77,6 +77,9 @@ def gerar_link_afiliado_ml(url_produto, item_id=""):
                 log(f"ML Link: ✅ {short_url}")
                 return short_url
             log(f"ML Link: resposta sem short_url: {data}")
+        elif r.status_code == 400:
+            # URL não permitida no programa de afiliados — ignorar silenciosamente
+            log(f"ML Link: ⚠️ URL não permitida no programa de afiliados (ignorado)")
         else:
             log(f"ML Link: erro {r.status_code} → {r.text[:200]}")
     except Exception as e:

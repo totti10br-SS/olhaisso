@@ -25,7 +25,7 @@ URLS_BUSCA = [
     ("https://www.mercadolivre.com.br/ofertas?category=MLB1066", "TVs"),
     ("https://www.mercadolivre.com.br/ofertas?category=MLB1039", "Video Games"),
     ("https://www.mercadolivre.com.br/ofertas?category=MLB1002", "Áudio"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=gabinete+gamer", "Gabinetes para PC"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=gabinete%20gamer", "Gabinetes para PC"),
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -38,6 +38,7 @@ PALAVRAS_BLOQUEADAS = [
     "suplemento", "creatina", "whey protein", "vitamina",
     "remedio", "medicamento",
     "telescopio", "telescópio", "luneta",
+    "perfume", "fragrância", "eau de parfum", "colônia",
 ]
 
 

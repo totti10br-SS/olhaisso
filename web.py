@@ -869,6 +869,10 @@ HTML = """<!DOCTYPE html>
               <input type="checkbox" id="ciclo_ali" checked onchange="toggleDestino('dest_ciclo_ali',this)">
               <span style="font-size:12px;">🛍️ Ali</span>
             </label>
+            <label class="destino on" id="dest_ciclo_amazon" style="flex:none;border-color:#FF9900;">
+              <input type="checkbox" id="ciclo_amazon" checked onchange="toggleDestino('dest_ciclo_amazon',this)" style="accent-color:#FF9900;">
+              <span style="font-size:12px;">📦 Amazon</span>
+            </label>
           </div>
         </div>
       </div>
@@ -1456,15 +1460,16 @@ async function dispararCiclo() {
   const usar_ml      = document.getElementById('ciclo_ml').checked;
   const usar_shopee  = document.getElementById('ciclo_shopee').checked;
   const usar_ali     = document.getElementById('ciclo_ali').checked;
+  const usar_amazon  = document.getElementById('ciclo_amazon').checked;
 
   _logCiclo('INFO', '🚀 Botão CICLO NORMAL clicado');
-  _logCiclo('PAYLOAD', 'Payload que será enviado para /disparar_ciclo', { qtde, telegram, wa_principal, wa_teste, usar_ml, usar_shopee, usar_ali });
+  _logCiclo('PAYLOAD', 'Payload que será enviado para /disparar_ciclo', { qtde, telegram, wa_principal, wa_teste, usar_ml, usar_shopee, usar_ali, usar_amazon });
 
   if (!telegram && !wa_principal && !wa_teste) {
     _logCiclo('ERRO', 'Nenhum canal selecionado — abortando');
     return alert('Selecione ao menos um canal!');
   }
-  if (!usar_ml && !usar_shopee && !usar_ali) {
+  if (!usar_ml && !usar_shopee && !usar_ali && !usar_amazon) {
     _logCiclo('ERRO', 'Nenhuma loja selecionada — abortando');
     return alert('Selecione ao menos uma loja!');
   }
@@ -1478,7 +1483,7 @@ async function dispararCiclo() {
     const resp = await fetch('/disparar_ciclo', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ qtde, telegram, wa_principal, wa_teste, usar_ml, usar_shopee, usar_ali })
+      body: JSON.stringify({ qtde, telegram, wa_principal, wa_teste, usar_ml, usar_shopee, usar_ali, usar_amazon })
     });
     _logCiclo('HTTP', 'Resposta recebida', { status: resp.status, ok: resp.ok });
     const data = await resp.json();
@@ -1733,6 +1738,7 @@ def buscar_induzido():
     usar_ml    = data.get("usar_ml", True)
     usar_shopee= data.get("usar_shopee", True)
     usar_ali   = data.get("usar_ali", True)
+    usar_amazon= data.get("usar_amazon", True)
     pub_tg        = data.get("telegram", True)
     pub_wa        = data.get("whatsapp", True)
     wa_principal  = data.get("wa_principal", True)
@@ -1778,6 +1784,7 @@ def buscar_induzido():
         if usar_ml: lojas_buscadas.append("ML")
         if usar_shopee: lojas_buscadas.append("Shopee")
         if usar_ali: lojas_buscadas.append("AliExpress")
+        if usar_amazon: lojas_buscadas.append("Amazon")
 
         if not produtos:
             return jsonify({"ok": False, "erro": f"Nenhum produto encontrado para '{keyword}' em {', '.join(lojas_buscadas)} com os filtros informados."})
