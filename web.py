@@ -536,12 +536,12 @@ HTML = """<!DOCTYPE html>
   <div id="msg_area"></div>
 
   <div class="tabs">
-    <div class="tab active" onclick="trocarAba('afiliado')">🔗 Link de Afiliado Pronto</div>
-    <div class="tab" onclick="trocarAba('produto')">🛍️ Link de Produto</div>
-    <div class="tab" onclick="trocarAba('busca')">🔍 Busca Induzida</div>
-    <div class="tab" onclick="trocarAba('web')">🌐 Busca na Internet</div>
-    <div class="tab" onclick="trocarAba('ml')">🟡 Gerar Link ML</div>
-    <div class="tab" onclick="trocarAba('historico'); carregarHistorico()">📊 Histórico</div>
+    <div class="tab active" onclick="trocarAba(&quot;afiliado&quot;)">🔗 Link de Afiliado Pronto</div>
+    <div class="tab" onclick="trocarAba(&quot;produto&quot;)">🛍️ Link de Produto</div>
+    <div class="tab" onclick="trocarAba(&quot;busca&quot;)">🔍 Busca Induzida</div>
+    <div class="tab" onclick="trocarAba(&quot;web&quot;)">🌐 Busca na Internet</div>
+    <div class="tab" onclick="trocarAba(&quot;ml&quot;)">🟡 Gerar Link ML</div>
+    <div class="tab" onclick="trocarAba(&quot;historico&quot;); carregarHistorico()">📊 Histórico</div>
   </div>
 
   <!-- FLUXO 1: Link de afiliado pronto -->
