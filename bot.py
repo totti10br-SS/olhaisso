@@ -27,6 +27,7 @@ from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
 from aliexpress_api import buscar_ticket_baixo as buscar_aliexpress_tb
 from shopee_api import buscar_todos_produtos as buscar_shopee
 from shopee_api import buscar_ticket_baixo as buscar_shopee_tb
+from amazon_api import buscar_todos_produtos as buscar_amazon
 from mercadolivre_api import buscar_todos_produtos as buscar_ml
 
 logging.basicConfig(
@@ -649,59 +650,6 @@ def buscar_tiktok_trending():
     return []
 
 
-def buscar_amazon_best_sellers():
-    categorias = [
-        ("Eletrônicos", "https://www.amazon.com.br/gp/bestsellers/electronics"),
-        ("Informática", "https://www.amazon.com.br/gp/bestsellers/computers"),
-    ]
-    headers = {"User-Agent": "Mozilla/5.0", "Accept-Language": "pt-BR,pt;q=0.9"}
-    produtos = []
-    for nome_cat, url in categorias:
-        try:
-            r = requests.get(url, headers=headers, timeout=12)
-            if r.status_code != 200:
-                continue
-            from html.parser import HTMLParser
-            class P(HTMLParser):
-                def __init__(self):
-                    super().__init__()
-                    self.items = []
-                    self._t = False
-                    self._p = False
-                    self._c = {}
-                def handle_starttag(self, tag, attrs):
-                    cls = dict(attrs).get("class", "")
-                    if "p13n-sc-truncate" in cls: self._t = True
-                    if "p13n-sc-price" in cls: self._p = True
-                def handle_data(self, data):
-                    data = data.strip()
-                    if not data: return
-                    if self._t and len(data) > 8:
-                        self._c["nome"] = data; self._t = False
-                    if self._p and "R$" in data:
-                        self._c["preco_txt"] = data
-                        if "nome" in self._c:
-                            self.items.append(dict(self._c)); self._c = {}
-                        self._p = False
-            p = P(); p.feed(r.text)
-            for item in p.items[:8]:
-                try:
-                    preco = float(item["preco_txt"].replace("R$","").replace(".","").replace(",",".").strip())
-                except:
-                    preco = 0
-                if preco <= 0 or preco > PRECO_MAXIMO: continue
-                asin = hashlib.md5(item["nome"].encode()).hexdigest()[:10]
-                produtos.append({
-                    "nome": item["nome"], "preco": preco,
-                    "preco_original": round(preco * 1.3, 2), "desconto": 23,
-                    "loja": "AMAZON", "frete": "✅ Frete grátis Prime",
-                    "link_afiliado": f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}",
-                    "imagem_url": "", "score": 1, "fontes": ["amazon"],
-                })
-            time.sleep(2)
-        except:
-            continue
-    return produtos
 
 
 def calcular_score(produto, tg, tt, tr):
@@ -988,7 +936,7 @@ def limitar_por_tema(produtos):
         log.info(f"🎯 Limite por tema ({MAX_POR_TEMA}/tema): {len(pulados)} removido(s) — {', '.join(set(pulados))}")
     return resultado
 
-def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True):
+def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=True):
     log.info("=== Pipeline v6.0 iniciado ===")
     tg = buscar_trends_google()
     tt = buscar_tiktok_trending()
@@ -1016,10 +964,12 @@ def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True):
     else:
         log.info("Mercado Livre ignorado (não selecionado)")
 
-    # AMAZON SUSPENSA — aguardando validação do link de afiliado
-    # log.info("Buscando Amazon Best Sellers...")
-    # produtos_amazon = buscar_amazon_best_sellers()
     produtos_amazon = []
+    if usar_amazon:
+        log.info("Buscando Amazon Best Sellers...")
+        produtos_amazon = buscar_amazon()
+    else:
+        log.info("Amazon ignorada (não selecionada)")
 
     # Aplica score em todos
     todos_raw = produtos_ali + produtos_shopee + produtos_ml + produtos_amazon
@@ -1282,13 +1232,14 @@ def iniciar_api_historico():
                     usar_ml     = body.get("usar_ml", True)
                     usar_shopee = body.get("usar_shopee", True)
                     usar_ali    = body.get("usar_ali", True)
+                    usar_amazon = body.get("usar_amazon", True)
 
                     import threading as _th
                     def _rodar():
                         try:
                             import time as _t
                             log.info(f"🎮 Ciclo manual via Web — {qtde} post(s)")
-                            produtos = montar_pipeline(usar_ml=usar_ml, usar_shopee=usar_shopee, usar_ali=usar_ali)
+                            produtos = montar_pipeline(usar_ml=usar_ml, usar_shopee=usar_shopee, usar_ali=usar_ali, usar_amazon=usar_amazon)
                             log.info(f"🎮 Pipeline retornou {len(produtos)} produto(s)")
                             # Filtra lojas se necessário (garantia dupla)
                             if not usar_ml:
@@ -1297,6 +1248,8 @@ def iniciar_api_historico():
                                 produtos = [p for p in produtos if p.get("loja") != "SHOPEE"]
                             if not usar_ali:
                                 produtos = [p for p in produtos if p.get("loja") != "ALIEXPRESS"]
+                            if not usar_amazon:
+                                produtos = [p for p in produtos if p.get("loja") != "AMAZON"]
                             log.info(f"🎮 Após filtro lojas: {len(produtos)} produto(s)")
                             if not produtos:
                                 log.warning("🎮 Nenhum produto disponível para ciclo manual")
