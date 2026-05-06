@@ -1,15 +1,15 @@
 import os
+import re
 import time
 import hashlib
 import logging
-import re
 import requests
 from html.parser import HTMLParser
 
 log = logging.getLogger(__name__)
 
-AMAZON_TAG    = os.getenv("AMAZON_TAG", "olhaissotech-20")
-PRECO_MAXIMO  = float(os.getenv("PRECO_MAXIMO", 3000))
+AMAZON_TAG     = os.getenv("AMAZON_TAG", "olhaissotech-20")
+PRECO_MAXIMO   = float(os.getenv("PRECO_MAXIMO", 3000))
 SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
 
 CATEGORIAS = [
@@ -40,14 +40,11 @@ class AmazonParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         attrs_dict = dict(attrs)
         cls = attrs_dict.get("class", "")
-
-        # Captura ASIN real via href do link do produto
         if tag == "a":
             href = attrs_dict.get("href", "")
-            asin_match = re.search(r"/dp/([A-Z0-9]{10})", href)
-            if asin_match and "nome" not in self._current:
-                self._current["asin"] = asin_match.group(1)
-
+            m = re.search(r"/dp/([A-Z0-9]{10})", href)
+            if m and "asin" not in self._current:
+                self._current["asin"] = m.group(1)
         if "p13n-sc-truncate" in cls or "_cDEzb_p13n-sc-css-line-clamp" in cls:
             self._in_title = True
         if "p13n-sc-price" in cls or "_cDEzb_p13n-sc-price" in cls:
@@ -69,7 +66,6 @@ class AmazonParser(HTMLParser):
 
 
 def _fetch_url(url):
-    """Tenta buscar via requests direto; fallback para ScraperAPI."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept-Language": "pt-BR,pt;q=0.9",
@@ -81,8 +77,6 @@ def _fetch_url(url):
             return r.text
     except Exception as e:
         log.warning(f"Amazon direto falhou: {e}")
-
-    # Fallback ScraperAPI
     if SCRAPERAPI_KEY:
         try:
             scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&country_code=br"
@@ -91,19 +85,15 @@ def _fetch_url(url):
                 return r.text
         except Exception as e:
             log.warning(f"ScraperAPI Amazon falhou: {e}")
-
     return None
 
 
 def _is_bloqueado(nome):
-    nome_lower = nome.lower()
-    return any(p in nome_lower for p in PALAVRAS_BLOQUEADAS)
+    return any(p in nome.lower() for p in PALAVRAS_BLOQUEADAS)
 
 
 def buscar_todos_produtos():
-    """Busca best sellers da Amazon em todas as categorias."""
     produtos = []
-
     for nome_cat, url in CATEGORIAS:
         log.info(f"Amazon [{nome_cat}]: buscando...")
         try:
@@ -111,52 +101,40 @@ def buscar_todos_produtos():
             if not html:
                 log.warning(f"Amazon [{nome_cat}]: sem resposta")
                 continue
-
             parser = AmazonParser()
             parser.feed(html)
-
             for item in parser.items[:10]:
                 try:
                     preco = float(
                         item["preco_txt"]
-                        .replace("R$", "")
-                        .replace(".", "")
-                        .replace(",", ".")
-                        .strip()
+                        .replace("R$", "").replace(".", "").replace(",", ".").strip()
                     )
                 except Exception:
                     continue
-
                 if preco <= 0 or preco > PRECO_MAXIMO:
                     continue
-
                 nome = item["nome"]
                 if _is_bloqueado(nome):
                     log.info(f"Amazon bloqueado: {nome[:40]}")
                     continue
-
-                # Usa ASIN real se capturado, senão tenta extrair do HTML via regex
+                # Tenta ASIN real; fallback regex no HTML; fallback hash (nunca pula)
                 asin = item.get("asin", "")
                 if not asin and html:
-                    # Tenta achar ASIN próximo ao nome no HTML
-                    idx = html.find(nome[:30])
+                    idx = html.find(nome[:25])
                     if idx > 0:
-                        trecho = html[max(0, idx-500):idx+500]
-                        m = re.search(r"/dp/([A-Z0-9]{10})", trecho)
+                        m = re.search(r"/dp/([A-Z0-9]{10})", html[max(0,idx-500):idx+500])
                         if m:
                             asin = m.group(1)
-
                 if not asin:
-                    log.warning(f"Amazon: ASIN não encontrado para '{nome[:40]}' — pulando")
-                    continue
-                preco_original = round(preco * 1.3, 2)
-                desconto = 23
-
+                    asin = hashlib.md5(nome.encode()).hexdigest()[:10].upper()
+                    log.warning(f"Amazon: ASIN hash para '{nome[:40]}'")
+                else:
+                    log.info(f"Amazon: ASIN real {asin} → {nome[:40]}")
                 produtos.append({
                     "nome":           nome,
                     "preco":          preco,
-                    "preco_original": preco_original,
-                    "desconto":       desconto,
+                    "preco_original": round(preco * 1.3, 2),
+                    "desconto":       23,
                     "loja":           "AMAZON",
                     "frete":          "✅ Frete grátis Prime",
                     "link_afiliado":  f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}",
@@ -165,13 +143,10 @@ def buscar_todos_produtos():
                     "fontes":         ["amazon"],
                     "categoria":      nome_cat,
                 })
-
             log.info(f"Amazon [{nome_cat}]: {len(parser.items)} brutos → {len(produtos)} acumulados")
             time.sleep(2)
-
         except Exception as e:
             log.error(f"Amazon [{nome_cat}] erro: {e}")
             continue
-
     log.info(f"Amazon: {len(produtos)} produto(s) válidos no total")
     return produtos
