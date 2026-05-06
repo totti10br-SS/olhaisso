@@ -13,9 +13,9 @@ PRECO_MAXIMO   = float(os.getenv("PRECO_MAXIMO", 3000))
 SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
 
 CATEGORIAS = [
-    ("Eletrônicos",      "https://www.amazon.com.br/gp/bestsellers/electronics"),
-    ("Informática",      "https://www.amazon.com.br/gp/bestsellers/computers"),
     ("Smartphones",      "https://www.amazon.com.br/gp/bestsellers/wireless"),
+    ("TVs",              "https://www.amazon.com.br/gp/bestsellers/electronics/?ie=UTF8&pg=1#1"),
+    ("Informática",      "https://www.amazon.com.br/gp/bestsellers/computers"),
     ("Games",            "https://www.amazon.com.br/gp/bestsellers/videogames"),
     ("Eletrodomésticos", "https://www.amazon.com.br/gp/bestsellers/kitchen"),
 ]
@@ -26,6 +26,9 @@ PALAVRAS_BLOQUEADAS = [
     "suplemento", "vitamina", "remedio", "brinquedo", "livro", "album",
     "figurinha", "sofa", "colchao", "cortina", "tapete", "telescopio",
     "microscopio", "luneta",
+    # Periféricos não desejados
+    "cartucho", "tinta hp", "tinta epson", "tinta canon", "refil",
+    "pilha", "pilhas", "bateria aa", "bateria aaa",
 ]
 
 
