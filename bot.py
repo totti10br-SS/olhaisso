@@ -803,18 +803,20 @@ KEYWORDS_MONITOR = [
     "tela monitor", "display monitor",
 ]
 
-def distribuir_50_25_25(pool_ml, pool_ali, pool_shopee, pool_outros, total):
-    """Monta fila com distribuição 50% ML, 25% Ali, 25% Shopee."""
-    qtd_ml     = max(1, round(total * 0.50))
-    qtd_ali    = max(1, round(total * 0.25))
-    qtd_shopee = max(1, total - qtd_ml - qtd_ali)
-    log.info(f"Distribuição alvo: {qtd_ml} ML | {qtd_ali} Ali | {qtd_shopee} Shopee")
+def distribuir_por_loja(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros, total):
+    """Monta fila com distribuição 40% ML, 40% Amazon, 10% Ali, 10% Shopee."""
+    qtd_ml     = max(1, round(total * 0.40))
+    qtd_amazon = max(1, round(total * 0.40))
+    qtd_ali    = max(1, round(total * 0.10))
+    qtd_shopee = max(1, total - qtd_ml - qtd_amazon - qtd_ali)
+    log.info(f"Distribuição alvo: {qtd_ml} ML | {qtd_amazon} Amazon | {qtd_ali} Ali | {qtd_shopee} Shopee")
     fila = []
     fila += pool_ml[:qtd_ml]
+    fila += pool_amazon[:qtd_amazon]
     fila += pool_ali[:qtd_ali]
     fila += pool_shopee[:qtd_shopee]
     # Completa com extras se faltar
-    extras = pool_ml[qtd_ml:] + pool_ali[qtd_ali:] + pool_shopee[qtd_shopee:] + pool_outros
+    extras = pool_ml[qtd_ml:] + pool_amazon[qtd_amazon:] + pool_ali[qtd_ali:] + pool_shopee[qtd_shopee:] + pool_outros
     for p in extras:
         if len(fila) >= total * 2:
             break
@@ -918,22 +920,23 @@ def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros):
     return resultado
 
 
-def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_outros):
+def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros):
     """
     Recebe pools separados por loja e retorna lista filtrada por tipo de ciclo,
-    mantendo proporção 50% ML / 25% Ali / 25% Shopee em todos os ciclos.
+    mantendo proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee em todos os ciclos.
     """
     if permitir_misto():
         return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros)
 
     if permitir_monitor_dedicado():
-        log.info("🖥️ CICLO DEDICADO — apenas Monitores (50% ML / 25% Ali / 25% Shopee)")
-        ml_mo  = [p for p in pool_ml  if _is_monitor(p.get("nome",""))]
-        ali_mo = [p for p in pool_ali if _is_monitor(p.get("nome",""))]
+        log.info("🖥️ CICLO DEDICADO — apenas Monitores (40% ML / 40% Amazon / 10% Ali / 10% Shopee)")
+        ml_mo  = [p for p in pool_ml     if _is_monitor(p.get("nome",""))]
+        ali_mo = [p for p in pool_ali    if _is_monitor(p.get("nome",""))]
         sh_mo  = [p for p in pool_shopee if _is_monitor(p.get("nome",""))]
-        total = len(ml_mo) + len(ali_mo) + len(sh_mo)
-        log.info(f"🖥️ {total} monitor(es) disponíveis (ML:{len(ml_mo)} Ali:{len(ali_mo)} Sh:{len(sh_mo)})")
-        return distribuir_50_25_25(ml_mo, ali_mo, sh_mo, [], POSTS_POR_CICLO)
+        az_mo  = [p for p in pool_amazon if _is_monitor(p.get("nome",""))]
+        total  = len(ml_mo) + len(ali_mo) + len(sh_mo) + len(az_mo)
+        log.info(f"🖥️ {total} monitor(es) disponíveis (ML:{len(ml_mo)} Amazon:{len(az_mo)} Ali:{len(ali_mo)} Sh:{len(sh_mo)})")
+        return distribuir_por_loja(ml_mo, ali_mo, sh_mo, az_mo, [], POSTS_POR_CICLO)
 
     if permitir_ciclo_ticket_baixo():
         return montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros)
@@ -945,12 +948,13 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_outros):
     ml_n  = filtrar_normal(pool_ml)
     ali_n = filtrar_normal(pool_ali)
     sh_n  = filtrar_normal(pool_shopee)
-    removidos = (len(pool_ml) - len(ml_n)) + (len(pool_ali) - len(ali_n)) + (len(pool_shopee) - len(sh_n))
+    az_n  = filtrar_normal(pool_amazon)
+    removidos = (len(pool_ml) - len(ml_n)) + (len(pool_ali) - len(ali_n)) + (len(pool_shopee) - len(sh_n)) + (len(pool_amazon) - len(az_n))
     if removidos > 0:
         log.info(f"🔒 {removidos} produto(s) reservados para ciclos especiais")
 
     # Ciclo normal: garante 2 tickets baixos na fila
-    todos_normal = distribuir_50_25_25(ml_n, ali_n, sh_n, pool_outros, POSTS_POR_CICLO * 3)
+    todos_normal = distribuir_por_loja(ml_n, ali_n, sh_n, az_n, pool_outros, POSTS_POR_CICLO * 3)
     tickets_baixos = [p for p in todos_normal if eh_ticket_baixo(p)][:POSTS_TICKET_BAIXO_NO_CICLO]
     for p in tickets_baixos:
         p["ticket_baixo"] = True
@@ -1043,10 +1047,11 @@ def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True):
     pool_ml     = filtrar_fonte(todos_raw, "MERCADOLIVRE")
     pool_ali    = filtrar_fonte(todos_raw, "ALIEXPRESS")
     pool_shopee = filtrar_fonte(todos_raw, "SHOPEE")
-    pool_outros = [p for p in todos_raw if p.get("loja") not in ("MERCADOLIVRE", "ALIEXPRESS", "SHOPEE")]
+    pool_amazon = filtrar_fonte(todos_raw, "AMAZON")
+    pool_outros = [p for p in todos_raw if p.get("loja") not in ("MERCADOLIVRE", "ALIEXPRESS", "SHOPEE", "AMAZON")]
 
-    # Filtra/organiza por ciclo especial mantendo proporção 50/25/25
-    fila = filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_outros)
+    # Filtra/organiza por ciclo especial mantendo proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee
+    fila = filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros)
 
     # Remove duplicatas mantendo ordem
     vistos = set()
