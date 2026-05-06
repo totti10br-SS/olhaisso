@@ -18,6 +18,7 @@ import hashlib
 import logging
 import sqlite3
 import schedule
+import re
 import requests
 import textwrap
 from io import BytesIO
@@ -278,6 +279,28 @@ def gerar_imagem(produto):
     # ── FOTO DO PRODUTO ────────────────────────────────────────
     img_url = produto.get("imagem_url", "")
     prod_img = None
+
+    # Se for Amazon e imagem não carregou, tenta raspar da página do produto
+    if produto.get("loja") == "AMAZON":
+        try:
+            link = produto.get("link_afiliado", "")
+            asin_m = re.search(r"/dp/([A-Z0-9]{10})", link)
+            if asin_m:
+                asin = asin_m.group(1)
+                page_url = f"https://www.amazon.com.br/dp/{asin}"
+                headers_az = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                rp = requests.get(page_url, headers=headers_az, timeout=10)
+                img_m = re.search(r'"hiRes":"(https://[^"]+\.jpg)"', rp.text)
+                if not img_m:
+                    img_m = re.search(r'"large":"(https://[^"]+\.jpg)"', rp.text)
+                if not img_m:
+                    img_m = re.search(r'data-old-hires="(https://[^"]+\.jpg)"', rp.text)
+                if img_m:
+                    img_url = img_m.group(1)
+                    log.info(f"Amazon imagem raspada: {img_url[:60]}")
+        except Exception as e:
+            log.warning(f"Amazon imagem fallback erro: {e}")
+
     if img_url:
         try:
             r = requests.get(img_url, timeout=8)
