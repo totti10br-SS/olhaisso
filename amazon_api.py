@@ -10,7 +10,8 @@ log = logging.getLogger(__name__)
 
 AMAZON_TAG     = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO   = float(os.getenv("PRECO_MAXIMO", 3000))
-SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
+ZENROWS_KEY    = os.getenv("ZENROWS_KEY", "")
+SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")  # fallback
 
 CATEGORIAS = [
     ("Smartphones",      "https://www.amazon.com.br/gp/bestsellers/wireless"),
@@ -74,6 +75,7 @@ class AmazonParser(HTMLParser):
 
 
 def _fetch_url(url):
+    # Tenta direto primeiro (Amazon às vezes permite)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept-Language": "pt-BR,pt;q=0.9",
@@ -85,6 +87,26 @@ def _fetch_url(url):
             return r.text
     except Exception as e:
         log.warning(f"Amazon direto falhou: {e}")
+
+    # ZenRows
+    if ZENROWS_KEY:
+        try:
+            params = {
+                "url":           url,
+                "apikey":        ZENROWS_KEY,
+                "js_render":     "false",
+                "antibot":       "true",
+                "premium_proxy": "true",
+                "proxy_country": "br",
+            }
+            r = requests.get("https://api.zenrows.com/v1/", params=params, timeout=30)
+            log.info(f"Amazon ZenRows {r.status_code} → {url[-40:]}")
+            if r.status_code == 200:
+                return r.text
+        except Exception as e:
+            log.warning(f"Amazon ZenRows falhou: {e}")
+
+    # Fallback ScraperAPI
     if SCRAPERAPI_KEY:
         try:
             scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&country_code=br"
@@ -93,6 +115,7 @@ def _fetch_url(url):
                 return r.text
         except Exception as e:
             log.warning(f"ScraperAPI Amazon falhou: {e}")
+
     return None
 
 
@@ -101,16 +124,29 @@ def _is_bloqueado(nome):
 
 
 def _buscar_imagem_produto(asin):
-    """Busca imagem real do produto via ScraperAPI na página do produto."""
-    if not SCRAPERAPI_KEY:
+    """Busca imagem real do produto via ZenRows na página do produto."""
+    if not ZENROWS_KEY and not SCRAPERAPI_KEY:
         return ""
     try:
         url = f"https://www.amazon.com.br/dp/{asin}"
-        scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&country_code=br"
-        r = requests.get(scraper_url, timeout=12)
+
+        if ZENROWS_KEY:
+            params = {
+                "url":           url,
+                "apikey":        ZENROWS_KEY,
+                "js_render":     "false",
+                "antibot":       "true",
+                "premium_proxy": "true",
+                "proxy_country": "br",
+            }
+            r = requests.get("https://api.zenrows.com/v1/", params=params, timeout=20)
+        else:
+            scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&country_code=br"
+            r = requests.get(scraper_url, timeout=12)
+
         if r.status_code != 200:
             return ""
-        # Tenta extrair URL da imagem em alta resolução
+
         for pattern in [
             r'"hiRes":"(https://[^"]+\.jpg)"',
             r'"large":"(https://[^"]+\.jpg)"',
@@ -119,10 +155,10 @@ def _buscar_imagem_produto(asin):
         ]:
             m = re.search(pattern, r.text)
             if m:
-                log.info(f"Amazon imagem via ScraperAPI: {m.group(1)[:60]}")
+                log.info(f"Amazon imagem via ZenRows: {m.group(1)[:60]}")
                 return m.group(1)
     except Exception as e:
-        log.warning(f"Amazon ScraperAPI imagem erro: {e}")
+        log.warning(f"Amazon imagem erro: {e}")
     return ""
 
 
