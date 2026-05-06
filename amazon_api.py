@@ -15,6 +15,7 @@ SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
 CATEGORIAS = [
     ("Smartphones",      "https://www.amazon.com.br/gp/bestsellers/wireless"),
     ("TVs",              "https://www.amazon.com.br/gp/bestsellers/electronics/?ie=UTF8&pg=1#1"),
+    ("Monitores",        "https://www.amazon.com.br/gp/bestsellers/computers/16243088011"),
     ("Informática",      "https://www.amazon.com.br/gp/bestsellers/computers"),
     ("Games",            "https://www.amazon.com.br/gp/bestsellers/videogames"),
     ("Eletrodomésticos", "https://www.amazon.com.br/gp/bestsellers/kitchen"),
