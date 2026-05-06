@@ -2,6 +2,7 @@ import os
 import time
 import hashlib
 import logging
+import re
 import requests
 from html.parser import HTMLParser
 
@@ -37,7 +38,16 @@ class AmazonParser(HTMLParser):
         self._current = {}
 
     def handle_starttag(self, tag, attrs):
-        cls = dict(attrs).get("class", "")
+        attrs_dict = dict(attrs)
+        cls = attrs_dict.get("class", "")
+
+        # Captura ASIN real via href do link do produto
+        if tag == "a":
+            href = attrs_dict.get("href", "")
+            asin_match = re.search(r"/dp/([A-Z0-9]{10})", href)
+            if asin_match and "nome" not in self._current:
+                self._current["asin"] = asin_match.group(1)
+
         if "p13n-sc-truncate" in cls or "_cDEzb_p13n-sc-css-line-clamp" in cls:
             self._in_title = True
         if "p13n-sc-price" in cls or "_cDEzb_p13n-sc-price" in cls:
@@ -125,8 +135,20 @@ def buscar_todos_produtos():
                     log.info(f"Amazon bloqueado: {nome[:40]}")
                     continue
 
-                # Gera ASIN fake baseado no nome (sem ASIN real do scraping)
-                asin_fake = hashlib.md5(nome.encode()).hexdigest()[:10].upper()
+                # Usa ASIN real se capturado, senão tenta extrair do HTML via regex
+                asin = item.get("asin", "")
+                if not asin and html:
+                    # Tenta achar ASIN próximo ao nome no HTML
+                    idx = html.find(nome[:30])
+                    if idx > 0:
+                        trecho = html[max(0, idx-500):idx+500]
+                        m = re.search(r"/dp/([A-Z0-9]{10})", trecho)
+                        if m:
+                            asin = m.group(1)
+
+                if not asin:
+                    log.warning(f"Amazon: ASIN não encontrado para '{nome[:40]}' — pulando")
+                    continue
                 preco_original = round(preco * 1.3, 2)
                 desconto = 23
 
@@ -137,8 +159,8 @@ def buscar_todos_produtos():
                     "desconto":       desconto,
                     "loja":           "AMAZON",
                     "frete":          "✅ Frete grátis Prime",
-                    "link_afiliado":  f"https://www.amazon.com.br/dp/{asin_fake}?tag={AMAZON_TAG}",
-                    "imagem_url":     "",
+                    "link_afiliado":  f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}",
+                    "imagem_url":     f"https://images-na.ssl-images-amazon.com/images/P/{asin}.jpg",
                     "score":          1,
                     "fontes":         ["amazon"],
                     "categoria":      nome_cat,
