@@ -29,6 +29,10 @@ PALAVRAS_BLOQUEADAS = [
     # Periféricos não desejados
     "cartucho", "tinta hp", "tinta epson", "tinta canon", "refil",
     "pilha", "pilhas", "bateria aa", "bateria aaa",
+    # Bolsas e acessórios não tech
+    "mochila", "bolsa", "mala", "carteira",
+    # Nomes inválidos
+    "sem sistema operacional",
 ]
 
 
@@ -95,6 +99,32 @@ def _is_bloqueado(nome):
     return any(p in nome.lower() for p in PALAVRAS_BLOQUEADAS)
 
 
+def _buscar_imagem_produto(asin):
+    """Busca imagem real do produto via ScraperAPI na página do produto."""
+    if not SCRAPERAPI_KEY:
+        return ""
+    try:
+        url = f"https://www.amazon.com.br/dp/{asin}"
+        scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&country_code=br"
+        r = requests.get(scraper_url, timeout=12)
+        if r.status_code != 200:
+            return ""
+        # Tenta extrair URL da imagem em alta resolução
+        for pattern in [
+            r'"hiRes":"(https://[^"]+\.jpg)"',
+            r'"large":"(https://[^"]+\.jpg)"',
+            r'data-old-hires="(https://[^"]+\.jpg)"',
+            r'"mainUrl":"(https://[^"]+\.jpg)"',
+        ]:
+            m = re.search(pattern, r.text)
+            if m:
+                log.info(f"Amazon imagem via ScraperAPI: {m.group(1)[:60]}")
+                return m.group(1)
+    except Exception as e:
+        log.warning(f"Amazon ScraperAPI imagem erro: {e}")
+    return ""
+
+
 def buscar_todos_produtos():
     produtos = []
     for nome_cat, url in CATEGORIAS:
@@ -133,6 +163,10 @@ def buscar_todos_produtos():
                     log.warning(f"Amazon: ASIN hash para '{nome[:40]}'")
                 else:
                     log.info(f"Amazon: ASIN real {asin} → {nome[:40]}")
+
+                # Busca imagem real via ScraperAPI
+                imagem_url = _buscar_imagem_produto(asin)
+
                 produtos.append({
                     "nome":           nome,
                     "preco":          preco,
@@ -141,7 +175,7 @@ def buscar_todos_produtos():
                     "loja":           "AMAZON",
                     "frete":          "✅ Frete grátis Prime",
                     "link_afiliado":  f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}",
-                    "imagem_url":     f"https://images-na.ssl-images-amazon.com/images/P/{asin}.jpg",
+                    "imagem_url":     imagem_url,
                     "score":          1,
                     "fontes":         ["amazon"],
                     "categoria":      nome_cat,

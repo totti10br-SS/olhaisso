@@ -921,6 +921,7 @@ HTML = """<!DOCTYPE html>
         <option value="AMAZON">📦 Amazon</option>
       </select>
       <button onclick="carregarHistorico()" style="background:#333;border:1px solid #555;color:#fff;border-radius:10px;padding:0 16px;cursor:pointer;font-size:14px;">🔄 Atualizar</button>
+      <button onclick="limparHistorico()" style="background:#5a1a1a;border:1px solid #c0392b;color:#ff6b6b;border-radius:10px;padding:0 16px;cursor:pointer;font-size:14px;">🗑️ Limpar Histórico</button>
     </div>
     <div style="position:relative;margin-bottom:14px;">
       <input type="text" id="hist_busca" placeholder="🔍 Filtrar por nome do produto..."
@@ -1504,6 +1505,22 @@ async function dispararCiclo() {
   }
 }
 
+async function limparHistorico() {
+  if (!confirm('⚠️ Tem certeza que deseja limpar TODO o histórico de postagens?\n\nIsso permite que produtos já postados sejam repostados.')) return;
+  try {
+    const resp = await fetch('/limpar_historico', { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      alert('✅ Histórico limpo! ' + data.msg);
+      carregarHistorico();
+    } else {
+      alert('❌ Erro: ' + (data.erro || 'desconhecido'));
+    }
+  } catch (e) {
+    alert('❌ Erro ao limpar: ' + e.message);
+  }
+}
+
 async function carregarHistorico() {
   const loja = document.getElementById('hist_loja')?.value || '';
   const area = document.getElementById('hist_area');
@@ -1914,6 +1931,25 @@ def dados_produto_ml():
             "imagem":    imagem,
         })
 
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/limpar_historico", methods=["POST"])
+def limpar_historico():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Nao autorizado"}), 401
+    try:
+        BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+        WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        r = requests.post(
+            BOT_API_URL + "/limpar_historico",
+            headers={"X-API-Key": WEB_SECRET_KEY},
+            timeout=15
+        )
+        if r.status_code == 200:
+            return jsonify(r.json())
+        return jsonify({"ok": False, "erro": f"Bot retornou {r.status_code}"})
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
 
