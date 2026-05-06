@@ -976,7 +976,7 @@ function getGruposWA(prefixo) {
 
 function abrirLink(inputId) {
   const url = document.getElementById(inputId).value.trim();
-  if (!url) return alert('Cole o link primeiro!');
+  if (!url) return alert("Cole o link primeiro!");
   window.open(url, '_blank');
 }
 
@@ -1040,12 +1040,12 @@ async function publicarAfiliado() {
   const whatsapp  = document.getElementById('af_whatsapp').checked;
   const grupos    = getGruposWA('af');
 
-  if (!link)   return alert('Cole o link de afiliado!');
-  if (!nome)   return alert('Preencha o nome do produto!');
-  if (!preco)  return alert('Preencha o preço atual!');
-  if (!imagem) return alert('Cole a URL da imagem!');
-  if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
-  if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert('Selecione ao menos um grupo do WhatsApp!');
+  if (!link)   return alert("Cole o link de afiliado!");
+  if (!nome)   return alert("Preencha o nome do produto!");
+  if (!preco)  return alert("Preencha o preço atual!");
+  if (!imagem) return alert("Cole a URL da imagem!");
+  if (!telegram && !whatsapp) return alert("Selecione ao menos um destino!");
+  if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert("Selecione ao menos um grupo do WhatsApp!");
 
   await enviar(
     { nome, preco, preco_orig, loja, link, imagem, destaque, telegram, whatsapp, ...grupos },
@@ -1064,11 +1064,11 @@ async function publicarProduto() {
   const whatsapp  = document.getElementById('pr_whatsapp').checked;
   const grupos    = getGruposWA('pr');
 
-  if (!link)   return alert('Cole o link do produto!');
-  if (!preco)  return alert('Preencha o preço atual!');
-  if (!imagem) return alert('Cole a URL da imagem!');
-  if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
-  if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert('Selecione ao menos um grupo do WhatsApp!');
+  if (!link)   return alert("Cole o link do produto!");
+  if (!preco)  return alert("Preencha o preço atual!");
+  if (!imagem) return alert("Cole a URL da imagem!");
+  if (!telegram && !whatsapp) return alert("Selecione ao menos um destino!");
+  if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert("Selecione ao menos um grupo do WhatsApp!");
 
   const btn = document.getElementById('btn_pr');
   btn.disabled = true;
@@ -1114,13 +1114,13 @@ async function buscarInduzido() {
   const usar_shopee  = document.getElementById('bk_usar_shopee').checked;
   const usar_ali     = document.getElementById('bk_usar_ali').checked;
 
-  if (!keyword)  return alert('Digite uma palavra-chave!');
-  if (!usar_shopee && !usar_ali) return alert('Selecione ao menos uma loja!');
-  if (!preco_min) return alert('Informe o preço mínimo!');
-  if (!preco_max) return alert('Informe o preço máximo!');
-  if (preco_max <= preco_min) return alert('Preço máximo deve ser maior que o mínimo!');
-  if (desconto_min === '') return alert('Informe o desconto mínimo (use 0 para sem limite)!');
-  if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
+  if (!keyword)  return alert("Digite uma palavra-chave!");
+  if (!usar_shopee && !usar_ali) return alert("Selecione ao menos uma loja!");
+  if (!preco_min) return alert("Informe o preço mínimo!");
+  if (!preco_max) return alert("Informe o preço máximo!");
+  if (preco_max <= preco_min) return alert("Preço máximo deve ser maior que o mínimo!");
+  if (desconto_min === '') return alert("Informe o desconto mínimo (use 0 para sem limite)!");
+  if (!telegram && !whatsapp) return alert("Selecione ao menos um destino!");
 
   const keyword_final = marca ? `${keyword} ${marca}` : keyword;
   const lojas = [];
@@ -1162,8 +1162,8 @@ async function buscarInduzido() {
 
 async function preencherDadosML() {
   const link = document.getElementById('ml_link').value.trim();
-  if (!link) return alert('Cole o link do produto ML primeiro!');
-  if (!link.includes('mercadolivre.com.br')) return alert('Use apenas links do Mercado Livre!');
+  if (!link) return alert("Cole o link do produto ML primeiro!");
+  if (!link.includes('mercadolivre.com.br')) return alert("Use apenas links do Mercado Livre!");
 
   const btn = document.getElementById('btn_ml_preencher');
   btn.disabled = true;
@@ -1217,13 +1217,13 @@ async function publicarML() {
   const whatsapp  = document.getElementById('ml_whatsapp').checked;
   const grupos    = getGruposWA('ml');
 
-  if (!link)   return alert('Cole o link do produto ML!');
-  if (!link.includes('mercadolivre.com.br')) return alert('Use apenas links do Mercado Livre!');
-  if (!nome)   return alert('Preencha o nome do produto!');
-  if (!preco)  return alert('Preencha o preço atual!');
-  if (!imagem) return alert('Cole a URL da imagem!');
-  if (!telegram && !whatsapp) return alert('Selecione ao menos um destino!');
-  if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert('Selecione ao menos um grupo do WhatsApp!');
+  if (!link)   return alert("Cole o link do produto ML!");
+  if (!link.includes('mercadolivre.com.br')) return alert("Use apenas links do Mercado Livre!");
+  if (!nome)   return alert("Preencha o nome do produto!");
+  if (!preco)  return alert("Preencha o preço atual!");
+  if (!imagem) return alert("Cole a URL da imagem!");
+  if (!telegram && !whatsapp) return alert("Selecione ao menos um destino!");
+  if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert("Selecione ao menos um grupo do WhatsApp!");
 
   const btn = document.getElementById('btn_ml');
   const loader = document.getElementById('loader_ml');
@@ -1420,7 +1420,7 @@ async function dispararCicloTicketBaixo() {
 
   if (!telegram && !wa_principal && !wa_teste) {
     _logCiclo('ERRO', 'Nenhum canal selecionado — abortando');
-    return alert('Selecione ao menos um canal!');
+    return alert("Selecione ao menos um canal!");
   }
 
   const btn = document.getElementById('btn_ciclo_tb');
@@ -1468,11 +1468,11 @@ async function dispararCiclo() {
 
   if (!telegram && !wa_principal && !wa_teste) {
     _logCiclo('ERRO', 'Nenhum canal selecionado — abortando');
-    return alert('Selecione ao menos um canal!');
+    return alert("Selecione ao menos um canal!");
   }
   if (!usar_ml && !usar_shopee && !usar_ali && !usar_amazon) {
     _logCiclo('ERRO', 'Nenhuma loja selecionada — abortando');
-    return alert('Selecione ao menos uma loja!');
+    return alert("Selecione ao menos uma loja!");
   }
 
   const btn = document.getElementById('btn_ciclo');
@@ -1554,7 +1554,7 @@ async function buscarInternet() {
   const preco_min = parseFloat(document.getElementById('wb_preco_min').value) || 0;
   const preco_max = parseFloat(document.getElementById('wb_preco_max').value) || 0;
 
-  if (!keyword) return alert('Digite o que está procurando!');
+  if (!keyword) return alert("Digite o que está procurando!");
 
   const btn = document.getElementById('btn_wb');
   btn.disabled = true;
