@@ -15,12 +15,13 @@ ZENROWS_KEY     = os.getenv("ZENROWS_KEY", "")      # fallback
 SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")   # fallback
 
 CATEGORIAS = [
-    ("Smartphones",      "https://www.amazon.com.br/gp/bestsellers/wireless"),
-    ("TVs",              "https://www.amazon.com.br/gp/bestsellers/electronics/?ie=UTF8&pg=1#1"),
-    ("Monitores",        "https://www.amazon.com.br/gp/bestsellers/computers/16243088011"),
+    ("Smartphones",      "https://www.amazon.com.br/gp/bestsellers/electronics/16318190011"),
+    ("TVs",              "https://www.amazon.com.br/gp/bestsellers/electronics/16318209011"),
+    ("Monitores",        "https://www.amazon.com.br/gp/bestsellers/computers/16318171011"),
     ("Informática",      "https://www.amazon.com.br/gp/bestsellers/computers"),
     ("Games",            "https://www.amazon.com.br/gp/bestsellers/videogames"),
     ("Eletrodomésticos", "https://www.amazon.com.br/gp/bestsellers/kitchen"),
+    ("Áudio e Fones",    "https://www.amazon.com.br/gp/bestsellers/electronics/16318191011"),
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -187,7 +188,7 @@ def buscar_todos_produtos():
                 continue
             parser = AmazonParser()
             parser.feed(html)
-            for item in parser.items[:10]:
+            for item in parser.items[:20]:
                 try:
                     preco = float(
                         item["preco_txt"]
