@@ -10,8 +10,9 @@ log = logging.getLogger(__name__)
 
 AMAZON_TAG     = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO   = float(os.getenv("PRECO_MAXIMO", 3000))
-ZENROWS_KEY    = os.getenv("ZENROWS_KEY", "")
-SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")  # fallback
+SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
+ZENROWS_KEY     = os.getenv("ZENROWS_KEY", "")      # fallback
+SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")   # fallback
 
 CATEGORIAS = [
     ("Smartphones",      "https://www.amazon.com.br/gp/bestsellers/wireless"),
@@ -88,7 +89,24 @@ def _fetch_url(url):
     except Exception as e:
         log.warning(f"Amazon direto falhou: {e}")
 
-    # ZenRows
+    # ScrapingAnt
+    if SCRAPINGANT_KEY:
+        try:
+            params = {
+                "url":          url,
+                "x-api-key":    SCRAPINGANT_KEY,
+                "proxy_country": "BR",
+                "browser":      "false",
+            }
+            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=30)
+            log.info(f"Amazon ScrapingAnt {r.status_code} → {url[-40:]}")
+            if r.status_code == 200:
+                return r.text
+            log.warning(f"Amazon ScrapingAnt erro: {r.text[:100]}")
+        except Exception as e:
+            log.warning(f"Amazon ScrapingAnt falhou: {e}")
+
+    # Fallback ZenRows
     if ZENROWS_KEY:
         try:
             params = {
@@ -100,21 +118,10 @@ def _fetch_url(url):
                 "proxy_country": "br",
             }
             r = requests.get("https://api.zenrows.com/v1/", params=params, timeout=30)
-            log.info(f"Amazon ZenRows {r.status_code} → {url[-40:]}")
             if r.status_code == 200:
                 return r.text
         except Exception as e:
             log.warning(f"Amazon ZenRows falhou: {e}")
-
-    # Fallback ScraperAPI
-    if SCRAPERAPI_KEY:
-        try:
-            scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&country_code=br"
-            r = requests.get(scraper_url, timeout=12)
-            if r.status_code == 200:
-                return r.text
-        except Exception as e:
-            log.warning(f"ScraperAPI Amazon falhou: {e}")
 
     return None
 
@@ -125,12 +132,20 @@ def _is_bloqueado(nome):
 
 def _buscar_imagem_produto(asin):
     """Busca imagem real do produto via ZenRows na página do produto."""
-    if not ZENROWS_KEY and not SCRAPERAPI_KEY:
+    if not SCRAPINGANT_KEY and not ZENROWS_KEY:
         return ""
     try:
         url = f"https://www.amazon.com.br/dp/{asin}"
 
-        if ZENROWS_KEY:
+        if SCRAPINGANT_KEY:
+            params = {
+                "url":           url,
+                "x-api-key":     SCRAPINGANT_KEY,
+                "proxy_country": "BR",
+                "browser":       "false",
+            }
+            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=20)
+        elif ZENROWS_KEY:
             params = {
                 "url":           url,
                 "apikey":        ZENROWS_KEY,
@@ -141,8 +156,7 @@ def _buscar_imagem_produto(asin):
             }
             r = requests.get("https://api.zenrows.com/v1/", params=params, timeout=20)
         else:
-            scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&country_code=br"
-            r = requests.get(scraper_url, timeout=12)
+            return ""
 
         if r.status_code != 200:
             return ""
@@ -155,7 +169,7 @@ def _buscar_imagem_produto(asin):
         ]:
             m = re.search(pattern, r.text)
             if m:
-                log.info(f"Amazon imagem via ZenRows: {m.group(1)[:60]}")
+                log.info(f"Amazon imagem via ScrapingAnt: {m.group(1)[:60]}")
                 return m.group(1)
     except Exception as e:
         log.warning(f"Amazon imagem erro: {e}")

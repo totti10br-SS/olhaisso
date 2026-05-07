@@ -13,8 +13,9 @@ import time
 import requests
 
 ML_PUBLISHER_ID = os.getenv("ML_PUBLISHER_ID", "ot20260326074822")
-ZENROWS_KEY     = os.getenv("ZENROWS_KEY", "")
-SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")  # mantido como fallback
+SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
+ZENROWS_KEY     = os.getenv("ZENROWS_KEY", "")      # fallback
+SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")   # fallback
 PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
 PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
@@ -72,16 +73,33 @@ def encurtar_link(url_longa):
 
 
 def scraper_fetch(url):
-    # Tenta ZenRows primeiro
+    # ScrapingAnt
+    if SCRAPINGANT_KEY:
+        try:
+            params = {
+                "url":           url,
+                "x-api-key":     SCRAPINGANT_KEY,
+                "proxy_country": "BR",
+                "browser":       "false",
+            }
+            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
+            log(f"  ScrapingAnt {r.status_code} → {url[:60]}")
+            if r.status_code == 200:
+                return r.text
+            log(f"  ScrapingAnt erro: {r.text[:100]}")
+        except Exception as e:
+            log(f"  ScrapingAnt erro: {e}")
+
+    # Fallback ZenRows
     if ZENROWS_KEY:
         try:
             params = {
-                "url":             url,
-                "apikey":          ZENROWS_KEY,
-                "js_render":       "false",
-                "antibot":         "true",
-                "premium_proxy":   "true",
-                "proxy_country":   "br",
+                "url":           url,
+                "apikey":        ZENROWS_KEY,
+                "js_render":     "false",
+                "antibot":       "true",
+                "premium_proxy": "true",
+                "proxy_country": "br",
             }
             r = requests.get("https://api.zenrows.com/v1/", params=params, timeout=60)
             log(f"  ZenRows {r.status_code} → {url[:60]}")
@@ -273,11 +291,11 @@ def processar_item(item):
 
 
 def buscar_todos_produtos():
-    if not ZENROWS_KEY and not SCRAPERAPI_KEY:
-        log("ML: nenhuma chave de scraping configurada (ZENROWS_KEY ou SCRAPERAPI_KEY)")
+    if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
+        log("ML: nenhuma chave de scraping configurada")
         return []
 
-    log("ML ZenRows: iniciando busca...")
+    log("ML ScrapingAnt: iniciando busca...")
     todos   = []
     vistos  = set()
     total_bruto = 0
@@ -307,5 +325,5 @@ def buscar_todos_produtos():
             log(f"ML erro {nome}: {e}")
             continue
 
-    log(f"Mercado Livre (ZenRows): {total_bruto} brutos → {len(todos)} válidos")
+    log(f"Mercado Livre (ScrapingAnt): {total_bruto} brutos → {len(todos)} válidos")
     return todos
