@@ -131,6 +131,19 @@ def _is_bloqueado(nome):
     return any(p in nome.lower() for p in PALAVRAS_BLOQUEADAS)
 
 
+def buscar_imagem_amazon(produto):
+    """Busca imagem real do produto Amazon — chamar só na hora de postar."""
+    asin = produto.get("asin", "")
+    if not asin:
+        # Tenta extrair do link
+        m = re.search(r"/dp/([A-Z0-9]{10})", produto.get("link_afiliado", ""))
+        if m:
+            asin = m.group(1)
+    if not asin:
+        return ""
+    return _buscar_imagem_produto(asin)
+
+
 def _buscar_imagem_produto(asin):
     """Busca imagem real do produto via ZenRows na página do produto."""
     if not SCRAPINGANT_KEY and not ZENROWS_KEY:
@@ -216,9 +229,7 @@ def buscar_todos_produtos():
                 else:
                     log.info(f"Amazon: ASIN real {asin} → {nome[:40]}")
 
-                # Busca imagem real via ScraperAPI
-                imagem_url = _buscar_imagem_produto(asin)
-
+                # Imagem NÃO buscada aqui — será buscada só para produtos selecionados para postar
                 produtos.append({
                     "nome":           nome,
                     "preco":          preco,
@@ -227,7 +238,8 @@ def buscar_todos_produtos():
                     "loja":           "AMAZON",
                     "frete":          "✅ Frete grátis Prime",
                     "link_afiliado":  f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}",
-                    "imagem_url":     imagem_url,
+                    "imagem_url":     "",  # preenchida depois pelo bot ao postar
+                    "asin":           asin,
                     "score":          1,
                     "fontes":         ["amazon"],
                     "categoria":      nome_cat,

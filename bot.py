@@ -29,6 +29,7 @@ from aliexpress_api import buscar_ticket_baixo as buscar_aliexpress_tb
 from shopee_api import buscar_todos_produtos as buscar_shopee
 from shopee_api import buscar_ticket_baixo as buscar_shopee_tb
 from amazon_api import buscar_todos_produtos as buscar_amazon
+from amazon_api import buscar_imagem_amazon
 from mercadolivre_api import buscar_todos_produtos as buscar_ml
 
 logging.basicConfig(
@@ -279,6 +280,16 @@ def gerar_imagem(produto):
 
     # ── FOTO DO PRODUTO ────────────────────────────────────────
     img_url = produto.get("imagem_url", "")
+
+    # Para Amazon: busca imagem agora (só para produtos que vão ser postados)
+    if not img_url and produto.get("loja") == "AMAZON":
+        try:
+            img_url = buscar_imagem_amazon(produto)
+            if img_url:
+                produto["imagem_url"] = img_url  # salva no produto para uso posterior
+        except Exception as e:
+            log.warning(f"Amazon imagem on-demand erro: {e}")
+
     prod_img = None
     if img_url:
         try:
