@@ -47,9 +47,10 @@ AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
-HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "17:30", "19:00", "20:30", "22:30", "01:00"]
+HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "16:00", "17:30", "19:00", "20:30", "22:30", "01:00"]
 HORARIOS_MISTO      = ["12:30", "20:30"]  # Ciclo misto: metade smartphones + metade monitores
 HORARIOS_MONITOR    = ["15:00"]           # Ciclo dedicado apenas monitores
+HORARIOS_ELETRO     = ["16:00"]           # Ciclo dedicado eletrodomésticos (ML + Amazon)
 HORARIO_TICKET_BAIXO = ["19:00"]          # Ciclo dedicado produtos até R$200
 PRECO_TICKET_BAIXO   = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))  # Teto para ticket baixo
 POSTS_TICKET_BAIXO_NO_CICLO = 2          # Qtde de tickets baixos nos ciclos normais
@@ -745,6 +746,20 @@ def permitir_misto():
 def permitir_monitor_dedicado():
     return horario_dentro_de(HORARIOS_MONITOR)
 
+def permitir_eletro_dedicado():
+    return horario_dentro_de(HORARIOS_ELETRO)
+
+KEYWORDS_ELETRO = [
+    "geladeira", "refrigerador", "fogão", "fogao", "micro-ondas", "microondas",
+    "máquina de lavar", "maquina de lavar", "lava e seca", "secadora",
+    "ar condicionado", "ventilador", "liquidificador", "batedeira", "mixer",
+    "sanduicheira", "grill", "fritadeira", "airfryer", "air fryer",
+    "panela elétrica", "panela eletrica", "cafeteira", "torradeira",
+    "aspirador", "ferro de passar", "purificador", "aquecedor",
+    "churrasqueira elétrica", "forno elétrico", "forno eletrico",
+    "processador de alimentos", "espremedor",
+]
+
 KEYWORDS_MONITOR = [
     "monitor ", "monitor gamer", "monitor 4k", "monitor ips",
     "monitor curvo", "monitor portatil", "monitor led",
@@ -778,6 +793,28 @@ def _is_smartphone(nome):
 
 def _is_monitor(nome):
     return any(kw in nome.lower() for kw in KEYWORDS_MONITOR)
+
+def _is_eletro(nome):
+    return any(kw in nome.lower() for kw in KEYWORDS_ELETRO)
+
+
+def montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros):
+    """Ciclo 16:00 — apenas eletrodomésticos de ML e Amazon, sem Ali/Shopee."""
+    log.info("🏠 CICLO ELETRO — apenas Eletrodomésticos (ML + Amazon)")
+    ml_el  = [p for p in pool_ml     if _is_eletro(p.get("nome", ""))]
+    az_el  = [p for p in pool_amazon if _is_eletro(p.get("nome", ""))]
+    total  = len(ml_el) + len(az_el)
+    log.info(f"🏠 {total} eletrodoméstico(s) disponíveis (ML:{len(ml_el)} Amazon:{len(az_el)})")
+    # Distribuição 50/50 entre ML e Amazon
+    qtd_cada = max(1, POSTS_POR_CICLO // 2)
+    fila = ml_el[:qtd_cada] + az_el[:qtd_cada]
+    # Completa se faltar
+    extras = ml_el[qtd_cada:] + az_el[qtd_cada:]
+    for p in extras:
+        if len(fila) >= POSTS_POR_CICLO * 2:
+            break
+        fila.append(p)
+    return fila
 
 
 def permitir_ciclo_ticket_baixo():
@@ -886,6 +923,9 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
         total  = len(ml_mo) + len(ali_mo) + len(sh_mo) + len(az_mo)
         log.info(f"🖥️ {total} monitor(es) disponíveis (ML:{len(ml_mo)} Amazon:{len(az_mo)} Ali:{len(ali_mo)} Sh:{len(sh_mo)})")
         return distribuir_por_loja(ml_mo, ali_mo, sh_mo, az_mo, [], POSTS_POR_CICLO)
+
+    if permitir_eletro_dedicado():
+        return montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros)
 
     if permitir_ciclo_ticket_baixo():
         return montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros)
@@ -1259,6 +1299,11 @@ def iniciar_api_historico():
                             for produto in produtos:
                                 if postou >= qtde:
                                     break
+                                # Verificar histórico em tempo real (evita repetição em disparos rápidos)
+                                hash_p = hashlib.md5(produto["nome"].encode()).hexdigest()
+                                if ja_postado(hash_p):
+                                    log.info(f"🎮 Pulado (já postado recentemente): {produto['nome'][:40]}")
+                                    continue
                                 log.info(f"🎮 Postando: {produto['nome'][:50]}")
                                 try:
                                     imagem = gerar_imagem(produto)
@@ -1465,6 +1510,7 @@ def main():
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
     log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
+    log.info(f"🏠 Ciclo eletrodomésticos (ML+Amazon): {', '.join(HORARIOS_ELETRO)}")
     # Sobe API de histórico em thread separada
     import threading
     t = threading.Thread(target=iniciar_api_historico, daemon=True)
