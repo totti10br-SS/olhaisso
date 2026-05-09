@@ -1772,8 +1772,7 @@ def publicar():
         resultados = []
 
         if pub_tg:
-            produto_tg = {**produto, "imagem_url": ""}
-            ok_tg = postar_telegram(produto_tg, imagem_path)
+            ok_tg = postar_telegram(produto, imagem_path)
             resultados.append("Telegram ✅" if ok_tg else "Telegram ❌")
 
         if pub_wa:
