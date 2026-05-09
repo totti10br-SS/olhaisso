@@ -551,7 +551,7 @@ HTML = """<!DOCTYPE html>
     <div class="tab" onclick="trocarAba('produto')">🛍️ Link de Produto</div>
     <div class="tab" onclick="trocarAba('busca')">🔍 Busca Induzida</div>
     <div class="tab" onclick="trocarAba('web')">🌐 Busca na Internet</div>
-    <div class="tab" onclick="trocarAba('ml')">🟡 Gerar Link ML</div>
+    <div class="tab" onclick="trocarAba('ml')">🔗 Gerar Link</div>
     <div class="tab" onclick="trocarAba('historico'); carregarHistorico()">📊 Histórico</div>
   </div>
 
@@ -785,16 +785,20 @@ HTML = """<!DOCTYPE html>
   </div>
   <!-- FLUXO 5: Gerador de Link ML Oficial -->
   <div class="card" id="card_ml">
-    <h2>🟡 Publicar com Link ML Oficial (meli.la)</h2>
-    <div class="info">💡 Cola o link do produto ML — gera o meli.la com sua tag e publica no Telegram + WhatsApp</div>
+    <h2>🔗 Gerar Link e Publicar (ML ou Amazon)</h2>
+    <div class="info">💡 Cole o link do produto — detecta automaticamente se é ML ou Amazon e preenche os dados</div>
 
-    <label>📎 Link do produto (Mercado Livre) *</label>
+    <label>📎 Link do produto *</label>
     <div style="display:flex; gap:10px; margin-bottom:10px;">
-      <input type="url" id="ml_link" placeholder="https://www.mercadolivre.com.br/..." style="margin-bottom:0; flex:1;">
+      <input type="url" id="ml_link" placeholder="https://www.mercadolivre.com.br/... ou https://www.amazon.com.br/..." style="margin-bottom:0; flex:1;" oninput="detectarLojaInput()">
       <button onclick="abrirLink('ml_link')" style="background:#2a2a2a; border:1px solid #444; border-radius:10px; color:#FF6B1A; font-size:22px; padding:0 16px; cursor:pointer;" title="Abrir em nova aba">🔗</button>
     </div>
-    <button id="btn_ml_preencher" onclick="preencherDadosML()" style="width:100%;background:#1a3a5c;border:1px solid #0088cc;border-radius:10px;color:#4db8ff;font-size:14px;font-weight:700;padding:10px;cursor:pointer;margin-bottom:14px;">🔍 Preencher dados automaticamente</button>
-    <div id="ml_preview" style="display:none;background:#111;border:1px solid #333;border-radius:12px;padding:12px;margin-bottom:14px;display:none;align-items:center;gap:12px;">
+
+    <!-- Badge loja detectada -->
+    <div id="ml_loja_badge" style="display:none;margin-bottom:10px;font-size:13px;font-weight:700;padding:6px 14px;border-radius:8px;width:fit-content;"></div>
+
+    <button id="btn_ml_preencher" onclick="preencherDadosAuto()" style="width:100%;background:#1a3a5c;border:1px solid #0088cc;border-radius:10px;color:#4db8ff;font-size:14px;font-weight:700;padding:10px;cursor:pointer;margin-bottom:14px;">🔍 Preencher dados automaticamente</button>
+    <div id="ml_preview" style="display:none;background:#111;border:1px solid #333;border-radius:12px;padding:12px;margin-bottom:14px;align-items:center;gap:12px;">
       <img id="ml_preview_img" src="" style="width:72px;height:72px;object-fit:contain;border-radius:8px;background:#222;flex-shrink:0;">
       <div style="flex:1;min-width:0;">
         <div id="ml_preview_nome" style="font-size:13px;font-weight:700;color:#fff;line-height:1.3;margin-bottom:4px;"></div>
@@ -847,8 +851,8 @@ HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <button class="btn" id="btn_ml" onclick="publicarML()" style="background:#FFE600;color:#333;font-size:16px;">🟡 Gerar link e publicar</button>
-    <div class="loader" id="loader_ml">⏳ Gerando link meli.la...</div>
+    <button class="btn" id="btn_ml" onclick="publicarAuto()" style="background:#FF6B1A;color:#fff;font-size:16px;">🚀 Gerar link e publicar</button>
+    <div class="loader" id="loader_ml">⏳ Processando...</div>
 
     <div id="ml_resultado" style="margin-top:16px;"></div>
   </div>
@@ -1171,33 +1175,55 @@ async function buscarInduzido() {
   }
 }
 
-async function preencherDadosML() {
+function detectarLojaInput() {
   const link = document.getElementById('ml_link').value.trim();
-  if (!link) return alert("Cole o link do produto ML primeiro!");
-  if (!link.includes('mercadolivre.com.br')) return alert("Use apenas links do Mercado Livre!");
+  const badge = document.getElementById('ml_loja_badge');
+  if (!badge) return;
+  if (link.includes('mercadolivre.com.br') || link.includes('meli.la')) {
+    badge.style.display = 'block';
+    badge.style.background = '#1a3a1a';
+    badge.style.color = '#FFE600';
+    badge.style.border = '1px solid #FFE600';
+    badge.textContent = '🟡 Mercado Livre detectado';
+  } else if (link.includes('amazon.com.br') || link.includes('amzn.to')) {
+    badge.style.display = 'block';
+    badge.style.background = '#1a2a3a';
+    badge.style.color = '#FF9900';
+    badge.style.border = '1px solid #FF9900';
+    badge.textContent = '📦 Amazon detectada';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+async function preencherDadosAuto() {
+  const link = document.getElementById('ml_link').value.trim();
+  if (!link) return alert("Cole o link do produto primeiro!");
+
+  const isML     = link.includes('mercadolivre.com.br') || link.includes('meli.la');
+  const isAmazon = link.includes('amazon.com.br') || link.includes('amzn.to');
+
+  if (!isML && !isAmazon) return alert("Cole um link do Mercado Livre ou da Amazon!");
 
   const btn = document.getElementById('btn_ml_preencher');
   btn.disabled = true;
-  btn.textContent = '⏳ Buscando dados...';
+  btn.textContent = "⏳ Buscando dados...";
 
   try {
-    const resp = await fetch('/dados_produto_ml', {
+    const endpoint = isAmazon ? '/dados_produto_amazon' : '/dados_produto_ml';
+    const resp = await fetch(endpoint, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ url: link })
     });
     const data = await resp.json();
-    if (!data.ok) {
-      alert('Erro: ' + data.erro);
-      return;
-    }
-    // Preenche os campos
+    if (!data.ok) { alert('Erro: ' + data.erro); return; }
+
     if (data.nome)       document.getElementById('ml_nome').value = data.nome;
     if (data.preco)      document.getElementById('ml_preco').value = data.preco;
     if (data.preco_orig) document.getElementById('ml_preco_orig').value = data.preco_orig;
     if (data.imagem)     document.getElementById('ml_imagem').value = data.imagem;
 
-    // Mostra preview
     if (data.imagem || data.nome) {
       const preview = document.getElementById('ml_preview');
       preview.style.display = 'flex';
@@ -1208,8 +1234,8 @@ async function preencherDadosML() {
         document.getElementById('ml_preview_preco').textContent = 'R$ ' + data.preco + orig;
       }
     }
-    btn.textContent = '✅ Dados preenchidos!';
-    setTimeout(() => { btn.textContent = '🔍 Preencher dados automaticamente'; }, 3000);
+    btn.textContent = "✅ Dados preenchidos!";
+    setTimeout(() => { btn.textContent = "🔍 Preencher dados automaticamente"; }, 3000);
   } catch(e) {
     alert('Erro ao buscar dados: ' + e.message);
   } finally {
@@ -1217,7 +1243,7 @@ async function preencherDadosML() {
   }
 }
 
-async function publicarML() {
+async function publicarAuto() {
   const link      = document.getElementById('ml_link').value.trim();
   const nome      = document.getElementById('ml_nome').value.trim();
   const preco     = parseFloat(document.getElementById('ml_preco').value) || 0;
@@ -1228,11 +1254,14 @@ async function publicarML() {
   const whatsapp  = document.getElementById('ml_whatsapp').checked;
   const grupos    = getGruposWA('ml');
 
-  if (!link)   return alert("Cole o link do produto ML!");
-  if (!link.includes('mercadolivre.com.br')) return alert("Use apenas links do Mercado Livre!");
-  if (!nome)   return alert("Preencha o nome do produto!");
-  if (!preco)  return alert("Preencha o preço atual!");
-  if (!imagem) return alert("Cole a URL da imagem!");
+  const isML     = link.includes('mercadolivre.com.br') || link.includes('meli.la');
+  const isAmazon = link.includes('amazon.com.br') || link.includes('amzn.to');
+
+  if (!link)               return alert("Cole o link do produto!");
+  if (!isML && !isAmazon)  return alert("Use um link do Mercado Livre ou da Amazon!");
+  if (!nome)               return alert("Preencha o nome do produto!");
+  if (!preco)              return alert("Preencha o preco atual!");
+  if (!imagem)             return alert("Cole a URL da imagem!");
   if (!telegram && !whatsapp) return alert("Selecione ao menos um destino!");
   if (whatsapp && !grupos.wa_principal && !grupos.wa_teste) return alert("Selecione ao menos um grupo do WhatsApp!");
 
@@ -1241,46 +1270,58 @@ async function publicarML() {
   const resultado = document.getElementById('ml_resultado');
   btn.disabled = true;
   loader.style.display = 'block';
-  loader.textContent = '⏳ Gerando link meli.la...';
   resultado.innerHTML = '';
 
   try {
-    // 1. Gera o link meli.la
-    const respLink = await fetch('/gerar_link_ml', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ url: link })
-    });
-    const dataLink = await respLink.json();
-    if (!dataLink.ok) {
-      resultado.innerHTML = `<div class="msg msg-err">❌ ${dataLink.erro}</div>`;
-      return;
-    }
-    const linkFinal = dataLink.link;
+    let linkFinal = link;
+    let loja = isAmazon ? 'AMAZON' : 'MERCADOLIVRE';
 
-    // 2. Publica com o link gerado
-    loader.textContent = '⏳ Gerando imagem e publicando...';
+    if (isML) {
+      loader.textContent = "⏳ Gerando link meli.la...";
+      const respLink = await fetch('/gerar_link_ml', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ url: link })
+      });
+      const dataLink = await respLink.json();
+      if (!dataLink.ok) {
+        resultado.innerHTML = `<div class="msg msg-err">❌ ${dataLink.erro}</div>`;
+        return;
+      }
+      linkFinal = dataLink.link;
+    } else {
+      // Amazon — adiciona tag de afiliado se não tiver
+      if (!link.includes('olhaissotech-20')) {
+        const sep = link.includes('?') ? '&' : '?';
+        linkFinal = link + sep + 'tag=olhaissotech-20';
+      }
+    }
+
+    loader.textContent = "⏳ Gerando imagem e publicando...";
     const respPub = await fetch('/publicar', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ nome, preco, preco_orig, loja: 'MERCADOLIVRE', link: linkFinal, imagem, destaque, telegram, whatsapp, ...grupos })
+      body: JSON.stringify({ nome, preco, preco_orig, loja, link: linkFinal, imagem, destaque, telegram, whatsapp, ...grupos })
     });
     const dataPub = await respPub.json();
 
     if (dataPub.ok) {
+      const corLink = isAmazon ? '#FF9900' : '#FFE600';
+      const icone   = isAmazon ? '📦' : '🟡';
       resultado.innerHTML = `
         <div class="msg msg-ok">
           ✅ ${dataPub.msg}<br><br>
-          <strong>🟡 Link gerado:</strong><br>
-          <a href="${linkFinal}" target="_blank" style="color:#FFE600;word-break:break-all;">${linkFinal}</a><br><br>
+          <strong>${icone} Link gerado:</strong><br>
+          <a href="${linkFinal}" target="_blank" style="color:${corLink};word-break:break-all;">${linkFinal}</a><br><br>
           <button onclick="copiarLink(this)"
             data-link="${linkFinal}"
             style="background:#2a2a2a;border:1px solid #555;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;">
             📋 Copiar link
           </button>
         </div>`;
-      // Limpa campos
       ['ml_link','ml_nome','ml_preco','ml_preco_orig','ml_imagem','ml_destaque'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('ml_preview').style.display = 'none';
+      document.getElementById('ml_loja_badge').style.display = 'none';
     } else {
       resultado.innerHTML = `<div class="msg msg-err">❌ ${dataPub.erro}</div>`;
     }
@@ -1289,9 +1330,13 @@ async function publicarML() {
   } finally {
     btn.disabled = false;
     loader.style.display = 'none';
-    loader.textContent = '⏳ Gerando link meli.la...';
+    loader.textContent = "⏳ Processando...";
   }
 }
+
+// Mantém alias para compatibilidade
+async function preencherDadosML() { return preencherDadosAuto(); }
+async function publicarML() { return publicarAuto(); }
 
 let _histRows = [];
 let _histSort = { col: 'postado_em', asc: false };
@@ -2047,6 +2092,89 @@ def historico_proxy():
                 rows = [x for x in rows if x.get("loja") == loja]
             return jsonify({"ok": True, "rows": rows})
         return jsonify({"ok": False, "erro": "Bot API retornou " + str(r.status_code)})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/dados_produto_amazon", methods=["POST"])
+def dados_produto_amazon():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Nao autorizado"}), 401
+
+    data = request.json
+    url  = data.get("url", "").strip()
+    if not url:
+        return jsonify({"ok": False, "erro": "URL obrigatoria"})
+
+    SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
+    if not SCRAPINGANT_KEY:
+        return jsonify({"ok": False, "erro": "SCRAPINGANT_KEY nao configurada no Railway"})
+
+    try:
+        params = {
+            "url":           url,
+            "x-api-key":     SCRAPINGANT_KEY,
+            "proxy_country": "BR",
+            "browser":       "false",
+        }
+        r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=30)
+        if r.status_code != 200:
+            return jsonify({"ok": False, "erro": "Erro ao acessar pagina do produto Amazon"})
+
+        html = r.text
+
+        # Extrai nome
+        nome = ""
+        for pat in [
+            r'"product_title"\s*:\s*"([^"]{10,300})"',
+            r'id="productTitle"[^>]*>\s*([^<]{10,300})',
+            r'"name"\s*:\s*"([^"]{10,300})"',
+        ]:
+            m = re.search(pat, html)
+            if m:
+                nome = m.group(1).strip()
+                break
+
+        # Extrai preço
+        preco = 0.0
+        for pat in [
+            r'"price"\s*:\s*"R\$\s*([\d,\.]+)"',
+            r'class="a-price-whole"[^>]*>([\d\.]+)',
+            r'"priceAmount"\s*:\s*([\d\.]+)',
+        ]:
+            m = re.search(pat, html)
+            if m:
+                try:
+                    preco = float(m.group(1).replace(".", "").replace(",", "."))
+                    if preco > 0:
+                        break
+                except:
+                    pass
+
+        # Extrai imagem
+        imagem = ""
+        for pat in [
+            r'"hiRes"\s*:\s*"(https://[^"]+\.jpg)"',
+            r'"large"\s*:\s*"(https://[^"]+\.jpg)"',
+            r'data-old-hires="(https://[^"]+\.jpg)"',
+            r'"mainUrl"\s*:\s*"(https://[^"]+\.jpg)"',
+            r'id="landingImage"[^>]+src="(https://[^"]+)"',
+        ]:
+            m = re.search(pat, html)
+            if m:
+                imagem = m.group(1)
+                break
+
+        if not nome:
+            return jsonify({"ok": False, "erro": "Nao foi possivel extrair dados. Preencha manualmente."})
+
+        return jsonify({
+            "ok":        True,
+            "nome":      nome,
+            "preco":     round(preco, 2) if preco else None,
+            "preco_orig": None,
+            "imagem":    imagem,
+        })
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
 
