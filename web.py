@@ -248,26 +248,37 @@ def busca_shopee_sem_filtro(keyword, limit=10):
 
 
 def busca_ml_por_keyword(keyword, limit=20):
-    """Busca ML por keyword — mesmo processo do mercadolivre_api.py via ScraperAPI."""
+    """Busca ML por keyword — mesmo processo do mercadolivre_api.py via ScrapingAnt."""
     import json as _json, hashlib as _hashlib
-    SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
-    if not SCRAPERAPI_KEY:
-        print("busca_ml_por_keyword: SCRAPERAPI_KEY nao configurada")
+    SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
+    SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")
+    if not SCRAPINGANT_KEY and not SCRAPERAPI_KEY:
+        print("busca_ml_por_keyword: nenhuma chave de scraping configurada")
         return []
     try:
         from mercadolivre_link import gerar_link_afiliado_ml
 
-        # Mesma função scraper_fetch do mercadolivre_api.py
+        # Scraper fetch usando ScrapingAnt com fallback ScraperAPI
         def _scraper_fetch(url):
             try:
-                payload = {
-                    "api_key": SCRAPERAPI_KEY,
-                    "url": url,
-                    "country_code": "br",
-                    "render": "false",
-                }
-                r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
-                print("ML busca ScraperAPI " + str(r.status_code) + " -> " + url[:60])
+                if SCRAPINGANT_KEY:
+                    params = {
+                        "url":           url,
+                        "x-api-key":     SCRAPINGANT_KEY,
+                        "proxy_country": "BR",
+                        "browser":       "false",
+                    }
+                    r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
+                    print("ML busca ScrapingAnt " + str(r.status_code) + " -> " + url[:60])
+                else:
+                    payload = {
+                        "api_key":      SCRAPERAPI_KEY,
+                        "url":          url,
+                        "country_code": "br",
+                        "render":       "false",
+                    }
+                    r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
+                    print("ML busca ScraperAPI " + str(r.status_code) + " -> " + url[:60])
                 if r.status_code == 200:
                     return r.text
                 return None
@@ -1844,18 +1855,30 @@ def dados_produto_ml():
     if not url:
         return jsonify({"ok": False, "erro": "URL obrigatoria"})
 
-    SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "")
-    if not SCRAPERAPI_KEY:
-        return jsonify({"ok": False, "erro": "SCRAPERAPI_KEY nao configurada no Railway"})
+    SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
+    SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")
+
+    if not SCRAPINGANT_KEY and not SCRAPERAPI_KEY:
+        return jsonify({"ok": False, "erro": "Nenhuma chave de scraping configurada no Railway"})
 
     try:
-        payload = {
-            "api_key":      SCRAPERAPI_KEY,
-            "url":          url,
-            "country_code": "br",
-            "render":       "false",
-        }
-        r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
+        if SCRAPINGANT_KEY:
+            params = {
+                "url":           url,
+                "x-api-key":     SCRAPINGANT_KEY,
+                "proxy_country": "BR",
+                "browser":       "false",
+            }
+            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
+        else:
+            payload = {
+                "api_key":      SCRAPERAPI_KEY,
+                "url":          url,
+                "country_code": "br",
+                "render":       "false",
+            }
+            r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
+
         if r.status_code != 200:
             return jsonify({"ok": False, "erro": "Erro ao acessar pagina do produto"})
 
