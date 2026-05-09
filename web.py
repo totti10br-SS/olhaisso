@@ -553,6 +553,7 @@ HTML = """<!DOCTYPE html>
     <div class="tab" onclick="trocarAba('web')">🌐 Busca na Internet</div>
     <div class="tab" onclick="trocarAba('ml')">🔗 Gerar Link</div>
     <div class="tab" onclick="trocarAba('historico'); carregarHistorico()">📊 Histórico</div>
+    <div class="tab" onclick="trocarAba('analytics'); carregarAnalytics()">📈 Analytics</div>
   </div>
 
   <!-- FLUXO 1: Link de afiliado pronto -->
@@ -1678,7 +1679,113 @@ async function buscarInternet() {
     document.getElementById('loader_wb').style.display = 'none';
   }
 }
+
+async function carregarAnalytics() {
+  const loader = document.getElementById('analytics_loader');
+  if (loader) loader.style.display = 'block';
+  try {
+    const resp = await fetch('/historico_proxy');
+    const data = await resp.json();
+    if (!data.ok || !data.rows) { if(loader) loader.textContent='Erro ao carregar dados.'; return; }
+    if (loader) loader.style.display = 'none';
+    const rows = data.rows;
+    const hoje = new Date().toISOString().slice(0,10);
+
+    const total = rows.length;
+    const hoje_rows = rows.filter(r => r.postado_em && r.postado_em.startsWith(hoje));
+    const total_hoje = hoje_rows.length;
+    const lojas_unicas = [...new Set(rows.map(r => r.loja))].length;
+    const precos = rows.filter(r => r.preco > 0).map(r => r.preco);
+    const preco_medio = precos.length ? (precos.reduce((a,b)=>a+b,0)/precos.length).toFixed(2) : 0;
+
+    document.getElementById('analytics_kpis').innerHTML = [
+      { label:'Total registros', valor:total, cor:'#FF6B1A', icone:'📦' },
+      { label:'Posts hoje', valor:total_hoje, cor:'#00bb44', icone:'📅' },
+      { label:'Lojas ativas', valor:lojas_unicas, cor:'#00aaff', icone:'🏪' },
+      { label:'Preço médio', valor:'R$ '+String(preco_medio).replace('.',','), cor:'#FFE600', icone:'💰' },
+    ].map(k=>`<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:12px;padding:14px;text-align:center;">
+      <div style="font-size:22px;margin-bottom:4px;">${k.icone}</div>
+      <div style="font-size:22px;font-weight:700;color:${k.cor};">${k.valor}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px;">${k.label}</div>
+    </div>`).join('');
+
+    const por_loja = {};
+    rows.forEach(r => { por_loja[r.loja]=(por_loja[r.loja]||0)+1; });
+    const max_loja = Math.max(...Object.values(por_loja),1);
+    const cores_loja = {MERCADOLIVRE:'#FFE600',AMAZON:'#FF9900',ALIEXPRESS:'#FF4500',SHOPEE:'#FF6600'};
+    document.getElementById('analytics_lojas').innerHTML = Object.entries(por_loja).sort((a,b)=>b[1]-a[1]).map(([loja,qtd])=>{
+      const pct=Math.round(qtd/total*100), cor=cores_loja[loja]||'#888', barra=Math.round(qtd/max_loja*100);
+      return `<div><div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:#ccc;font-size:13px;">${loja}</span><span style="color:${cor};font-size:13px;font-weight:700;">${qtd} posts (${pct}%)</span></div><div style="background:#2a2a2a;border-radius:6px;height:8px;"><div style="background:${cor};width:${barra}%;height:8px;border-radius:6px;"></div></div></div>`;
+    }).join('') || '<span style="color:#666;">Sem dados</span>';
+
+    const por_hora = {};
+    hoje_rows.forEach(r => { if(!r.postado_em)return; const h=r.postado_em.substring(11,13)+'h'; por_hora[h]=(por_hora[h]||0)+1; });
+    const max_hora = Math.max(...Object.values(por_hora),1);
+    document.getElementById('analytics_horarios').innerHTML = Object.entries(por_hora).sort().map(([hora,qtd])=>{
+      const barra=Math.round(qtd/max_hora*100);
+      return `<div><div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:#ccc;font-size:12px;">🕐 ${hora}</span><span style="color:#FF6B1A;font-size:12px;font-weight:700;">${qtd} post(s)</span></div><div style="background:#2a2a2a;border-radius:4px;height:6px;"><div style="background:#FF6B1A;width:${barra}%;height:6px;border-radius:4px;"></div></div></div>`;
+    }).join('') || '<span style="color:#666;">Nenhum post hoje ainda</span>';
+
+    const por_nome = {};
+    rows.forEach(r => { por_nome[r.nome]=(por_nome[r.nome]||0)+1; });
+    document.getElementById('analytics_top_produtos').innerHTML = Object.entries(por_nome).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([nome,qtd],i)=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#1a1a1a;border-radius:8px;">
+        <span style="color:#FF6B1A;font-weight:700;font-size:16px;min-width:24px;">#${i+1}</span>
+        <span style="color:#ccc;font-size:12px;flex:1;line-height:1.4;">${nome?nome.substring(0,60)+(nome.length>60?'...':''):'-'}</span>
+        <span style="color:#00bb44;font-weight:700;font-size:13px;white-space:nowrap;">${qtd}x</span>
+      </div>`).join('') || '<span style="color:#666;">Sem dados</span>';
+
+    const por_origem = {};
+    rows.forEach(r => { const o=r.origem||'BOT'; por_origem[o]=(por_origem[o]||0)+1; });
+    const max_orig = Math.max(...Object.values(por_origem),1);
+    const cores_orig = {BOT:'#00bb44',WEB:'#00aaff',WEB_MANUAL:'#FF6B1A'};
+    document.getElementById('analytics_origens').innerHTML = Object.entries(por_origem).sort((a,b)=>b[1]-a[1]).map(([orig,qtd])=>{
+      const pct=Math.round(qtd/total*100), cor=cores_orig[orig]||'#888', barra=Math.round(qtd/max_orig*100);
+      return `<div><div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:#ccc;font-size:13px;">${orig}</span><span style="color:${cor};font-size:13px;font-weight:700;">${qtd} (${pct}%)</span></div><div style="background:#2a2a2a;border-radius:6px;height:8px;"><div style="background:${cor};width:${barra}%;height:8px;border-radius:6px;"></div></div></div>`;
+    }).join('') || '<span style="color:#666;">Sem dados</span>';
+
+  } catch(e) {
+    if(loader) loader.textContent='Erro: '+e.message;
+    else console.error(e);
+  }
+}
 </script>
+
+  <!-- FLUXO 7: Analytics -->
+  <div class="card" id="card_analytics" style="display:none;">
+    <h2>📈 Analytics</h2>
+    <div class="info">💡 Dashboard baseado nos últimos 100 posts registrados no banco</div>
+
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+      <button onclick="carregarAnalytics()" style="background:#333;border:1px solid #555;color:#fff;border-radius:10px;padding:8px 18px;cursor:pointer;font-size:14px;">🔄 Atualizar</button>
+    </div>
+
+    <div id="analytics_kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px;"></div>
+
+    <div style="background:#111;border:1px solid #2a2a2a;border-radius:14px;padding:16px;margin-bottom:14px;">
+      <h3 style="color:#FF6B1A;font-size:13px;margin-bottom:14px;">🏪 Posts por Loja</h3>
+      <div id="analytics_lojas" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
+
+    <div style="background:#111;border:1px solid #2a2a2a;border-radius:14px;padding:16px;margin-bottom:14px;">
+      <h3 style="color:#FF6B1A;font-size:13px;margin-bottom:14px;">⏰ Posts por Horário (últimas 24h)</h3>
+      <div id="analytics_horarios" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
+    <div style="background:#111;border:1px solid #2a2a2a;border-radius:14px;padding:16px;margin-bottom:14px;">
+      <h3 style="color:#FF6B1A;font-size:13px;margin-bottom:14px;">🏆 Produtos mais postados</h3>
+      <div id="analytics_top_produtos" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
+    <div style="background:#111;border:1px solid #2a2a2a;border-radius:14px;padding:16px;">
+      <h3 style="color:#FF6B1A;font-size:13px;margin-bottom:14px;">🤖 Origem dos Posts</h3>
+      <div id="analytics_origens" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
+
+    <div id="analytics_loader" style="text-align:center;padding:30px;color:#888;display:none;">⏳ Carregando analytics...</div>
+  </div>
+
+
 {% endif %}
 </body>
 </html>"""
@@ -1772,7 +1879,8 @@ def publicar():
         resultados = []
 
         if pub_tg:
-            ok_tg = postar_telegram(produto, imagem_path)
+            produto_tg = {**produto, "imagem_url": ""}
+            ok_tg = postar_telegram(produto_tg, imagem_path)
             resultados.append("Telegram ✅" if ok_tg else "Telegram ❌")
 
         if pub_wa:

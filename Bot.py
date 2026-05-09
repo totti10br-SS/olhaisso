@@ -28,7 +28,8 @@ from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
 from aliexpress_api import buscar_ticket_baixo as buscar_aliexpress_tb
 from shopee_api import buscar_todos_produtos as buscar_shopee
 from shopee_api import buscar_ticket_baixo as buscar_shopee_tb
-# from amazon_api import buscar_todos_produtos as buscar_amazon  # TEMPORARIAMENTE DESATIVADO
+from amazon_api import buscar_todos_produtos as buscar_amazon
+from amazon_api import buscar_imagem_amazon
 from mercadolivre_api import buscar_todos_produtos as buscar_ml
 
 logging.basicConfig(
@@ -47,9 +48,10 @@ AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
-HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "17:30", "19:00", "20:30", "22:30", "01:00"]
+HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "16:00", "17:30", "19:00", "20:30", "22:30", "01:00"]
 HORARIOS_MISTO      = ["12:30", "20:30"]  # Ciclo misto: metade smartphones + metade monitores
 HORARIOS_MONITOR    = ["15:00"]           # Ciclo dedicado apenas monitores
+HORARIOS_ELETRO     = ["16:00"]           # Ciclo dedicado eletrodomésticos (ML + Amazon)
 HORARIO_TICKET_BAIXO = ["19:00"]          # Ciclo dedicado produtos até R$200
 PRECO_TICKET_BAIXO   = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))  # Teto para ticket baixo
 POSTS_TICKET_BAIXO_NO_CICLO = 2          # Qtde de tickets baixos nos ciclos normais
@@ -278,6 +280,16 @@ def gerar_imagem(produto):
 
     # ── FOTO DO PRODUTO ────────────────────────────────────────
     img_url = produto.get("imagem_url", "")
+
+    # Para Amazon: busca imagem agora (só para produtos que vão ser postados)
+    if not img_url and produto.get("loja") == "AMAZON":
+        try:
+            img_url = buscar_imagem_amazon(produto)
+            if img_url:
+                produto["imagem_url"] = img_url  # salva no produto para uso posterior
+        except Exception as e:
+            log.warning(f"Amazon imagem on-demand erro: {e}")
+
     prod_img = None
     if img_url:
         try:
@@ -745,6 +757,20 @@ def permitir_misto():
 def permitir_monitor_dedicado():
     return horario_dentro_de(HORARIOS_MONITOR)
 
+def permitir_eletro_dedicado():
+    return horario_dentro_de(HORARIOS_ELETRO)
+
+KEYWORDS_ELETRO = [
+    "geladeira", "refrigerador", "fogão", "fogao", "micro-ondas", "microondas",
+    "máquina de lavar", "maquina de lavar", "lava e seca", "secadora",
+    "ar condicionado", "ventilador", "liquidificador", "batedeira", "mixer",
+    "sanduicheira", "grill", "fritadeira", "airfryer", "air fryer",
+    "panela elétrica", "panela eletrica", "cafeteira", "torradeira",
+    "aspirador", "ferro de passar", "purificador", "aquecedor",
+    "churrasqueira elétrica", "forno elétrico", "forno eletrico",
+    "processador de alimentos", "espremedor",
+]
+
 KEYWORDS_MONITOR = [
     "monitor ", "monitor gamer", "monitor 4k", "monitor ips",
     "monitor curvo", "monitor portatil", "monitor led",
@@ -778,6 +804,28 @@ def _is_smartphone(nome):
 
 def _is_monitor(nome):
     return any(kw in nome.lower() for kw in KEYWORDS_MONITOR)
+
+def _is_eletro(nome):
+    return any(kw in nome.lower() for kw in KEYWORDS_ELETRO)
+
+
+def montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros):
+    """Ciclo 16:00 — apenas eletrodomésticos de ML e Amazon, sem Ali/Shopee."""
+    log.info("🏠 CICLO ELETRO — apenas Eletrodomésticos (ML + Amazon)")
+    ml_el  = [p for p in pool_ml     if _is_eletro(p.get("nome", ""))]
+    az_el  = [p for p in pool_amazon if _is_eletro(p.get("nome", ""))]
+    total  = len(ml_el) + len(az_el)
+    log.info(f"🏠 {total} eletrodoméstico(s) disponíveis (ML:{len(ml_el)} Amazon:{len(az_el)})")
+    # Distribuição 50/50 entre ML e Amazon
+    qtd_cada = max(1, POSTS_POR_CICLO // 2)
+    fila = ml_el[:qtd_cada] + az_el[:qtd_cada]
+    # Completa se faltar
+    extras = ml_el[qtd_cada:] + az_el[qtd_cada:]
+    for p in extras:
+        if len(fila) >= POSTS_POR_CICLO * 2:
+            break
+        fila.append(p)
+    return fila
 
 
 def permitir_ciclo_ticket_baixo():
@@ -821,11 +869,13 @@ def montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros):
     return []  # não usado mais, ver ciclo()
 
 
-def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros):
+def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon=None):
     """
     Ciclo misto (12:30 e 20:30): metade smartphones + metade monitores.
-    Proporção 50% ML, 25% Ali, 25% Shopee mantida dentro de cada categoria.
+    Proporção 40% ML, 20% Amazon, 20% Ali, 20% Shopee por categoria.
     """
+    if pool_amazon is None:
+        pool_amazon = []
     metade = POSTS_POR_CICLO // 2
 
     # Separa por categoria
@@ -838,34 +888,37 @@ def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros):
     ml_ph,  ml_mo,  ml_ot  = split_cat(pool_ml)
     ali_ph, ali_mo, ali_ot = split_cat(pool_ali)
     sh_ph,  sh_mo,  sh_ot  = split_cat(pool_shopee)
+    az_ph,  az_mo,  az_ot  = split_cat(pool_amazon)
 
-    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es)")
+    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es) | Amazon incluída")
 
-    # Smartphones com proporção 50/25/25
-    qtd_ml_ph  = max(0, round(metade * 0.50))
-    qtd_ali_ph = max(0, round(metade * 0.25))
-    qtd_sh_ph  = max(0, metade - qtd_ml_ph - qtd_ali_ph)
-    smartphones = ml_ph[:qtd_ml_ph] + ali_ph[:qtd_ali_ph] + sh_ph[:qtd_sh_ph]
+    # Smartphones com proporção 40/20/20/20
+    qtd_ml_ph  = max(0, round(metade * 0.40))
+    qtd_az_ph  = max(0, round(metade * 0.20))
+    qtd_ali_ph = max(0, round(metade * 0.20))
+    qtd_sh_ph  = max(0, metade - qtd_ml_ph - qtd_az_ph - qtd_ali_ph)
+    smartphones = ml_ph[:qtd_ml_ph] + az_ph[:qtd_az_ph] + ali_ph[:qtd_ali_ph] + sh_ph[:qtd_sh_ph]
     # Completa se faltar
-    extras_ph = ml_ph[qtd_ml_ph:] + ali_ph[qtd_ali_ph:] + sh_ph[qtd_sh_ph:]
+    extras_ph = ml_ph[qtd_ml_ph:] + az_ph[qtd_az_ph:] + ali_ph[qtd_ali_ph:] + sh_ph[qtd_sh_ph:]
     smartphones += extras_ph[:max(0, metade - len(smartphones))]
 
-    # Monitores com proporção 50/25/25
-    qtd_ml_mo  = max(0, round(metade * 0.50))
-    qtd_ali_mo = max(0, round(metade * 0.25))
-    qtd_sh_mo  = max(0, metade - qtd_ml_mo - qtd_ali_mo)
-    monitores = ml_mo[:qtd_ml_mo] + ali_mo[:qtd_ali_mo] + sh_mo[:qtd_sh_mo]
-    extras_mo = ml_mo[qtd_ml_mo:] + ali_mo[qtd_ali_mo:] + sh_mo[qtd_sh_mo:]
+    # Monitores com proporção 40/20/20/20
+    qtd_ml_mo  = max(0, round(metade * 0.40))
+    qtd_az_mo  = max(0, round(metade * 0.20))
+    qtd_ali_mo = max(0, round(metade * 0.20))
+    qtd_sh_mo  = max(0, metade - qtd_ml_mo - qtd_az_mo - qtd_ali_mo)
+    monitores = ml_mo[:qtd_ml_mo] + az_mo[:qtd_az_mo] + ali_mo[:qtd_ali_mo] + sh_mo[:qtd_sh_mo]
+    extras_mo = ml_mo[qtd_ml_mo:] + az_mo[qtd_az_mo:] + ali_mo[qtd_ali_mo:] + sh_mo[qtd_sh_mo:]
     monitores += extras_mo[:max(0, metade - len(monitores))]
 
     resultado = smartphones + monitores
     faltando = POSTS_POR_CICLO - len(resultado)
     if faltando > 0:
-        extras = ml_ot + ali_ot + sh_ot + pool_outros
+        extras = ml_ot + az_ot + ali_ot + sh_ot + pool_outros
         resultado += extras[:faltando]
         log.info(f"   Completado com {min(faltando, len(extras))} produto(s) genérico(s)")
 
-    log.info(f"   {len(smartphones)} smartphone(s) | {len(monitores)} monitor(es)")
+    log.info(f"   {len(smartphones)} smartphone(s) | {len(monitores)} monitor(es) (ML:{qtd_ml_ph}/{qtd_ml_mo} Az:{qtd_az_ph}/{qtd_az_mo} Ali:{qtd_ali_ph}/{qtd_ali_mo} Sh:{qtd_sh_ph}/{qtd_sh_mo})")
     return resultado
 
 
@@ -875,7 +928,7 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
     mantendo proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee em todos os ciclos.
     """
     if permitir_misto():
-        return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros)
+        return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon)
 
     if permitir_monitor_dedicado():
         log.info("🖥️ CICLO DEDICADO — apenas Monitores (40% ML / 40% Amazon / 10% Ali / 10% Shopee)")
@@ -886,6 +939,9 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
         total  = len(ml_mo) + len(ali_mo) + len(sh_mo) + len(az_mo)
         log.info(f"🖥️ {total} monitor(es) disponíveis (ML:{len(ml_mo)} Amazon:{len(az_mo)} Ali:{len(ali_mo)} Sh:{len(sh_mo)})")
         return distribuir_por_loja(ml_mo, ali_mo, sh_mo, az_mo, [], POSTS_POR_CICLO)
+
+    if permitir_eletro_dedicado():
+        return montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros)
 
     if permitir_ciclo_ticket_baixo():
         return montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros)
@@ -937,7 +993,7 @@ def limitar_por_tema(produtos):
         log.info(f"🎯 Limite por tema ({MAX_POR_TEMA}/tema): {len(pulados)} removido(s) — {', '.join(set(pulados))}")
     return resultado
 
-def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=False):
+def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=True):
     log.info("=== Pipeline v6.0 iniciado ===")
     tg = buscar_trends_google()
     tt = buscar_tiktok_trending()
@@ -965,9 +1021,8 @@ def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=F
     else:
         log.info("Mercado Livre ignorado (não selecionado)")
 
-    # AMAZON TEMPORARIAMENTE DESATIVADA — aguardando solução para timeout de imagens
     produtos_amazon = []
-    if False:  # usar_amazon desativado
+    if usar_amazon:
         log.info("Buscando Amazon Best Sellers...")
         produtos_amazon = buscar_amazon()
     else:
@@ -1260,6 +1315,11 @@ def iniciar_api_historico():
                             for produto in produtos:
                                 if postou >= qtde:
                                     break
+                                # Verificar histórico em tempo real (evita repetição em disparos rápidos)
+                                hash_p = hashlib.md5(produto["nome"].encode()).hexdigest()
+                                if ja_postado(hash_p):
+                                    log.info(f"🎮 Pulado (já postado recentemente): {produto['nome'][:40]}")
+                                    continue
                                 log.info(f"🎮 Postando: {produto['nome'][:50]}")
                                 try:
                                     imagem = gerar_imagem(produto)
@@ -1466,6 +1526,7 @@ def main():
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
     log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
+    log.info(f"🏠 Ciclo eletrodomésticos (ML+Amazon): {', '.join(HORARIOS_ELETRO)}")
     # Sobe API de histórico em thread separada
     import threading
     t = threading.Thread(target=iniciar_api_historico, daemon=True)
