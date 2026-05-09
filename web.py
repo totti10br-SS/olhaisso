@@ -1290,10 +1290,23 @@ async function publicarAuto() {
       }
       linkFinal = dataLink.link;
     } else {
-      // Amazon — adiciona tag de afiliado se não tiver
+      // Amazon — adiciona tag de afiliado se não tiver, depois encurta
+      let linkComTag = link;
       if (!link.includes('olhaissotech-20')) {
         const sep = link.includes('?') ? '&' : '?';
-        linkFinal = link + sep + 'tag=olhaissotech-20';
+        linkComTag = link + sep + 'tag=olhaissotech-20';
+      }
+      loader.textContent = "⏳ Encurtando link Amazon...";
+      try {
+        const respEnc = await fetch('/encurtar_link', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ url: linkComTag })
+        });
+        const dataEnc = await respEnc.json();
+        linkFinal = dataEnc.ok ? dataEnc.link : linkComTag;
+      } catch(e) {
+        linkFinal = linkComTag; // fallback: link longo
       }
     }
 
@@ -1795,6 +1808,26 @@ def publicar():
 
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/encurtar_link", methods=["POST"])
+def encurtar_link():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Não autorizado"}), 401
+    data = request.json
+    url_original = data.get("url", "").strip()
+    if not url_original:
+        return jsonify({"ok": False, "erro": "URL vazia"})
+    try:
+        r = requests.get(
+            f"https://tinyurl.com/api-create.php?url={requests.utils.quote(url_original, safe='')}",
+            timeout=10
+        )
+        if r.status_code == 200 and r.text.startswith("http"):
+            return jsonify({"ok": True, "link": r.text.strip()})
+        return jsonify({"ok": False, "erro": "TinyURL falhou", "link": url_original})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e), "link": url_original})
 
 
 @app.route("/buscar_induzido", methods=["POST"])
