@@ -2095,38 +2095,64 @@ def dados_produto_ml():
 
         html = r.text
 
-        # Extrai nome
-        nome = ""
-        m = re.search(r'"product_title"\s*:\s*"([^"]{10,200})"', html)
-        if m:
-            nome = m.group(1)
-        if not nome:
-            m = re.search(r'<h1[^>]*class="[^"]*ui-pdp-title[^"]*"[^>]*>([^<]{10,200})</h1>', html)
-            if m:
-                nome = m.group(1).strip()
-        if not nome:
-            m = re.search(r'"name"\s*:\s*"([^"]{10,200})"', html)
-            if m:
-                nome = m.group(1)
+        def _extrair_nome(html):
+            # Página /p/ (grupo de produto) — JSON interno
+            for pat in [
+                r'"title"\s*:\s*"([^"]{10,300})"',
+                r'"product_title"\s*:\s*"([^"]{10,300})"',
+                r'"name"\s*:\s*"([^"]{10,300})"',
+                r'<h1[^>]*class="[^"]*ui-pdp-title[^"]*"[^>]*>\s*([^<]{10,300})\s*</h1>',
+                r'<h1[^>]*>\s*([^<]{10,300})\s*</h1>',
+                r'"og:title"\s+content="([^"]{10,300})"',
+                r'<title>([^<]{10,200})\s*[\|\-]',
+            ]:
+                m = re.search(pat, html)
+                if m:
+                    nome = m.group(1).strip()
+                    # Filtrar títulos genéricos/inúteis
+                    if any(x in nome.lower() for x in ['mercado livre', 'meli', '{', 'undefined']):
+                        continue
+                    return nome
+            return ""
 
-        # Extrai preço atual
-        preco = 0.0
-        m = re.search(r'"price"\s*:\s*([\d]+\.?\d*)', html)
-        if m:
-            preco = float(m.group(1))
-        if not preco:
+        def _extrair_preco(html):
+            # Tenta JSON estruturado primeiro (mais confiável)
+            for pat in [
+                r'"price"\s*:\s*([\d]+\.?\d*)',
+                r'"selling_price"\s*:\s*([\d]+\.?\d*)',
+                r'"amount"\s*:\s*([\d]+\.?\d*)',
+            ]:
+                m = re.search(pat, html)
+                if m:
+                    v = float(m.group(1))
+                    if 10 < v < 100000:
+                        return v
+            # Fallback HTML
             m = re.search(r'class="andes-money-amount__fraction"[^>]*>(\d[\d\.]*)<', html)
             if m:
                 try:
-                    preco = float(m.group(1).replace(".", ""))
+                    v = float(m.group(1).replace(".", ""))
+                    if 10 < v < 100000:
+                        return v
                 except:
                     pass
+            return 0.0
 
-        # Extrai preço original
-        preco_orig = 0.0
-        m = re.search(r'"original_price"\s*:\s*([\d]+\.?\d*)', html)
-        if m:
-            preco_orig = float(m.group(1))
+        def _extrair_preco_orig(html):
+            for pat in [
+                r'"original_price"\s*:\s*([\d]+\.?\d*)',
+                r'"base_price"\s*:\s*([\d]+\.?\d*)',
+            ]:
+                m = re.search(pat, html)
+                if m:
+                    v = float(m.group(1))
+                    if v > 0:
+                        return v
+            return 0.0
+
+        nome      = _extrair_nome(html)
+        preco     = _extrair_preco(html)
+        preco_orig = _extrair_preco_orig(html)
 
         # Extrai imagem principal HD
         imagem = ''
