@@ -31,16 +31,46 @@ URLS_BUSCA = [
 ]
 
 PALAVRAS_BLOQUEADAS = [
+    # Ferramentas e equipamentos industriais
+    "guincho", "girafa", "talha", "macaco hidraulico", "compressor",
+    "furadeira", "parafusadeira", "martelo", "serra", "esmerilhadeira",
+    "retifica", "lixadeira", "soldador", "solda", "torno",
+    "andaime", "escada", "carrinho de mao", "empilhadeira",
+    # Iluminação não-tech / cenografia
+    "lente de projecao", "lente spot", "filtro efeito", "gobo",
+    "refletor par", "moving head", "beam", "follow spot",
+    "canhao de luz", "strobo", "maquina de fumaca",
+    # Automotivo
+    "pneu", "rodas", "amortecedor", "escapamento", "farol",
+    "retrovisor", "para-choque", "capota", "banco de carro",
+    # Casa e jardim
+    "cortador de grama", "vaso de planta", "mangueira",
+    "churrasqueira", "fogueira", "fogao", "geladeira", "lava-roupa",
+    "maquina de lavar", "secadora", "lava-loucas",
+    "sofa", "colchao", "cama", "guarda-roupa", "estante",
+    "tapete", "cortina", "persiana", "luminaria de teto",
+    # Vestuário e moda
+    "roupa", "roupas", "vestido", "camisa", "camiseta", "blusa",
+    "calca", "bermuda", "short", "saia", "jaqueta", "casaco",
+    "sapato", "tenis", "sandalia", "chinelo", "bota",
+    "bolsa", "mochila", "mala", "carteira", "cinto",
+    # Brinquedos e esportes
     "bola de futebol", "bola gigante", "brinquedo", "brinquedos",
-    "roupa", "roupas", "vestido", "camisa", "camiseta",
-    "sapato", "sandalia", "bolsa", "carteira",
-    "furadeira", "parafusadeira", "martelo", "serra",
-    "multimetro", "churrasqueira", "fogueira",
-    "cortador de grama", "vaso de planta",
+    "boneca", "carrinho de brinquedo", "lego",
+    "bicicleta", "patins", "skate", "patinete infantil",
+    # Saúde e beleza
     "suplemento", "creatina", "whey protein", "vitamina",
-    "remedio", "medicamento",
-    "telescopio", "telescópio", "luneta",
-    "perfume", "fragrância", "eau de parfum", "colônia",
+    "remedio", "medicamento", "termometro clinico",
+    "perfume", "fragrancia", "eau de parfum", "colonia",
+    "shampoo", "condicionador", "creme", "hidratante",
+    "maquiagem", "batom", "base", "sombra", "rimel",
+    # Optica / astronomia não-tech
+    "telescopio", "telescópio", "luneta", "microscopio",
+    # Animais
+    "racao", "casinha de cachorro", "aquario", "gaiola",
+    # Livros e papelaria
+    "livro", "album de figurinha", "figurinha",
+    "caderno", "agenda", "caneta", "lapis",
 ]
 
 
@@ -49,12 +79,45 @@ def log(msg):
     sys.stdout.flush()
 
 
+# Palavras que DEVEM aparecer em produtos tech (se não tiver nenhuma, bloqueia)
+PALAVRAS_TECH = [
+    "notebook", "laptop", "pc", "computador", "desktop",
+    "celular", "smartphone", "iphone", "samsung", "xiaomi", "motorola",
+    "tv", "smart tv", "televisao", "televisão",
+    "monitor", "tela", "display",
+    "tablet", "ipad",
+    "fone", "headset", "headphone", "earphone", "auricular", "caixa de som",
+    "soundbar", "speaker",
+    "teclado", "mouse", "mousepad",
+    "ssd", "hd externo", "pendrive", "memoria ram", "processador",
+    "placa de video", "placa mae", "gabinete", "fonte atx",
+    "roteador", "repetidor wifi", "modem", "switch",
+    "camera", "webcam", "impressora",
+    "carregador", "cabo usb", "hub usb", "adaptador",
+    "controle", "joystick", "videogame", "playstation", "xbox", "nintendo",
+    "smartwatch", "relogio inteligente",
+    "drone", "gopro", "action cam",
+    "power bank", "nobreak", "estabilizador",
+    "ar condicionado", "ventilador tower", "purificador de ar",
+    "fritadeira air fryer", "cafeteira", "liquidificador",
+]
+
 def produto_valido(nome):
     nome_lower = nome.lower()
+    # Verifica palavras bloqueadas
     for p in PALAVRAS_BLOQUEADAS:
         if p in nome_lower:
+            log(f"  🚫 Bloqueado ({p}): {nome[:50]}")
             return False
     return True
+
+def produto_e_tech(nome):
+    """Verifica se o produto tem ao menos uma palavra-chave tech."""
+    nome_lower = nome.lower()
+    for p in PALAVRAS_TECH:
+        if p in nome_lower:
+            return True
+    return False
 
 
 def gerar_link_afiliado(url):
@@ -250,7 +313,12 @@ def processar_item(item):
             nome = metadata.get("title", "")
 
         nome = nome.strip()
-        if not nome or not produto_valido(nome):
+        if not nome:
+            return None
+        if not produto_valido(nome):
+            return None
+        if not produto_e_tech(nome):
+            log(f"  🚫 Não-tech: {nome[:50]}")
             return None
 
         if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
