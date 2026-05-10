@@ -2040,31 +2040,35 @@ def dados_produto_ml():
     if not url:
         return jsonify({"ok": False, "erro": "URL obrigatoria"})
 
-    # Normaliza URLs de oferta/deal do ML para URL limpa do produto
-    # Formatos suportados:
-    #   /p/MLB54963150?...        → usa /p/MLB direto (produto agrupado)
-    #   /algum-titulo/p/MLB123    → extrai /p/MLB do path
-    #   /up/MLBU...?wid=MLB123   → extrai wid do querystring
-    #   qualquer URL com MLB\d+ no path → constrói URL limpa
+    # Normaliza URLs de oferta/deal do ML para URL de item individual (não /p/ de grupo)
+    # Prioridade: wid= (item específico) > MLB no path do produto > /p/MLB (grupo)
     import urllib.parse as _urlparse
     _parsed = _urlparse.urlparse(url)
+    # ML coloca wid= tanto no querystring quanto no fragment (#...&wid=MLB...)
     _qs = _urlparse.parse_qs(_parsed.query)
+    _frag = _urlparse.parse_qs(_parsed.fragment)
     _path = _parsed.path
 
-    # 1. /p/MLB no path (mais confiável)
-    m_path = re.search(r"/p/(MLB\d+)", _path)
-    if m_path:
-        url = f"https://www.mercadolivre.com.br/p/{m_path.group(1)}"
+    # 1. wid= no querystring OU fragment → item individual (MAIOR PRIORIDADE)
+    _wid = (_qs.get("wid", [None])[0] or _frag.get("wid", [None])[0]
+            or re.search(r"[?&#]wid=(MLB\d+)", url) and re.search(r"[?&#]wid=(MLB\d+)", url).group(1))
+    if _wid and re.match(r"MLB\d+", _wid):
+        url = f"https://produto.mercadolivre.com.br/MLB-{_wid[3:]}-_JM"
     else:
-        # 2. wid= no querystring
-        _wid = _qs.get("wid", [None])[0]
-        if _wid and re.match(r"MLB\d+", _wid):
-            url = f"https://www.mercadolivre.com.br/p/{_wid}"
+        # 2. MLB direto no path (ex: /MLB-1234567-titulo)
+        m_item = re.search(r"/(MLB-\d+)", _path)
+        if m_item:
+            url = f"https://produto.mercadolivre.com.br/{m_item.group(1)}-_JM"
         else:
-            # 3. fallback: qualquer MLB\d+ na URL toda
-            m_any = re.search(r"(MLB\d+)", url)
-            if m_any:
-                url = f"https://www.mercadolivre.com.br/p/{m_any.group(1)}"
+            # 3. /p/MLB — página de grupo, tenta mesmo assim
+            m_path = re.search(r"/p/(MLB\d+)", _path)
+            if m_path:
+                url = f"https://www.mercadolivre.com.br/p/{m_path.group(1)}"
+            else:
+                # 4. fallback: qualquer MLB\d+ na URL
+                m_any = re.search(r"(MLB\d+)", url)
+                if m_any:
+                    url = f"https://www.mercadolivre.com.br/p/{m_any.group(1)}"
 
     SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
     SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")
