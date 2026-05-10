@@ -145,6 +145,20 @@ def _is_bloqueado(nome):
     return any(p in nome.lower() for p in PALAVRAS_BLOQUEADAS)
 
 
+def _encurtar_link(url):
+    """Encurta via TinyURL — fallback para link longo se falhar."""
+    try:
+        r = requests.get(
+            f"https://tinyurl.com/api-create.php?url={requests.utils.quote(url, safe='')}",
+            timeout=8
+        )
+        if r.status_code == 200 and r.text.startswith("http"):
+            return r.text.strip()
+    except Exception as e:
+        log.warning(f"Amazon TinyURL falhou: {e}")
+    return url
+
+
 def buscar_imagem_amazon(produto):
     """Busca imagem real do produto Amazon — chamar só na hora de postar."""
     asin = produto.get("asin", "")
@@ -251,7 +265,7 @@ def buscar_todos_produtos():
                     "desconto":       23,
                     "loja":           "AMAZON",
                     "frete":          "✅ Frete grátis Prime",
-                    "link_afiliado":  f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}",
+                    "link_afiliado":  _encurtar_link(f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}"),
                     "imagem_url":     "",  # preenchida depois pelo bot ao postar
                     "asin":           asin,
                     "score":          1,
