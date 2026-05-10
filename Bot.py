@@ -872,7 +872,7 @@ def montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros):
 def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon=None):
     """
     Ciclo misto (12:30 e 20:30): metade smartphones + metade monitores.
-    Proporção 40% ML, 20% Amazon, 20% Ali, 20% Shopee por categoria.
+    Proporção 40% ML, 40% Amazon, 10% Ali, 10% Shopee por categoria.
     """
     if pool_amazon is None:
         pool_amazon = []
@@ -890,31 +890,31 @@ def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon=
     sh_ph,  sh_mo,  sh_ot  = split_cat(pool_shopee)
     az_ph,  az_mo,  az_ot  = split_cat(pool_amazon)
 
-    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es) | Amazon incluída")
+    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es) | 40/40/10/10")
 
-    # Smartphones com proporção 40/20/20/20
+    # Smartphones com proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee
     qtd_ml_ph  = max(0, round(metade * 0.40))
-    qtd_az_ph  = max(0, round(metade * 0.20))
-    qtd_ali_ph = max(0, round(metade * 0.20))
+    qtd_az_ph  = max(0, round(metade * 0.40))
+    qtd_ali_ph = max(0, round(metade * 0.10))
     qtd_sh_ph  = max(0, metade - qtd_ml_ph - qtd_az_ph - qtd_ali_ph)
     smartphones = ml_ph[:qtd_ml_ph] + az_ph[:qtd_az_ph] + ali_ph[:qtd_ali_ph] + sh_ph[:qtd_sh_ph]
-    # Completa se faltar
-    extras_ph = ml_ph[qtd_ml_ph:] + az_ph[qtd_az_ph:] + ali_ph[qtd_ali_ph:] + sh_ph[qtd_sh_ph:]
+    # Completa se alguma loja não tiver suficiente (fallback nas extras)
+    extras_ph = az_ph[qtd_az_ph:] + ml_ph[qtd_ml_ph:] + ali_ph[qtd_ali_ph:] + sh_ph[qtd_sh_ph:]
     smartphones += extras_ph[:max(0, metade - len(smartphones))]
 
-    # Monitores com proporção 40/20/20/20
+    # Monitores com proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee
     qtd_ml_mo  = max(0, round(metade * 0.40))
-    qtd_az_mo  = max(0, round(metade * 0.20))
-    qtd_ali_mo = max(0, round(metade * 0.20))
+    qtd_az_mo  = max(0, round(metade * 0.40))
+    qtd_ali_mo = max(0, round(metade * 0.10))
     qtd_sh_mo  = max(0, metade - qtd_ml_mo - qtd_az_mo - qtd_ali_mo)
     monitores = ml_mo[:qtd_ml_mo] + az_mo[:qtd_az_mo] + ali_mo[:qtd_ali_mo] + sh_mo[:qtd_sh_mo]
-    extras_mo = ml_mo[qtd_ml_mo:] + az_mo[qtd_az_mo:] + ali_mo[qtd_ali_mo:] + sh_mo[qtd_sh_mo:]
+    extras_mo = az_mo[qtd_az_mo:] + ml_mo[qtd_ml_mo:] + ali_mo[qtd_ali_mo:] + sh_mo[qtd_sh_mo:]
     monitores += extras_mo[:max(0, metade - len(monitores))]
 
     resultado = smartphones + monitores
     faltando = POSTS_POR_CICLO - len(resultado)
     if faltando > 0:
-        extras = ml_ot + az_ot + ali_ot + sh_ot + pool_outros
+        extras = az_ot + ml_ot + ali_ot + sh_ot + pool_outros
         resultado += extras[:faltando]
         log.info(f"   Completado com {min(faltando, len(extras))} produto(s) genérico(s)")
 
