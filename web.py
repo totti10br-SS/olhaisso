@@ -2073,11 +2073,35 @@ def dados_produto_ml():
     SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
     SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")
 
-    if not SCRAPINGANT_KEY and not SCRAPERAPI_KEY:
-        return jsonify({"ok": False, "erro": "Nenhuma chave de scraping configurada no Railway"})
-
     try:
-        # Páginas /p/ do ML precisam de JS — usa browser=true
+        # ── Estratégia 1: API pública do ML (sem scraping, mais confiável) ──
+        m_id = re.search(r"MLB[\-]?(\d+)", url)
+        if m_id:
+            item_id = f"MLB{m_id.group(1)}"
+            api_r = requests.get(
+                f"https://api.mercadolibre.com/items/{item_id}",
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=15
+            )
+            if api_r.status_code == 200:
+                d = api_r.json()
+                nome      = d.get("title", "")
+                preco     = float(d.get("price") or 0)
+                preco_orig = float(d.get("original_price") or 0)
+                pics      = d.get("pictures", [])
+                imagem    = pics[0].get("secure_url", "") if pics else d.get("thumbnail", "")
+                # Imagem HD: troca -I.jpg por -F.jpg
+                imagem = re.sub(r"-[A-Z]\.(jpg|jpeg|webp)$", "-F.jpg", imagem)
+                if nome and preco:
+                    return jsonify({
+                        "ok":         True,
+                        "nome":       nome,
+                        "preco":      round(preco, 2),
+                        "preco_orig": round(preco_orig, 2) if preco_orig > preco else None,
+                        "imagem":     imagem,
+                    })
+
+        # ── Estratégia 2: ScrapingAnt (fallback para URLs sem ID claro) ──
         needs_js = "/p/MLB" in url
         if SCRAPINGANT_KEY:
             params = {
