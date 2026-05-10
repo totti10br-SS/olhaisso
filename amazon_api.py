@@ -15,13 +15,23 @@ ZENROWS_KEY     = os.getenv("ZENROWS_KEY", "")      # fallback
 SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")   # fallback
 
 CATEGORIAS = [
-    ("Smartphones",      "https://www.amazon.com.br/gp/bestsellers/electronics/16318190011"),
-    ("TVs",              "https://www.amazon.com.br/gp/bestsellers/electronics/16318209011"),
-    ("Monitores",        "https://www.amazon.com.br/gp/bestsellers/computers/16318171011"),
-    ("Informática",      "https://www.amazon.com.br/gp/bestsellers/computers"),
-    ("Games",            "https://www.amazon.com.br/gp/bestsellers/videogames"),
-    ("Eletrodomésticos", "https://www.amazon.com.br/gp/bestsellers/kitchen"),
-    ("Áudio e Fones",    "https://www.amazon.com.br/gp/bestsellers/electronics/16318191011"),
+    # Mais Vendidos
+    ("Smartphones",           "https://www.amazon.com.br/gp/bestsellers/electronics/16243890011"),
+    ("TVs",                   "https://www.amazon.com.br/gp/bestsellers/electronics/16243822011"),
+    ("Monitores",             "https://www.amazon.com.br/gp/bestsellers/computers/16364845011"),
+    ("Gabinetes",             "https://www.amazon.com.br/gp/bestsellers/computers/16364807011"),
+    ("Placas de Vídeo p1",    "https://www.amazon.com.br/gp/bestsellers/computers/16364811011/ref=zg_bs_pg_1_computers?ie=UTF8&pg=1"),
+    ("Placas de Vídeo p2",    "https://www.amazon.com.br/gp/bestsellers/computers/16364811011/ref=zg_bs_pg_2_computers?ie=UTF8&pg=2"),
+    ("Informática p1",        "https://www.amazon.com.br/gp/bestsellers/computers/ref=zg_bs_pg_1_computers?ie=UTF8&pg=1"),
+    ("Informática p2",        "https://www.amazon.com.br/gp/bestsellers/computers/ref=zg_bs_pg_2_computers?ie=UTF8&pg=2"),
+    ("Games",                 "https://www.amazon.com.br/gp/bestsellers/videogames"),
+    ("Eletrodomésticos",      "https://www.amazon.com.br/gp/bestsellers/kitchen"),
+    ("Áudio e Fones",         "https://www.amazon.com.br/gp/bestsellers/electronics/16244120011"),
+    # Produtos em Alta
+    ("Em Alta Informática p1","https://www.amazon.com.br/gp/movers-and-shakers/computers/ref=zg_bsms_pg_1_computers?ie=UTF8&pg=1"),
+    ("Em Alta Informática p2","https://www.amazon.com.br/gp/movers-and-shakers/computers/ref=zg_bsms_pg_2_computers?ie=UTF8&pg=2"),
+    ("Em Alta Eletrônicos p1","https://www.amazon.com.br/gp/movers-and-shakers/electronics/ref=zg_bsms_pg_1_electronics?ie=UTF8&pg=1"),
+    ("Em Alta Eletrônicos p2","https://www.amazon.com.br/gp/movers-and-shakers/electronics/ref=zg_bsms_pg_2_electronics?ie=UTF8&pg=2"),
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -93,17 +103,21 @@ def _fetch_url(url):
     # ScrapingAnt
     if SCRAPINGANT_KEY:
         try:
-            params = {
-                "url":          url,
-                "x-api-key":    SCRAPINGANT_KEY,
-                "proxy_country": "BR",
-                "browser":      "false",
-            }
-            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=30)
-            log.info(f"Amazon ScrapingAnt {r.status_code} → {url[-40:]}")
-            if r.status_code == 200:
-                return r.text
-            log.warning(f"Amazon ScrapingAnt erro: {r.text[:100]}")
+            # browser=true necessário para páginas Amazon com JS — tenta false primeiro (mais barato)
+            for browser_mode in ["false", "true"]:
+                params = {
+                    "url":           url,
+                    "x-api-key":     SCRAPINGANT_KEY,
+                    "proxy_country": "BR",
+                    "browser":       browser_mode,
+                }
+                r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=45)
+                log.info(f"Amazon ScrapingAnt browser={browser_mode} {r.status_code} → {url[-40:]}")
+                if r.status_code == 200 and len(r.text) > 1000:
+                    return r.text
+                if r.status_code != 200:
+                    log.warning(f"Amazon ScrapingAnt erro: {r.text[:100]}")
+                    break  # se der erro de auth/quota, não tenta de novo
         except Exception as e:
             log.warning(f"Amazon ScrapingAnt falhou: {e}")
 
