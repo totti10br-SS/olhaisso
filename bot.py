@@ -869,11 +869,13 @@ def montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros):
     return []  # não usado mais, ver ciclo()
 
 
-def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros):
+def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon=None):
     """
     Ciclo misto (12:30 e 20:30): metade smartphones + metade monitores.
-    Proporção 50% ML, 25% Ali, 25% Shopee mantida dentro de cada categoria.
+    Proporção 40% ML, 40% Amazon, 10% Ali, 10% Shopee por categoria.
     """
+    if pool_amazon is None:
+        pool_amazon = []
     metade = POSTS_POR_CICLO // 2
 
     # Separa por categoria
@@ -886,34 +888,37 @@ def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros):
     ml_ph,  ml_mo,  ml_ot  = split_cat(pool_ml)
     ali_ph, ali_mo, ali_ot = split_cat(pool_ali)
     sh_ph,  sh_mo,  sh_ot  = split_cat(pool_shopee)
+    az_ph,  az_mo,  az_ot  = split_cat(pool_amazon)
 
-    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es)")
+    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es) | 40/40/10/10")
 
-    # Smartphones com proporção 50/25/25
-    qtd_ml_ph  = max(0, round(metade * 0.50))
-    qtd_ali_ph = max(0, round(metade * 0.25))
-    qtd_sh_ph  = max(0, metade - qtd_ml_ph - qtd_ali_ph)
-    smartphones = ml_ph[:qtd_ml_ph] + ali_ph[:qtd_ali_ph] + sh_ph[:qtd_sh_ph]
-    # Completa se faltar
-    extras_ph = ml_ph[qtd_ml_ph:] + ali_ph[qtd_ali_ph:] + sh_ph[qtd_sh_ph:]
+    # Smartphones com proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee
+    qtd_ml_ph  = max(0, round(metade * 0.40))
+    qtd_az_ph  = max(0, round(metade * 0.40))
+    qtd_ali_ph = max(0, round(metade * 0.10))
+    qtd_sh_ph  = max(0, metade - qtd_ml_ph - qtd_az_ph - qtd_ali_ph)
+    smartphones = ml_ph[:qtd_ml_ph] + az_ph[:qtd_az_ph] + ali_ph[:qtd_ali_ph] + sh_ph[:qtd_sh_ph]
+    # Completa se alguma loja não tiver suficiente (fallback nas extras)
+    extras_ph = az_ph[qtd_az_ph:] + ml_ph[qtd_ml_ph:] + ali_ph[qtd_ali_ph:] + sh_ph[qtd_sh_ph:]
     smartphones += extras_ph[:max(0, metade - len(smartphones))]
 
-    # Monitores com proporção 50/25/25
-    qtd_ml_mo  = max(0, round(metade * 0.50))
-    qtd_ali_mo = max(0, round(metade * 0.25))
-    qtd_sh_mo  = max(0, metade - qtd_ml_mo - qtd_ali_mo)
-    monitores = ml_mo[:qtd_ml_mo] + ali_mo[:qtd_ali_mo] + sh_mo[:qtd_sh_mo]
-    extras_mo = ml_mo[qtd_ml_mo:] + ali_mo[qtd_ali_mo:] + sh_mo[qtd_sh_mo:]
+    # Monitores com proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee
+    qtd_ml_mo  = max(0, round(metade * 0.40))
+    qtd_az_mo  = max(0, round(metade * 0.40))
+    qtd_ali_mo = max(0, round(metade * 0.10))
+    qtd_sh_mo  = max(0, metade - qtd_ml_mo - qtd_az_mo - qtd_ali_mo)
+    monitores = ml_mo[:qtd_ml_mo] + az_mo[:qtd_az_mo] + ali_mo[:qtd_ali_mo] + sh_mo[:qtd_sh_mo]
+    extras_mo = az_mo[qtd_az_mo:] + ml_mo[qtd_ml_mo:] + ali_mo[qtd_ali_mo:] + sh_mo[qtd_sh_mo:]
     monitores += extras_mo[:max(0, metade - len(monitores))]
 
     resultado = smartphones + monitores
     faltando = POSTS_POR_CICLO - len(resultado)
     if faltando > 0:
-        extras = ml_ot + ali_ot + sh_ot + pool_outros
+        extras = az_ot + ml_ot + ali_ot + sh_ot + pool_outros
         resultado += extras[:faltando]
         log.info(f"   Completado com {min(faltando, len(extras))} produto(s) genérico(s)")
 
-    log.info(f"   {len(smartphones)} smartphone(s) | {len(monitores)} monitor(es)")
+    log.info(f"   {len(smartphones)} smartphone(s) | {len(monitores)} monitor(es) (ML:{qtd_ml_ph}/{qtd_ml_mo} Az:{qtd_az_ph}/{qtd_az_mo} Ali:{qtd_ali_ph}/{qtd_ali_mo} Sh:{qtd_sh_ph}/{qtd_sh_mo})")
     return resultado
 
 
@@ -923,7 +928,7 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
     mantendo proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee em todos os ciclos.
     """
     if permitir_misto():
-        return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros)
+        return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon)
 
     if permitir_monitor_dedicado():
         log.info("🖥️ CICLO DEDICADO — apenas Monitores (40% ML / 40% Amazon / 10% Ali / 10% Shopee)")
