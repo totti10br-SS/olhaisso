@@ -2041,34 +2041,30 @@ def dados_produto_ml():
         return jsonify({"ok": False, "erro": "URL obrigatoria"})
 
     # Normaliza URLs de oferta/deal do ML para URL de item individual (não /p/ de grupo)
-    # Prioridade: wid= (item específico) > MLB no path do produto > /p/MLB (grupo)
+    # Limpa a URL: remove fragment (#...) e parâmetros desnecessários
+    # Mantém a URL de produto limpa para o ScrapingAnt
     import urllib.parse as _urlparse
     _parsed = _urlparse.urlparse(url)
-    # ML coloca wid= tanto no querystring quanto no fragment (#...&wid=MLB...)
     _qs = _urlparse.parse_qs(_parsed.query)
-    _frag = _urlparse.parse_qs(_parsed.fragment)
+    _frag_str = _parsed.fragment  # ex: "origin=share&sid=share&wid=MLB4434632587&action=copy"
     _path = _parsed.path
 
-    # 1. wid= no querystring OU fragment → item individual (MAIOR PRIORIDADE)
-    _wid = (_qs.get("wid", [None])[0] or _frag.get("wid", [None])[0]
-            or re.search(r"[?&#]wid=(MLB\d+)", url) and re.search(r"[?&#]wid=(MLB\d+)", url).group(1))
-    if _wid and re.match(r"MLB\d+", _wid):
-        url = f"https://produto.mercadolivre.com.br/MLB-{_wid[3:]}-_JM"
+    # Extrai wid= do fragment ou querystring (ID do item individual)
+    _wid_m = re.search(r"wid=(MLB\d+)", _frag_str) or re.search(r"wid=(MLB\d+)", url)
+    _wid = _wid_m.group(1) if _wid_m else None
+
+    # Monta URL limpa — sempre mercadolivre.com.br sem fragment nem tracking
+    if _wid:
+        # Tem item individual — usa URL de produto direto
+        url = f"https://www.mercadolivre.com.br/p/{_wid}"
+    elif "/p/" in _path:
+        # Página de grupo sem wid — limpa só o fragment/tracking
+        m_p = re.search(r"/p/(MLB\d+)", _path)
+        if m_p:
+            url = f"https://www.mercadolivre.com.br/p/{m_p.group(1)}"
     else:
-        # 2. MLB direto no path (ex: /MLB-1234567-titulo)
-        m_item = re.search(r"/(MLB-\d+)", _path)
-        if m_item:
-            url = f"https://produto.mercadolivre.com.br/{m_item.group(1)}-_JM"
-        else:
-            # 3. /p/MLB — página de grupo, tenta mesmo assim
-            m_path = re.search(r"/p/(MLB\d+)", _path)
-            if m_path:
-                url = f"https://www.mercadolivre.com.br/p/{m_path.group(1)}"
-            else:
-                # 4. fallback: qualquer MLB\d+ na URL
-                m_any = re.search(r"(MLB\d+)", url)
-                if m_any:
-                    url = f"https://www.mercadolivre.com.br/p/{m_any.group(1)}"
+        # URL normal de produto — remove só o fragment
+        url = _urlparse.urlunparse(_parsed._replace(fragment="", query=""))
 
     SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
     SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")
