@@ -2040,6 +2040,20 @@ def dados_produto_ml():
     if not url:
         return jsonify({"ok": False, "erro": "URL obrigatoria"})
 
+    # URLs de oferta/deal do ML têm o ID real no parâmetro wid= ou no path /up/
+    # Ex: /up/MLBU...?wid=MLB5474960430  → extrair wid e usar URL limpa do produto
+    import urllib.parse as _urlparse
+    parsed = _urlparse.urlparse(url)
+    qs = _urlparse.parse_qs(parsed.query)
+    wid = qs.get("wid", [None])[0]  # ex: MLB5474960430
+    if wid and re.match(r"MLB\d+", wid):
+        url = f"https://www.mercadolivre.com.br/p/{wid}"
+    elif "/up/" in url:
+        # fallback: tenta extrair MLB do path
+        m_wid = re.search(r"(MLB\d+)", url)
+        if m_wid:
+            url = f"https://www.mercadolivre.com.br/p/{m_wid.group(1)}"
+
     SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
     SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")
 
