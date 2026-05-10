@@ -2040,19 +2040,31 @@ def dados_produto_ml():
     if not url:
         return jsonify({"ok": False, "erro": "URL obrigatoria"})
 
-    # URLs de oferta/deal do ML têm o ID real no parâmetro wid= ou no path /up/
-    # Ex: /up/MLBU...?wid=MLB5474960430  → extrair wid e usar URL limpa do produto
+    # Normaliza URLs de oferta/deal do ML para URL limpa do produto
+    # Formatos suportados:
+    #   /p/MLB54963150?...        → usa /p/MLB direto (produto agrupado)
+    #   /algum-titulo/p/MLB123    → extrai /p/MLB do path
+    #   /up/MLBU...?wid=MLB123   → extrai wid do querystring
+    #   qualquer URL com MLB\d+ no path → constrói URL limpa
     import urllib.parse as _urlparse
-    parsed = _urlparse.urlparse(url)
-    qs = _urlparse.parse_qs(parsed.query)
-    wid = qs.get("wid", [None])[0]  # ex: MLB5474960430
-    if wid and re.match(r"MLB\d+", wid):
-        url = f"https://www.mercadolivre.com.br/p/{wid}"
-    elif "/up/" in url:
-        # fallback: tenta extrair MLB do path
-        m_wid = re.search(r"(MLB\d+)", url)
-        if m_wid:
-            url = f"https://www.mercadolivre.com.br/p/{m_wid.group(1)}"
+    _parsed = _urlparse.urlparse(url)
+    _qs = _urlparse.parse_qs(_parsed.query)
+    _path = _parsed.path
+
+    # 1. /p/MLB no path (mais confiável)
+    m_path = re.search(r"/p/(MLB\d+)", _path)
+    if m_path:
+        url = f"https://www.mercadolivre.com.br/p/{m_path.group(1)}"
+    else:
+        # 2. wid= no querystring
+        _wid = _qs.get("wid", [None])[0]
+        if _wid and re.match(r"MLB\d+", _wid):
+            url = f"https://www.mercadolivre.com.br/p/{_wid}"
+        else:
+            # 3. fallback: qualquer MLB\d+ na URL toda
+            m_any = re.search(r"(MLB\d+)", url)
+            if m_any:
+                url = f"https://www.mercadolivre.com.br/p/{m_any.group(1)}"
 
     SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
     SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")
