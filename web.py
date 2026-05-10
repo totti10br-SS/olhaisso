@@ -2073,20 +2073,26 @@ def dados_produto_ml():
         return jsonify({"ok": False, "erro": "Nenhuma chave de scraping configurada no Railway"})
 
     try:
+        # Páginas /p/ do ML precisam de JS — usa browser=true
+        needs_js = "/p/MLB" in url
         if SCRAPINGANT_KEY:
             params = {
                 "url":           url,
                 "x-api-key":     SCRAPINGANT_KEY,
                 "proxy_country": "BR",
-                "browser":       "false",
+                "browser":       "true" if needs_js else "false",
             }
             r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
+            # Se browser=false retornou "requires JavaScript", tenta com browser=true
+            if r.status_code == 200 and "requires JavaScript" in r.text:
+                params["browser"] = "true"
+                r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
         else:
             payload = {
                 "api_key":      SCRAPERAPI_KEY,
                 "url":          url,
                 "country_code": "br",
-                "render":       "false",
+                "render":       "true" if needs_js else "false",
             }
             r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
 
