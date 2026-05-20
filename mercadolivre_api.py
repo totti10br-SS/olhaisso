@@ -395,3 +395,58 @@ def buscar_todos_produtos():
 
     log(f"Mercado Livre (ScrapingAnt): {total_bruto} brutos → {len(todos)} válidos")
     return todos
+
+
+# URLs extras para busca profunda ML
+URLS_BUSCA_EXTRA = [
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=notebook", "Notebooks"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=monitor+gamer", "Monitores Gamer"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=ssd+nvme", "SSDs"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=placa+de+video", "Placas de Vídeo"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1051&q=smartphone+samsung", "Samsung"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1051&q=smartphone+motorola", "Motorola"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1051&q=xiaomi", "Xiaomi"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1000&q=smartwatch", "Smartwatch"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1000&q=fone+bluetooth", "Fones"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1000&q=caixa+de+som+bluetooth", "Caixas de Som"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1066&q=smart+tv+55", "Smart TV 55"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1066&q=smart+tv+65", "Smart TV 65"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1039&q=controle+gamer", "Controles"),
+    ("https://www.mercadolivre.com.br/ofertas?category=MLB1002&q=soundbar", "Soundbar"),
+]
+
+
+def buscar_profundo():
+    """Busca profunda ML — todas as URLs normais + extras."""
+    if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
+        log("ML profundo: nenhuma chave de scraping configurada")
+        return []
+
+    log("ML BUSCA PROFUNDA iniciada...")
+    todos = []
+    vistos = set()
+    total_bruto = 0
+
+    # Usa TODAS as URLs (normais + extras) em vez de amostra de 4
+    todas_urls = URLS_BUSCA + URLS_BUSCA_EXTRA
+
+    for url, nome in todas_urls:
+        try:
+            log(f"ML profundo buscando: {nome}")
+            html = scraper_fetch(url)
+            items = extrair_produtos_html(html)
+            total_bruto += len(items)
+            for item in items:
+                p = processar_item(item)
+                if p:
+                    chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                    if chave not in vistos:
+                        vistos.add(chave)
+                        todos.append(p)
+            time.sleep(1)
+        except Exception as e:
+            log(f"ML profundo erro {nome}: {e}")
+            continue
+
+    log(f"ML BUSCA PROFUNDA: {total_bruto} brutos → {len(todos)} válidos")
+    return todos

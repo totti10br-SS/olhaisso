@@ -447,6 +447,57 @@ def buscar_todos_produtos():
     return todos
 
 
+# Categorias extras usadas apenas na busca profunda
+CATEGORIAS_EXTRA = [
+    "fone bluetooth sem fio", "tws earbuds", "earbuds anc",
+    "smart led bulb wifi", "smart plug wifi", "smart switch",
+    "action camera 4k", "mini camera espia", "dashcam",
+    "suporte celular gamer", "suporte monitor mesa",
+    "mesa digitalizadora", "tablet android 10",
+    "impressora portatil", "impressora bluetooth",
+    "cabo hdmi 4k", "adaptador hdmi usb-c",
+    "roteador wifi 6", "repetidor wifi mesh",
+    "carregador solar portatil", "carregador qi wireless",
+    "caixa bluetooth resistente agua", "mini speaker bluetooth",
+    "oculos vr realidade virtual", "controlador gamepad android",
+    "teclado mecanico mini 60", "mouse vertical ergonomico",
+    "suporte notebook refrigerado", "hub usb-c 7 em 1",
+    "scanner portatil", "leitor codigo barras bluetooth",
+    "projetor 4k laser", "projetor mini bolso",
+    "ar condicionado portatil mini", "ventilador usb mesa",
+    "relogio digital esportivo", "rastreador gps mini",
+    "kit reparo celular profissional", "pasta termica processador",
+]
+
+
+def buscar_profundo():
+    """Busca profunda — usa categorias extras quando o pipeline normal retornou pouco."""
+    print("AliExpress BUSCA PROFUNDA iniciada...")
+    todos = []
+    vistos = set()
+
+    # Combina categorias normais (embaralhadas) + extras
+    import random as _rnd
+    cats = list(CATEGORIAS)
+    _rnd.shuffle(cats)
+    cats_profundo = cats[:20] + CATEGORIAS_EXTRA  # 20 normais + todas as extras
+
+    for keyword in cats_profundo:
+        try:
+            produtos = buscar_produtos_aliexpress(keyword, limit=8)  # mais produtos por busca
+            for p in produtos:
+                chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                if chave not in vistos:
+                    vistos.add(chave)
+                    todos.append(p)
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"AliExpress profundo erro ({keyword}): {e}")
+            continue
+
+    print(f"AliExpress BUSCA PROFUNDA: {len(todos)} produtos encontrados")
+    return todos
+
 def buscar_ticket_baixo():
     """Busca dedicada para produtos até R$200 — ciclo das 19:00."""
     todos = []

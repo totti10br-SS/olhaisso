@@ -26,11 +26,15 @@ from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
 from aliexpress_api import buscar_ticket_baixo as buscar_aliexpress_tb
+from aliexpress_api import buscar_profundo as buscar_aliexpress_profundo
 from shopee_api import buscar_todos_produtos as buscar_shopee
 from shopee_api import buscar_ticket_baixo as buscar_shopee_tb
+from shopee_api import buscar_profundo as buscar_shopee_profundo
 from amazon_api import buscar_todos_produtos as buscar_amazon
+from amazon_api import buscar_profundo as buscar_amazon_profundo
 from amazon_api import buscar_imagem_amazon
 from mercadolivre_api import buscar_todos_produtos as buscar_ml
+from mercadolivre_api import buscar_profundo as buscar_ml_profundo
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1202,6 +1206,84 @@ def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=T
     return resultado
 
 
+def montar_pipeline_profundo(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=True):
+    """
+    Pipeline de busca profunda — acionado quando o pipeline normal retornou poucos produtos.
+    Usa mais categorias, mais páginas e keywords alternativas em todas as APIs.
+    """
+    log.info("🔍 BUSCA PROFUNDA iniciada — cavando mais ofertas...")
+    tg = buscar_trends_google()
+    tt = buscar_tiktok_trending()
+    tr = buscar_reddit_gadgets()
+
+    produtos_ali = []
+    if usar_ali:
+        log.info("🔍 AliExpress profundo...")
+        try:
+            produtos_ali = buscar_aliexpress_profundo()
+        except Exception as e:
+            log.warning(f"AliExpress profundo erro: {e}")
+
+    produtos_shopee = []
+    if usar_shopee:
+        log.info("🔍 Shopee profunda...")
+        try:
+            produtos_shopee = buscar_shopee_profundo()
+        except Exception as e:
+            log.warning(f"Shopee profunda erro: {e}")
+
+    produtos_ml = []
+    if usar_ml:
+        log.info("🔍 Mercado Livre profundo...")
+        try:
+            produtos_ml = buscar_ml_profundo()
+        except Exception as e:
+            log.warning(f"ML profundo erro: {e}")
+
+    produtos_amazon = []
+    if usar_amazon:
+        log.info("🔍 Amazon profunda...")
+        try:
+            produtos_amazon = buscar_amazon_profundo()
+        except Exception as e:
+            log.warning(f"Amazon profunda erro: {e}")
+
+    todos_raw = produtos_ali + produtos_shopee + produtos_ml + produtos_amazon
+    for p in todos_raw:
+        calcular_score(p, tg, tt, tr)
+
+    if not todos_raw:
+        log.warning("🔍 Busca profunda também retornou zero — usando mock")
+        return produtos_mock()
+
+    # Mesmos filtros do pipeline normal
+    todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
+    todos_raw = [p for p in todos_raw if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+
+    def filtrar_fonte(lista, loja):
+        return sorted([p for p in lista if p.get("loja") == loja], key=lambda x: x.get("score", 0), reverse=True)
+
+    pool_ml     = filtrar_fonte(todos_raw, "MERCADOLIVRE")
+    pool_ali    = filtrar_fonte(todos_raw, "ALIEXPRESS")
+    pool_shopee = filtrar_fonte(todos_raw, "SHOPEE")
+    pool_amazon = filtrar_fonte(todos_raw, "AMAZON")
+    pool_outros = [p for p in todos_raw if p.get("loja") not in ("MERCADOLIVRE", "ALIEXPRESS", "SHOPEE", "AMAZON")]
+
+    fila = filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros)
+
+    vistos = set()
+    resultado = []
+    for p in fila:
+        chave = hashlib.md5(p["nome"].encode()).hexdigest()
+        if chave not in vistos:
+            vistos.add(chave)
+            resultado.append(p)
+
+    resultado = limitar_por_tema(resultado)
+    log.info(f"🔍 Busca profunda: {len(resultado)} produtos prontos")
+    return resultado
+
+
 # ============================================================
 # CICLO PRINCIPAL
 # ============================================================
@@ -1228,19 +1310,34 @@ def ciclo():
         produtos = montar_pipeline_ticket_baixo()
     else:
         produtos = montar_pipeline()
+
+    # Busca profunda automática se pipeline normal retornou pouco
+    THRESHOLD_PROFUNDO = max(2, POSTS_POR_CICLO // 2)
+    if len(produtos) < THRESHOLD_PROFUNDO:
+        log.warning(f"⚠️ Pipeline normal retornou apenas {len(produtos)} produto(s) — acionando BUSCA PROFUNDA...")
+        produtos_profundo = montar_pipeline_profundo()
+        # Mescla sem duplicar
+        nomes_vistos = {hashlib.md5(p["nome"].encode()).hexdigest() for p in produtos}
+        for p in produtos_profundo:
+            chave = hashlib.md5(p["nome"].encode()).hexdigest()
+            if chave not in nomes_vistos:
+                nomes_vistos.add(chave)
+                produtos.append(p)
+        log.info(f"🔍 Após busca profunda: {len(produtos)} produto(s) disponíveis")
+
     postou = 0
     tentativas = 0
-    max_tentativas = 3  # tenta até 3 vezes buscar mais produtos se faltar
+    max_tentativas = 2
 
     while postou < POSTS_POR_CICLO and tentativas < max_tentativas:
         if not produtos:
             tentativas += 1
             if tentativas < max_tentativas:
-                log.warning(f"Sem produtos disponíveis, buscando novamente (tentativa {tentativas})...")
-                produtos = montar_pipeline()
+                log.warning(f"Ainda sem produtos — nova busca profunda (tentativa {tentativas})...")
+                produtos = montar_pipeline_profundo()
                 continue
             else:
-                log.warning("Sem produtos suficientes após 3 tentativas.")
+                log.warning("Sem produtos suficientes após busca profunda. Encerrando ciclo.")
                 break
 
         produto = produtos.pop(0)

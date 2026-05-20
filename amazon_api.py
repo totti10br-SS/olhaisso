@@ -289,3 +289,69 @@ def buscar_todos_produtos():
             continue
     log.info(f"Amazon: {len(produtos)} produto(s) válidos no total")
     return produtos
+
+# Categorias extras para busca profunda Amazon
+CATEGORIAS_EXTRA_AMAZON = [
+    ("Câmeras",          "https://www.amazon.com.br/gp/bestsellers/photo"),
+    ("Impressoras",      "https://www.amazon.com.br/gp/bestsellers/computers/16364839011"),
+    ("Redes",            "https://www.amazon.com.br/gp/bestsellers/computers/16364843011"),
+    ("Armazenamento",    "https://www.amazon.com.br/gp/bestsellers/computers/16364801011"),
+    ("Acessórios",       "https://www.amazon.com.br/gp/bestsellers/computers/16364799011"),
+    ("Smart Home",       "https://www.amazon.com.br/gp/bestsellers/amazon-devices"),
+    ("Em Alta Games",    "https://www.amazon.com.br/gp/movers-and-shakers/videogames"),
+    ("Em Alta Kitchen",  "https://www.amazon.com.br/gp/movers-and-shakers/kitchen"),
+    ("Informatica p3",   "https://www.amazon.com.br/gp/bestsellers/computers/ref=zg_bs_pg_3_computers?ie=UTF8&pg=3"),
+    ("Eletronicos p3",   "https://www.amazon.com.br/gp/movers-and-shakers/electronics/ref=zg_bsms_pg_3_electronics?ie=UTF8&pg=3"),
+]
+
+
+def buscar_profundo():
+    """Busca profunda Amazon — categorias extras além das normais."""
+    log.info("Amazon BUSCA PROFUNDA iniciada...")
+    produtos = []
+    cats_profundo = CATEGORIAS + CATEGORIAS_EXTRA_AMAZON
+
+    for nome_cat, url in cats_profundo:
+        try:
+            html = _fetch_url(url)
+            if not html:
+                continue
+            parser = AmazonParser()
+            parser.feed(html)
+            for item in parser.items[:20]:
+                try:
+                    preco = float(
+                        item["preco_txt"]
+                        .replace("R$", "").replace(".", "").replace(",", ".").strip()
+                    )
+                except Exception:
+                    continue
+                if preco <= 0 or preco > PRECO_MAXIMO:
+                    continue
+                nome = item["nome"]
+                if _is_bloqueado(nome):
+                    continue
+                asin = item.get("asin", "")
+                if not asin:
+                    asin = hashlib.md5(nome.encode()).hexdigest()[:10].upper()
+                produtos.append({
+                    "nome":           nome,
+                    "preco":          preco,
+                    "preco_original": round(preco * 1.3, 2),
+                    "desconto":       23,
+                    "loja":           "AMAZON",
+                    "frete":          "✅ Frete grátis Prime",
+                    "link_afiliado":  _encurtar_link(f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}"),
+                    "imagem_url":     "",
+                    "asin":           asin,
+                    "score":          1,
+                    "fontes":         ["amazon"],
+                    "categoria":      nome_cat,
+                })
+            time.sleep(1)
+        except Exception as e:
+            log.error(f"Amazon profundo [{nome_cat}] erro: {e}")
+            continue
+
+    log.info(f"Amazon BUSCA PROFUNDA: {len(produtos)} produtos encontrados")
+    return produtos

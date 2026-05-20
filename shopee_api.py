@@ -432,6 +432,50 @@ def buscar_todos_produtos():
     return todos
 
 
+CATEGORIAS_EXTRA_SHOPEE = [
+    "fone bluetooth sem fio barato", "tws earbuds anc",
+    "smartwatch feminino", "smartwatch masculino barato",
+    "carregador rapido turbo", "cabo usb-c resistente",
+    "suporte celular veiculo", "suporte celular mesa",
+    "caixa som bluetooth mini", "caixinha bluetooth resistente",
+    "luminaria led mesa", "lampada rgb inteligente",
+    "camera seguranca wifi", "camera ip externa",
+    "teclado sem fio slim", "mouse bluetooth recarregavel",
+    "pen drive 128gb", "cartao memoria 128gb",
+    "hub usb notebook", "adaptador usb-c hdmi",
+    "capinha iphone", "capinha samsung",
+    "carregador portatil 20000mah", "bateria externa slim",
+    "fone gamer headset", "microfone usb condensador",
+    "webcam full hd", "anel de luz led selfie",
+]
+
+
+def buscar_profundo():
+    """Busca profunda Shopee — mais categorias, mais páginas."""
+    import random as _rnd
+    print("Shopee BUSCA PROFUNDA iniciada...")
+    todos = []
+    vistos = set()
+
+    cats = list(CATEGORIAS) + CATEGORIAS_EXTRA_SHOPEE
+    _rnd.shuffle(cats)
+
+    for keyword in cats[:30]:  # limita a 30 para não demorar demais
+        try:
+            produtos = buscar_produtos_shopee(keyword, limit=8)
+            for p in produtos:
+                chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                if chave not in vistos:
+                    vistos.add(chave)
+                    todos.append(p)
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"Shopee profundo erro ({keyword}): {e}")
+            continue
+
+    print(f"Shopee BUSCA PROFUNDA: {len(todos)} produtos encontrados")
+    return todos
+
 def buscar_ticket_baixo():
     """Busca dedicada para produtos ate R$200 — ciclo das 19:00."""
     import hashlib as _h
