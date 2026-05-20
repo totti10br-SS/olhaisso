@@ -58,6 +58,7 @@ HORARIOS_MISTO      = ["12:30", "20:30"]  # Ciclo misto: metade smartphones + me
 HORARIOS_MONITOR    = ["15:00"]           # Ciclo dedicado apenas monitores
 HORARIOS_ELETRO     = ["16:00"]           # Ciclo dedicado eletrodomésticos (ML + Amazon)
 HORARIO_TICKET_BAIXO = ["19:00"]          # Ciclo dedicado produtos até R$200
+HORARIO_COPA         = ["20:00"]           # 📺🇧🇷 Momento TVs para Copa 2026
 PRECO_TICKET_BAIXO   = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))  # Teto para ticket baixo
 POSTS_TICKET_BAIXO_NO_CICLO = 2          # Qtde de tickets baixos nos ciclos normais
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
@@ -222,9 +223,11 @@ def carregar_fonte(tamanho, negrito=False):
     return ImageFont.load_default()
 
 
-def badge_score(score, ticket_baixo=False):
+def badge_score(score, ticket_baixo=False, copa_2026=False):
     if ticket_baixo:
         return ("🤑 BOM e BARATO", COR_VERDE)
+    if copa_2026:
+        return ("📺🇧🇷⚽ COPA 2026", (0, 156, 59))
     if score >= 3:
         return ("🔥 VIRAL AGORA", COR_LARANJA)
     elif score == 2:
@@ -258,7 +261,7 @@ def gerar_imagem(produto):
     draw = ImageDraw.Draw(img)
 
     # ── TOPO: badge único grande centralizado ──────────────────
-    label_score, cor_score = badge_score(produto.get("score", 0), produto.get("ticket_baixo", False))
+    label_score, cor_score = badge_score(produto.get("score", 0), produto.get("ticket_baixo", False), produto.get("copa_2026", False))
     f_badge = carregar_fonte(54, negrito=True)
     bw, bh = 580, 90
     bx = (W - bw) // 2
@@ -430,6 +433,8 @@ def montar_caption(produto):
         badge = "💰 <b>OFERTA DO DIA</b>"
     if produto.get("ticket_baixo", False):
         badge = "🤑 <b>Momento BOM e BARATO</b>"
+    if produto.get("copa_2026", False):
+        badge = "📺🇧🇷⚽ <b>MOMENTO TVS — COPA 2026!</b>"
 
     # Badge de loja
     loja_badge = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
@@ -835,6 +840,18 @@ KEYWORDS_ELETRO = [
     "processador de alimentos", "espremedor",
 ]
 
+KEYWORDS_TV = [
+    "smart tv", "tv 4k", "tv qled", "tv oled", "tv mini led", "tv mini-led",
+    "televisao", "televisao", "televisão",
+    "tv 32", "tv 37", "tv 40", "tv 43", "tv 50", "tv 55", "tv 65", "tv 75", "tv 85",
+    "43 polegadas", "50 polegadas", "55 polegadas", "65 polegadas", "75 polegadas", "85 polegadas",
+    "qled 4k", "oled 4k", "led 4k", "mini led 4k",
+    "tv samsung", "tv lg", "tv sony", "tv tcl", "tv philips", "tv aoc", "tv hisense",
+    "android tv", "google tv", "roku tv", "fire tv",
+]
+
+DESCONTO_MINIMO_TV = 30  # Desconto minimo para o ciclo Copa
+
 KEYWORDS_MONITOR = [
     "monitor ", "monitor gamer", "monitor 4k", "monitor ips",
     "monitor curvo", "monitor portatil", "monitor led",
@@ -872,6 +889,12 @@ def _is_monitor(nome):
 def _is_eletro(nome):
     return any(kw in nome.lower() for kw in KEYWORDS_ELETRO)
 
+def _is_tv(nome):
+    return any(kw in nome.lower() for kw in KEYWORDS_TV)
+
+def permitir_copa():
+    return horario_dentro_de(HORARIO_COPA)
+
 
 def montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros):
     """Ciclo 16:00 — apenas eletrodomésticos de ML e Amazon, sem Ali/Shopee."""
@@ -889,6 +912,35 @@ def montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros
         if len(fila) >= POSTS_POR_CICLO * 2:
             break
         fila.append(p)
+    return fila
+
+
+def montar_ciclo_copa(pool_ml, pool_amazon):
+    """📺🇧🇷 Ciclo 20:00 — Momento TVs para Copa 2026. 5 Amazon + 5 ML. Desconto >= 30%."""
+    log.info("📺🇧🇷⚽ CICLO COPA 2026 — Momento TVs!")
+
+    def filtrar_tvs(pool):
+        return [
+            p for p in pool
+            if _is_tv(p.get("nome", ""))
+            and p.get("desconto", 0) >= DESCONTO_MINIMO_TV
+        ]
+
+    tvs_ml     = filtrar_tvs(pool_ml)
+    tvs_amazon = filtrar_tvs(pool_amazon)
+    log.info(f"📺 TVs encontradas: ML={len(tvs_ml)} | Amazon={len(tvs_amazon)}")
+
+    fila = tvs_amazon[:5] + tvs_ml[:5]
+    extras = tvs_amazon[5:] + tvs_ml[5:]
+    for p in extras:
+        if len(fila) >= 10:
+            break
+        fila.append(p)
+
+    for p in fila:
+        p["copa_2026"] = True
+
+    log.info(f"📺🇧🇷 {len(fila)} TV(s) prontas para o ciclo Copa")
     return fila
 
 
@@ -991,6 +1043,9 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
     Recebe pools separados por loja e retorna lista filtrada por tipo de ciclo,
     mantendo proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee em todos os ciclos.
     """
+    if permitir_copa():
+        return montar_ciclo_copa(pool_ml, pool_amazon)
+
     if permitir_misto():
         return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon)
 
@@ -1610,6 +1665,9 @@ def main():
     log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
+    for h in HORARIO_COPA:
+        schedule.every().day.at(h).do(ciclo)
+    log.info(f"📺🇧🇷 Ciclo Copa 2026 (TVs): {chr(44).join(HORARIO_COPA)}")
     log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
     log.info(f"🏠 Ciclo eletrodomésticos (ML+Amazon): {', '.join(HORARIOS_ELETRO)}")
     # Sobe API de histórico em thread separada
