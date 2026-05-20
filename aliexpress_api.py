@@ -300,15 +300,25 @@ def produto_valido(nome):
     return True
 
 
+TINYURL_API_TOKEN = os.getenv("TINYURL_API_TOKEN", "5E6O0b6FW8c5FDRCSjjo1TBl4VO0JtmUwgDgtVr7opF1vCMzdu5NCD1f7T5k")
+
 def encurtar_link(url_longa):
-    """Encurta link usando TinyURL — gratuito, sem API key."""
+    """Encurta link usando TinyURL API v2 com token — sem página de preview."""
     try:
-        r = requests.get(
-            f"https://tinyurl.com/api-create.php?url={url_longa}",
+        r = requests.post(
+            "https://api.tinyurl.com/create",
+            headers={
+                "Authorization": f"Bearer {TINYURL_API_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={"url": url_longa, "domain": "tinyurl.com"},
             timeout=5
         )
-        if r.status_code == 200 and r.text.startswith("https://"):
-            return r.text.strip()
+        if r.status_code == 200:
+            data = r.json()
+            short = data.get("data", {}).get("tiny_url", "")
+            if short.startswith("http"):
+                return short
     except:
         pass
     return url_longa

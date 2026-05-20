@@ -145,15 +145,25 @@ def _is_bloqueado(nome):
     return any(p in nome.lower() for p in PALAVRAS_BLOQUEADAS)
 
 
+TINYURL_API_TOKEN = os.getenv("TINYURL_API_TOKEN", "5E6O0b6FW8c5FDRCSjjo1TBl4VO0JtmUwgDgtVr7opF1vCMzdu5NCD1f7T5k")
+
 def _encurtar_link(url):
-    """Encurta via TinyURL — fallback para link longo se falhar."""
+    """Encurta via TinyURL API v2 com token — sem página de preview."""
     try:
-        r = requests.get(
-            f"https://tinyurl.com/api-create.php?url={requests.utils.quote(url, safe='')}",
+        r = requests.post(
+            "https://api.tinyurl.com/create",
+            headers={
+                "Authorization": f"Bearer {TINYURL_API_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={"url": url, "domain": "tinyurl.com"},
             timeout=8
         )
-        if r.status_code == 200 and r.text.startswith("http"):
-            return r.text.strip()
+        if r.status_code == 200:
+            data = r.json()
+            short = data.get("data", {}).get("tiny_url", "")
+            if short.startswith("http"):
+                return short
     except Exception as e:
         log.warning(f"Amazon TinyURL falhou: {e}")
     return url
