@@ -44,6 +44,11 @@ log = logging.getLogger("OlhaissoTech")
 # ============================================================
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "8258862380:AAGCr--OpycbKXp6KeqJCU1_piyu4kRl4bk")
 TELEGRAM_CHANNEL = os.getenv("TELEGRAM_CHANNEL", "@olhaissotech")
+ADMIN_CHAT_ID    = os.getenv("ADMIN_CHAT_ID", "")  # Seu chat ID pessoal para alertas
+
+# Contador de falhas consecutivas do WhatsApp
+_wa_falhas_consecutivas = 0
+_WA_FALHAS_ALERTA = 3  # Alerta após 3 falhas seguidas
 AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
@@ -457,6 +462,35 @@ def montar_caption(produto):
     return txt
 
 
+def enviar_alerta_admin(mensagem):
+    """Envia mensagem de alerta para o chat pessoal do admin via Telegram."""
+    if not ADMIN_CHAT_ID or not TELEGRAM_TOKEN:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": ADMIN_CHAT_ID, "text": mensagem, "parse_mode": "HTML"},
+            timeout=10
+        )
+    except Exception as e:
+        log.warning(f"Alerta admin falhou: {e}")
+
+
+def checar_evolution():
+    """Verifica se a Evolution API está respondendo antes de tentar postar."""
+    if not EVOLUTION_URL:
+        return False
+    try:
+        r = requests.get(
+            f"{EVOLUTION_URL}/instance/fetchInstances",
+            headers={"apikey": EVOLUTION_APIKEY},
+            timeout=10
+        )
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
+
+
 def postar_telegram(produto, imagem_path):
     caption = montar_caption(produto)
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
@@ -523,9 +557,10 @@ def fazer_upload_imagem(imagem_path):
 
 
 def postar_whatsapp(produto, imagem_path):
-    """Posta no grupo WhatsApp via Evolution API. Falha silenciosa — não afeta o Telegram."""
+    """Posta no grupo WhatsApp via Evolution API. Com retry, timeout 60s e alerta ao admin."""
+    global _wa_falhas_consecutivas
     if not EVOLUTION_URL or not WHATSAPP_GROUP_ID:
-        return
+        return False
 
     try:
         nome    = produto.get("nome", "")
@@ -572,31 +607,60 @@ def postar_whatsapp(produto, imagem_path):
                 "caption": texto,
                 "media": img_url,
             }
-            r = requests.post(
-                f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
-                json=payload, headers=headers, timeout=30
-            )
-            if r.status_code in (200, 201):
-                log.info("✅ WhatsApp postado com imagem!")
-                return
-            log.warning(f"WhatsApp imagem falhou ({r.status_code}), postando só texto...")
+            # Tenta com imagem — até 2 tentativas com timeout 60s
+            for tentativa in range(2):
+                try:
+                    r = requests.post(
+                        f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
+                        json=payload, headers=headers, timeout=60
+                    )
+                    if r.status_code in (200, 201):
+                        log.info("✅ WhatsApp postado com imagem!")
+                        _wa_falhas_consecutivas = 0
+                        return True
+                    log.warning(f"WhatsApp imagem falhou ({r.status_code}) tentativa {tentativa+1}")
+                except Exception as e:
+                    log.warning(f"WhatsApp imagem exceção tentativa {tentativa+1}: {e}")
+                if tentativa == 0:
+                    time.sleep(5)
 
-        # Fallback: posta só o texto sem imagem
+        # Fallback: posta só o texto sem imagem — até 3 tentativas
         payload_txt = {
             "number": WHATSAPP_GROUP_ID,
             "text": texto,
         }
-        r = requests.post(
-            f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}",
-            json=payload_txt, headers=headers, timeout=30
-        )
-        if r.status_code in (200, 201):
-            log.info("✅ WhatsApp postado (só texto)!")
-        else:
-            log.warning(f"WhatsApp texto falhou: {r.text[:150]}")
+        for tentativa in range(3):
+            try:
+                r = requests.post(
+                    f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}",
+                    json=payload_txt, headers=headers, timeout=60
+                )
+                if r.status_code in (200, 201):
+                    log.info("✅ WhatsApp postado (só texto)!")
+                    _wa_falhas_consecutivas = 0
+                    return True
+                log.warning(f"WhatsApp texto falhou ({r.status_code}) tentativa {tentativa+1}: {r.text[:100]}")
+            except Exception as e:
+                log.warning(f"WhatsApp texto exceção tentativa {tentativa+1}: {e}")
+            if tentativa < 2:
+                time.sleep(10)
+
+        # Todas as tentativas falharam
+        _wa_falhas_consecutivas += 1
+        log.error(f"❌ WhatsApp falhou após todas tentativas ({_wa_falhas_consecutivas} ciclos consecutivos)")
+        if _wa_falhas_consecutivas >= _WA_FALHAS_ALERTA:
+            enviar_alerta_admin(
+                f"⚠️ <b>OlhaissoTech — WhatsApp com problemas!</b>\n\n"
+                f"O WhatsApp falhou em <b>{_wa_falhas_consecutivas}</b> ciclos consecutivos.\n"
+                f"Verifique a Evolution API no Railway.\n\n"
+                f"Último produto: {produto.get('nome','?')[:50]}"
+            )
+        return False
 
     except Exception as e:
-        log.warning(f"WhatsApp exceção (ignorada): {e}")
+        log.warning(f"WhatsApp exceção geral: {e}")
+        _wa_falhas_consecutivas += 1
+        return False
 
 def buscar_trends_google():
     try:
@@ -1091,6 +1155,20 @@ def ciclo():
     log.info(f"\n{'='*50}")
     log.info(f"Ciclo — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     limpar_historico_antigo()
+
+    # Health check da Evolution API antes de iniciar
+    if EVOLUTION_URL:
+        evolution_ok = checar_evolution()
+        if not evolution_ok:
+            log.warning("⚠️ Evolution API não responde — WhatsApp pode falhar neste ciclo")
+            enviar_alerta_admin(
+                f"⚠️ <b>OlhaissoTech — Evolution API offline!</b>\n\n"
+                f"A Evolution API não respondeu ao health check antes do ciclo de "
+                f"{datetime.now().strftime('%H:%M')}.\n"
+                f"Posts serão feitos só no Telegram até reconectar."
+            )
+        else:
+            log.info("✅ Evolution API OK")
     if permitir_ciclo_ticket_baixo():
         produtos = montar_pipeline_ticket_baixo()
     else:
@@ -1113,15 +1191,22 @@ def ciclo():
         produto = produtos.pop(0)
         log.info(f"Postando [{produto['score']}pts]: {produto['nome'][:50]}")
         imagem = gerar_imagem(produto)
-        ok = postar_telegram(produto, imagem)
-        if ok:
-            registrar_post(produto)
-            postou += 1
-            log.info("✅ Postado!")
-            postar_whatsapp(produto, imagem)
+        ok_tg = postar_telegram(produto, imagem)
+        if ok_tg:
+            log.info("✅ Telegram OK")
+            ok_wa = postar_whatsapp(produto, imagem)
+            if ok_wa:
+                # WhatsApp OK — registra normalmente
+                registrar_post(produto)
+                postou += 1
+                log.info("✅ Postado! (Telegram + WhatsApp)")
+            else:
+                # WhatsApp falhou — NÃO registra para poder repostar depois
+                log.warning("⚠️ WhatsApp falhou — produto NÃO registrado no banco (será repostado)")
+                postou += 1  # conta como postado para não travar o ciclo
         else:
             registrar_post(produto)
-            log.warning("⏭️ Pulado e registrado (falha de imagem)")
+            log.warning("⏭️ Telegram falhou — registrado para evitar retry infinito")
         time.sleep(10)
 
     log.info(f"Ciclo concluído — {postou} post(s)\n")
