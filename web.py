@@ -1293,9 +1293,9 @@ async function publicarAuto() {
     } else {
       // Amazon — adiciona tag de afiliado se não tiver, depois encurta
       let linkComTag = link;
-      if (!link.includes('olhaissotech-20')) {
+      if (!link.includes('olhaissotec0a-20')) {
         const sep = link.includes('?') ? '&' : '?';
-        linkComTag = link + sep + 'tag=olhaissotech-20';
+        linkComTag = link + sep + 'tag=olhaissotec0a-20';
       }
       loader.textContent = "⏳ Encurtando link Amazon...";
       try {
