@@ -194,9 +194,10 @@ def _buscar_imagem_produto(asin):
                 "url":           url,
                 "x-api-key":     SCRAPINGANT_KEY,
                 "proxy_country": "BR",
-                "browser":       "false",
+                "browser":       "true",  # precisa de JS para carregar imagens
             }
-            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=20)
+            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=45)
+            log.info(f"Amazon imagem ScrapingAnt status={r.status_code} asin={asin}")
         elif ZENROWS_KEY:
             params = {
                 "url":           url,
@@ -213,16 +214,39 @@ def _buscar_imagem_produto(asin):
         if r.status_code != 200:
             return ""
 
-        for pattern in [
+        html = r.text
+        log.info(f"Amazon imagem HTML: {len(html)} chars, status={r.status_code}")
+
+        # Log de diagnóstico — mostra trecho com URL de imagem se existir
+        for kw in ['"hiRes"', '"large"', 'data-old-hires', '"mainUrl"', 'I._AC_', 'images/I/']:
+            idx = html.find(kw)
+            if idx > 0:
+                log.info(f"Amazon imagem hint [{kw}]: ...{html[idx:idx+120]}...")
+                break
+
+        patterns = [
             r'"hiRes":"(https://[^"]+\.jpg)"',
             r'"large":"(https://[^"]+\.jpg)"',
             r'data-old-hires="(https://[^"]+\.jpg)"',
             r'"mainUrl":"(https://[^"]+\.jpg)"',
-        ]:
-            m = re.search(pattern, r.text)
+            r'"url":"(https://m\.media-amazon\.com/images/I/[^"]+\.jpg)"',
+            r'(https://m\.media-amazon\.com/images/I/[A-Za-z0-9%._+\-]+\._AC_[^"<\s]+\.jpg)',
+            r'(https://images-na\.ssl-images-amazon\.com/images/I/[^"<\s]+\.jpg)',
+            r'"src":"(https://[^"]+images/I/[^"]+\.jpg)"',
+            r'data-src="(https://[^"]+images/I/[^"]+\.jpg)"',
+            r'"imageUrl":"(https://[^"]+\.jpg)"',
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, html)
             if m:
-                log.info(f"Amazon imagem via ScrapingAnt: {m.group(1)[:60]}")
-                return m.group(1)
+                url_img = m.group(1)
+                # Ignora imagens pequenas (thumbnails)
+                if any(x in url_img for x in ['._SS', '._SX', '._SY', '._CR', '._SR']):
+                    if not any(x in url_img for x in ['_AC_SL', '_AC_UL', '_AC_SX3', '_AC_SX4', '_AC_SX5']):
+                        continue
+                log.info(f"Amazon imagem encontrada [{pattern[:30]}]: {url_img[:80]}")
+                return url_img
+        log.warning("Amazon imagem: nenhum pattern encontrou imagem válida")
     except Exception as e:
         log.warning(f"Amazon imagem erro: {e}")
     return ""
