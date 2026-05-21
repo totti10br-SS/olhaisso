@@ -8,7 +8,7 @@ from html.parser import HTMLParser
 
 log = logging.getLogger(__name__)
 
-AMAZON_TAG     = os.getenv("AMAZON_TAG", "olhaissotech-20")
+AMAZON_TAG     = os.getenv("AMAZON_TAG", "olhaissotec0a-20")
 PRECO_MAXIMO   = float(os.getenv("PRECO_MAXIMO", 3000))
 SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
 ZENROWS_KEY     = os.getenv("ZENROWS_KEY", "")      # fallback
