@@ -127,11 +127,25 @@ ALIEXPRESS_APP_SECRET = "ubsjVAWmokbBynXv0uYsQz2PJSwsshXP"
 ALIEXPRESS_TRACKING   = "default"
 
 
+TINYURL_API_TOKEN = os.getenv("TINYURL_API_TOKEN", "5E6O0b6FW8c5FDRCSjjo1TBl4VO0JtmUwgDgtVr7opF1vCMzdu5NCD1f7T5k")
+
 def encurtar_link(url_longa):
+    """Encurta via TinyURL API v2 com token."""
     try:
-        r = requests.get(f"https://tinyurl.com/api-create.php?url={url_longa}", timeout=5)
-        if r.status_code == 200 and r.text.startswith("https://"):
-            return r.text.strip()
+        r = requests.post(
+            "https://api.tinyurl.com/create",
+            headers={
+                "Authorization": f"Bearer {TINYURL_API_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={"url": url_longa, "domain": "tinyurl.com"},
+            timeout=8
+        )
+        if r.status_code == 200:
+            data = r.json()
+            short = data.get("data", {}).get("tiny_url", "")
+            if short.startswith("http"):
+                return short
     except:
         pass
     return url_longa
@@ -1926,12 +1940,19 @@ def encurtar_link():
     if not url_original:
         return jsonify({"ok": False, "erro": "URL vazia"})
     try:
-        r = requests.get(
-            f"https://tinyurl.com/api-create.php?url={requests.utils.quote(url_original, safe='')}",
+        r = requests.post(
+            "https://api.tinyurl.com/create",
+            headers={
+                "Authorization": f"Bearer {TINYURL_API_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={"url": url_original, "domain": "tinyurl.com"},
             timeout=10
         )
-        if r.status_code == 200 and r.text.startswith("http"):
-            return jsonify({"ok": True, "link": r.text.strip()})
+        if r.status_code == 200:
+            short = r.json().get("data", {}).get("tiny_url", "")
+            if short.startswith("http"):
+                return jsonify({"ok": True, "link": short})
         return jsonify({"ok": False, "erro": "TinyURL falhou", "link": url_original})
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e), "link": url_original})

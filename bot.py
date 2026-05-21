@@ -580,6 +580,15 @@ def postar_whatsapp(produto, imagem_path):
         loja    = produto.get("loja", "")
         img_url = produto.get("imagem_url", "")
 
+        # Para Amazon: busca imagem on-demand (igual ao Telegram)
+        if not img_url and loja == "AMAZON":
+            try:
+                img_url = buscar_imagem_amazon(produto)
+                if img_url:
+                    produto["imagem_url"] = img_url
+            except Exception as e:
+                log.warning(f"WhatsApp Amazon imagem on-demand erro: {e}")
+
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
         _sc = produto.get("score", 0)
         if produto.get("copa_2026", False):
