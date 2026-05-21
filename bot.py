@@ -582,7 +582,16 @@ def postar_whatsapp(produto, imagem_path):
 
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
         _sc = produto.get("score", 0)
-        badge = "🤑 Momento BOM e BARATO" if produto.get("ticket_baixo", False) else ("🔥 VIRAL AGORA" if _sc >= 3 else "📈 TENDÊNCIA" if _sc == 2 else "💰 OFERTA DO DIA")
+        if produto.get("copa_2026", False):
+            badge = "📺🇧🇷⚽ MOMENTO TVS — COPA 2026!"
+        elif produto.get("ticket_baixo", False):
+            badge = "🤑 Momento BOM e BARATO"
+        elif _sc >= 3:
+            badge = "🔥 VIRAL AGORA"
+        elif _sc == 2:
+            badge = "📈 TENDÊNCIA"
+        else:
+            badge = "💰 OFERTA DO DIA"
 
         def fmt(v):
             return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -1447,7 +1456,16 @@ def postar_whatsapp_custom(produto, imagem_path, group_id):
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee",
                       "AMAZON": "📦 Amazon", "MERCADOLIVRE": "🟡 Mercado Livre"}.get(loja, loja)
         _sc = produto.get("score", 0)
-        badge = "🤑 Momento BOM e BARATO" if produto.get("ticket_baixo", False) else ("🔥 VIRAL AGORA" if _sc >= 3 else "📈 TENDÊNCIA" if _sc == 2 else "💰 OFERTA DO DIA")
+        if produto.get("copa_2026", False):
+            badge = "📺🇧🇷⚽ MOMENTO TVS — COPA 2026!"
+        elif produto.get("ticket_baixo", False):
+            badge = "🤑 Momento BOM e BARATO"
+        elif _sc >= 3:
+            badge = "🔥 VIRAL AGORA"
+        elif _sc == 2:
+            badge = "📈 TENDÊNCIA"
+        else:
+            badge = "💰 OFERTA DO DIA"
         def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         texto  = f"👀 *OlhaissO* — {badge}\n"
         texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
