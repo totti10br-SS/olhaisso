@@ -194,7 +194,7 @@ def _buscar_imagem_produto(asin):
                 "url":           url,
                 "x-api-key":     SCRAPINGANT_KEY,
                 "proxy_country": "BR",
-                "browser":       "true",  # precisa de JS para carregar imagens
+                "browser":       "false",
             }
             r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=45)
             log.info(f"Amazon imagem ScrapingAnt status={r.status_code} asin={asin}")
