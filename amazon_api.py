@@ -190,13 +190,15 @@ def _buscar_imagem_produto(asin):
         url = f"https://www.amazon.com.br/dp/{asin}"
 
         if SCRAPINGANT_KEY:
+            # browser=true necessário para página de produto Amazon (mais protegida que best sellers)
             params = {
                 "url":           url,
                 "x-api-key":     SCRAPINGANT_KEY,
                 "proxy_country": "BR",
-                "browser":       "false",
+                "browser":       "true",
+                "wait":          "1000",
             }
-            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=45)
+            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
             log.info(f"Amazon imagem ScrapingAnt status={r.status_code} asin={asin}")
         elif ZENROWS_KEY:
             params = {
