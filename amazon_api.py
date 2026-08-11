@@ -305,7 +305,16 @@ def buscar_todos_produtos():
                     idx = html.find(asin)
                     if idx > 0:
                         trecho = html[max(0, idx-2000):idx+2000]
+                        # Log diagnóstico — ver o que tem perto do ASIN
+                        img_idx = trecho.find("media-amazon.com/images/I/")
+                        if img_idx > 0:
+                            log.info(f"Amazon imagem trecho [{asin}]: ...{trecho[img_idx:img_idx+150]}...")
+                        else:
+                            log.warning(f"Amazon imagem: nenhuma URL de imagem no trecho do ASIN {asin}")
                         m_img = re.search(r"https://m[.]media-amazon[.]com/images/I/[A-Za-z0-9%._+\-]{10,}[.]_AC_[^<\s]{5,}[.]jpg", trecho)
+                        if not m_img:
+                            # Tenta pattern mais permissivo
+                            m_img = re.search(r"https://m[.]media-amazon[.]com/images/I/[A-Za-z0-9%._+\-]{10,}[.][A-Za-z0-9_,]{3,}[.]jpg", trecho)
                         if m_img:
                             imagem_url = m_img.group(0)
                 if imagem_url:
