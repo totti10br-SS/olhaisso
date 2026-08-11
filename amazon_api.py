@@ -70,14 +70,6 @@ class AmazonParser(HTMLParser):
             self._in_title = True
         if "p13n-sc-price" in cls or "_cDEzb_p13n-sc-price" in cls:
             self._in_price = True
-        # Captura imagem do produto direto na página de best sellers
-        if tag == "img":
-            src = attrs_dict.get("src", "")
-            if "media-amazon.com/images/I/" in src and "imagem" not in self._current:
-                # Ignora imagens muito pequenas (ícones/thumbnails)
-                skip = ["._SS40_", "._SS36_", "._SS35_", "._US40_", "._AC_US40_", "._AC_US60_", "sprite"]
-                if not any(s in src for s in skip):
-                    self._current["imagem"] = src
 
     def handle_data(self, data):
         data = data.strip()
@@ -178,24 +170,15 @@ def _encurtar_link(url):
 
 
 def buscar_imagem_amazon(produto):
-    """Retorna imagem do produto Amazon.
-    Prioridade 1: imagem já capturada da página de best sellers (sem custo extra).
-    Prioridade 2: busca na página do produto via ScrapingAnt (fallback).
-    """
-    # Já tem imagem capturada do best sellers — usa direto
-    if produto.get("imagem_url", ""):
-        log.info(f"Amazon imagem já disponível: {produto['imagem_url'][:60]}")
-        return produto["imagem_url"]
-
-    # Fallback: busca na página do produto
+    """Busca imagem real do produto Amazon — chamar só na hora de postar."""
     asin = produto.get("asin", "")
     if not asin:
+        # Tenta extrair do link
         m = re.search(r"/dp/([A-Z0-9]{10})", produto.get("link_afiliado", ""))
         if m:
             asin = m.group(1)
     if not asin:
         return ""
-    log.info(f"Amazon imagem fallback ScrapingAnt para {asin}")
     return _buscar_imagem_produto(asin)
 
 
@@ -316,10 +299,17 @@ def buscar_todos_produtos():
                 else:
                     log.info(f"Amazon: ASIN real {asin} → {nome[:40]}")
 
-                # Usa imagem capturada direto da página de best sellers (sem segunda chamada)
+                # Tenta capturar imagem do HTML do best sellers (via parser ou regex)
                 imagem_url = item.get("imagem", "")
+                if not imagem_url and asin and html:
+                    idx = html.find(asin)
+                    if idx > 0:
+                        trecho = html[max(0, idx-2000):idx+2000]
+                        m_img = re.search(r"https://m[.]media-amazon[.]com/images/I/[A-Za-z0-9%._+\-]{10,}[.]_AC_[^<\s]{5,}[.]jpg", trecho)
+                        if m_img:
+                            imagem_url = m_img.group(0)
                 if imagem_url:
-                    log.info(f"Amazon imagem do best seller: {imagem_url[:60]}")
+                    log.info(f"Amazon imagem best seller: {imagem_url[:60]}")
 
                 produtos.append({
                     "nome":           nome,
@@ -329,7 +319,7 @@ def buscar_todos_produtos():
                     "loja":           "AMAZON",
                     "frete":          "✅ Frete grátis Prime",
                     "link_afiliado":  _encurtar_link(f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}"),
-                    "imagem_url":     imagem_url,  # capturada direto do best sellers, sem chamada extra
+                    "imagem_url":     imagem_url,
                     "asin":           asin,
                     "score":          1,
                     "fontes":         ["amazon"],
