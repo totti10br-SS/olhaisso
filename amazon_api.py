@@ -217,12 +217,14 @@ def _buscar_imagem_produto(asin):
         html = r.text
         log.info(f"Amazon imagem HTML: {len(html)} chars, status={r.status_code}")
 
-        # Log de diagnóstico — mostra trecho com URL de imagem se existir
-        for kw in ['"hiRes"', '"large"', 'data-old-hires', '"mainUrl"', 'I._AC_', 'images/I/']:
+        # Log de diagnóstico expandido
+        for kw in ['"hiRes"', '"large"', 'data-old-hires', '"mainUrl"', 'I._AC_', 'images/I/', '"colorImages"', 'landingImage']:
             idx = html.find(kw)
             if idx > 0:
-                log.info(f"Amazon imagem hint [{kw}]: ...{html[idx:idx+120]}...")
+                log.info(f"Amazon imagem hint [{kw}]: ...{html[idx:idx+200]}...")
                 break
+        else:
+            log.warning(f"Amazon imagem: nenhuma keyword encontrada no HTML ({len(html)} chars)")
 
         patterns = [
             r'"hiRes":"(https://[^"]+\.jpg)"',
@@ -230,21 +232,27 @@ def _buscar_imagem_produto(asin):
             r'data-old-hires="(https://[^"]+\.jpg)"',
             r'"mainUrl":"(https://[^"]+\.jpg)"',
             r'"url":"(https://m\.media-amazon\.com/images/I/[^"]+\.jpg)"',
-            r'(https://m\.media-amazon\.com/images/I/[A-Za-z0-9%._+\-]+\._AC_[^"<\s]+\.jpg)',
-            r'(https://images-na\.ssl-images-amazon\.com/images/I/[^"<\s]+\.jpg)',
             r'"src":"(https://[^"]+images/I/[^"]+\.jpg)"',
             r'data-src="(https://[^"]+images/I/[^"]+\.jpg)"',
             r'"imageUrl":"(https://[^"]+\.jpg)"',
+            r'id="landingImage"[^>]+src="(https://[^"]+)"',
+            r'id="imgBlkFront"[^>]+src="(https://[^"]+)"',
+            r'"colorImages":\s*\{[^}]*"initial":\s*\[[^\]]*"hiRes":"(https://[^"]+\.jpg)"',
+            r'(https://m\.media-amazon\.com/images/I/[A-Za-z0-9%._+\-]{10,}\._AC_SL[0-9]+_\.jpg)',
+            r'(https://m\.media-amazon\.com/images/I/[A-Za-z0-9%._+\-]{10,}\._AC_UL[0-9]+_\.jpg)',
+            r'(https://images-na\.ssl-images-amazon\.com/images/I/[^"<\s]+\.jpg)',
         ]
         for pattern in patterns:
             m = re.search(pattern, html)
             if m:
                 url_img = m.group(1)
-                # Ignora imagens pequenas (thumbnails)
-                if any(x in url_img for x in ['._SS', '._SX', '._SY', '._CR', '._SR']):
-                    if not any(x in url_img for x in ['_AC_SL', '_AC_UL', '_AC_SX3', '_AC_SX4', '_AC_SX5']):
-                        continue
-                log.info(f"Amazon imagem encontrada [{pattern[:30]}]: {url_img[:80]}")
+                # Ignora imagens muito pequenas
+                skip = ['._SS40_', '._SS36_', '._SS35_', '._US40_', '._AC_US40_', '._AC_US60_']
+                if any(x in url_img for x in skip):
+                    continue
+                if not url_img.startswith("http"):
+                    continue
+                log.info(f"Amazon imagem encontrada [{pattern[:35]}]: {url_img[:80]}")
                 return url_img
         log.warning("Amazon imagem: nenhum pattern encontrou imagem válida")
     except Exception as e:
