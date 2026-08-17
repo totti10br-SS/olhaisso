@@ -283,37 +283,32 @@ def processar_item(item):
                 preco      = float(curr.get("value", 0) or 0)
                 preco_orig = float(prev.get("value", 0) or 0)
 
-                # Novo formato ML: preco original em price_labels
+                # Novo formato ML: preco original em price_labels -> values -> price -> value
                 if preco_orig == 0:
                     for lbl in cdata.get("price_labels", []):
                         if "previous_price" in lbl.get("text", ""):
                             for v in lbl.get("values", []):
                                 if v.get("key") == "previous_price":
-                                    if not getattr(processar_item, "_price_diag", False):
-                                        processar_item._price_diag = True
-                                        log(f"  ML PRICE DIAG: {v}")
-                                    for campo in ["amount", "value", "price", "fraction"]:
-                                        try:
-                                            val = float(v.get(campo, 0) or 0)
-                                            if val > 0:
-                                                preco_orig = val
-                                                break
-                                        except:
-                                            pass
+                                    try:
+                                        preco_orig = float(v.get("price", {}).get("value", 0) or 0)
+                                    except:
+                                        pass
                                     break
+                            break
 
-                # Tenta discount_polylabel como fallback
-                if preco_orig == 0:
+                # Fallback: discount_polylabel tem o percentual de desconto
+                if preco_orig == 0 and preco > 0:
                     import re as _re
                     dpoly = cdata.get("discount_polylabel", {}) or {}
                     disc_txt = str(dpoly.get("text", "") or "")
                     m_disc = _re.search(r"(\d+)", disc_txt)
                     if m_disc:
                         disc_pct = int(m_disc.group(1))
-                        if 5 <= disc_pct <= 90 and preco > 0:
+                        if 5 <= disc_pct <= 90:
                             preco_orig = round(preco / (1 - disc_pct / 100), 2)
 
-                log(f"  -> PRICE: curr={preco} orig={preco_orig} cdata_keys={list(cdata.keys())[:5]}")
+                log(f"  -> PRICE: curr={preco} orig={preco_orig}")
+
             elif ctype == "shipping":
                 frete_txt_comp = cdata.get("text", "")
                 if "grátis" in frete_txt_comp.lower() or "gratis" in frete_txt_comp.lower():
