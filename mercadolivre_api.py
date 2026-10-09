@@ -647,19 +647,61 @@ _ML_API_CATEGORIAS = [
 ]
 
 def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50):
-    """Busca produtos via API pública do ML (sem scraping, sem CAPTCHA)."""
+    """Busca produtos via API pública do ML via ScrapingAnt (mascara IP do Railway)."""
     desc_min = desconto_min if desconto_min is not None else DESCONTO_MINIMO
-    url = (
+    api_url = (
         f"https://api.mercadolibre.com/sites/MLB/search"
         f"?category={category_id}&sort=price_desc&limit={limit}"
     )
+
+    # Tenta direto primeiro (caso o Railway não esteja bloqueado)
+    raw_json = None
     try:
-        r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code != 200:
-            log(f"  ML API {nome_cat}: HTTP {r.status_code}")
-            return []
-        data = r.json()
-        results = data.get("results", [])
+        r = requests.get(api_url, timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+        })
+        if r.status_code == 200:
+            raw_json = r.text
+        else:
+            log(f"  ML API {nome_cat}: direto HTTP {r.status_code} — tentando via ScrapingAnt...")
+    except Exception as e:
+        log(f"  ML API {nome_cat}: direto erro {e} — tentando via ScrapingAnt...")
+
+    # Se direto falhou, usa ScrapingAnt para mascarar IP (browser=false é suficiente para API JSON)
+    if raw_json is None and SCRAPINGANT_KEY:
+        try:
+            params = {
+                "url": api_url,
+                "x-api-key": SCRAPINGANT_KEY,
+                "browser": "false",
+                "proxy_country": "BR",
+            }
+            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
+            log(f"  ML API {nome_cat}: ScrapingAnt BR {r.status_code}")
+            if r.status_code == 200 and r.text.strip().startswith("{"):
+                raw_json = r.text
+            elif r.status_code not in (401, 402, 403):
+                # Tenta US
+                params["proxy_country"] = "US"
+                r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
+                log(f"  ML API {nome_cat}: ScrapingAnt US {r.status_code}")
+                if r.status_code == 200 and r.text.strip().startswith("{"):
+                    raw_json = r.text
+        except Exception as e:
+            log(f"  ML API {nome_cat}: ScrapingAnt erro {e}")
+
+    if raw_json is None:
+        log(f"  ML API {nome_cat}: sem resposta válida")
+        return []
+
+    try:
+        data = json.loads(raw_json)
+    except Exception as e:
+        log(f"  ML API {nome_cat}: JSON parse erro {e} | início: {raw_json[:100]}")
+        return []
+
+    results = data.get("results", [])
         produtos = []
         for item in results:
             try:
