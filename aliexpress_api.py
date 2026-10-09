@@ -367,6 +367,16 @@ def buscar_produtos_aliexpress(keyword, limit=10, _log_erro=True):
                 if r.status_code != 200:
                     if _log_erro:
                         print(f"AliExpress HTTP {r.status_code} [{endpoint[-20:]}]")
+                    # 405 no api-eu = endpoint não aceita POST com esses params — pula este endpoint inteiro
+                    if r.status_code == 405:
+                        break  # sai do loop de sorts, tenta próximo endpoint
+                    continue
+
+                # Verifica se a resposta é JSON válido antes de parsear
+                content_type = r.headers.get("Content-Type", "")
+                if "json" not in content_type and not r.text.strip().startswith("{"):
+                    if _log_erro:
+                        print(f"AliExpress resposta não-JSON [{endpoint[-20:]}]: {r.text[:80]}")
                     continue
 
                 data = r.json()

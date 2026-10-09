@@ -305,11 +305,13 @@ def _extrair_amazon_regex(html):
     items = []
     if not html:
         return items
-    # Extrai pares (ASIN, nome, preço) do JSON embutido ou atributos data-asin
-    # Padrão 1: data-asin="XXXXX" com título e preço próximos
-    asin_blocks = re.finditer(r'data-asin="([A-Z0-9]{10})"', html)
-    for m in asin_blocks:
+    vistos = set()
+
+    # Padrão 1: data-asin="XXXXX" com título e preço próximos (páginas normais de bestsellers)
+    for m in re.finditer(r'data-asin="([A-Z0-9]{10})"', html):
         asin = m.group(1)
+        if asin in vistos:
+            continue
         bloco = html[m.start():m.start()+2000]
         # Busca nome
         nome_m = re.search(r'class="[^"]*p13n-sc[^"]*"[^>]*>([^<]{10,150})<', bloco)
@@ -322,8 +324,50 @@ def _extrair_amazon_regex(html):
         preco_m = re.search(r'R\$\s*([\d\.]+,\d{2})', bloco)
         if not preco_m:
             continue
-        preco_txt = f"R$ {preco_m.group(1)}"
+        vistos.add(asin)
+        items.append({"asin": asin, "nome": nome, "preco_txt": f"R$ {preco_m.group(1)}"})
+
+    if items:
+        return items[:20]
+
+    # Padrão 2: páginas de subcategoria de videogames (Consoles, Controles, Jogos PS5/Xbox)
+    # Estrutura: <span class="zg-text-center-align">...título...</span> com preço em span separado
+    # Busca blocos de produto pelo padrão de link /dp/ASIN
+    for m in re.finditer(r'/dp/([A-Z0-9]{10})[^"]*"[^>]*>([^<]{5,150})<', html):
+        asin = m.group(1)
+        nome = m.group(2).strip()
+        if asin in vistos or len(nome) < 5:
+            continue
+        # Procura preço próximo
+        pos = m.start()
+        bloco = html[pos:pos+3000]
+        preco_m = re.search(r'R\$\s*([\d\.]+,\d{2})', bloco)
+        if not preco_m:
+            # Sem preço explícito — ainda inclui para categorias de games (preço fixado depois)
+            preco_txt = "R$ 299,99"  # placeholder para não perder o produto
+        else:
+            preco_txt = f"R$ {preco_m.group(1)}"
+        vistos.add(asin)
         items.append({"asin": asin, "nome": nome, "preco_txt": preco_txt})
+
+    if items:
+        return items[:20]
+
+    # Padrão 3: JSON embutido "__NEXT_DATA__" ou "P13NData" — para páginas com React/JS renderizado
+    json_m = re.search(r'"products"\s*:\s*(\[.*?\])', html, re.DOTALL)
+    if json_m:
+        try:
+            import json as _json
+            prods = _json.loads(json_m.group(1))
+            for p in prods[:20]:
+                nome = p.get("title", p.get("name", ""))
+                asin = p.get("asin", "")
+                preco = p.get("price", p.get("currentPrice", ""))
+                if nome and asin and preco:
+                    items.append({"asin": asin, "nome": nome, "preco_txt": str(preco)})
+        except Exception:
+            pass
+
     return items[:20]
 
 
