@@ -95,9 +95,6 @@ PALAVRAS_TECH = [
     "camera", "webcam", "impressora",
     "carregador", "cabo usb", "hub usb", "adaptador",
     "controle", "joystick", "videogame", "playstation", "xbox", "nintendo",
-    "ps5", "ps4", "dualsense", "dual sense", "switch 2", "switch2",
-    "jogo ps5", "jogo xbox", "jogo nintendo", "game ps5", "game xbox",
-    "headset gamer", "fone gamer", "console gamer",
     "smartwatch", "relogio inteligente",
     "drone", "gopro", "action cam",
     "power bank", "nobreak", "estabilizador",
@@ -128,60 +125,33 @@ def gerar_link_afiliado(url):
     return f"{url}{separador}matt_tool={ML_PUBLISHER_ID}"
 
 
-TINYURL_API_TOKEN = os.getenv("TINYURL_API_TOKEN", "5E6O0b6FW8c5FDRCSjjo1TBl4VO0JtmUwgDgtVr7opF1vCMzdu5NCD1f7T5k")
-
 def encurtar_link(url_longa):
     try:
-        r = requests.post(
-            "https://api.tinyurl.com/create",
-            headers={
-                "Authorization": f"Bearer {TINYURL_API_TOKEN}",
-                "Content-Type": "application/json",
-            },
-            json={"url": url_longa, "domain": "tinyurl.com"},
-            timeout=8,
-        )
-        if r.status_code == 200:
-            short = r.json().get("data", {}).get("tiny_url", "")
-            if short.startswith("http"):
-                return short
+        r = requests.get(f"https://tinyurl.com/api-create.php?url={url_longa}", timeout=5)
+        if r.status_code == 200 and r.text.startswith("https://"):
+            return r.text.strip()
     except:
         pass
     return url_longa
 
 
 def scraper_fetch(url):
-    # ScrapingAnt — tenta browser=false primeiro (mais barato);
-    # se HTML vier pequeno (<80KB) sem JSON de produtos, tenta browser=true
+    # ScrapingAnt
     if SCRAPINGANT_KEY:
-        for browser_mode in ["false", "true"]:
-            try:
-                params = {
-                    "url":           url,
-                    "x-api-key":     SCRAPINGANT_KEY,
-                    "proxy_country": "BR",
-                    "browser":       browser_mode,
-                }
-                r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
-                log(f"  ScrapingAnt browser={browser_mode} {r.status_code} → {url[:60]}")
-                if r.status_code != 200:
-                    log(f"  ScrapingAnt erro: {r.text[:100]}")
-                    break  # erro de auth/quota — não tenta de novo
-                html = r.text
-                # Se HTML veio grande O SUFICIENTE ou tem JSON de produtos, retorna
-                if len(html) > 80000:
-                    return html
-                # Verifica se tem JSON de produtos no HTML pequeno
-                tem_json = any(f'"{k}":[{{' in html for k in ["results","items","elements","offers","products","deals"])
-                if tem_json:
-                    return html
-                if browser_mode == "false":
-                    log(f"  ScrapingAnt browser=false retornou HTML pequeno ({len(html)} chars) — tentando browser=true")
-                    continue
-                return html  # browser=true — retorna o que tiver
-            except Exception as e:
-                log(f"  ScrapingAnt erro: {e}")
-                break
+        try:
+            params = {
+                "url":           url,
+                "x-api-key":     SCRAPINGANT_KEY,
+                "proxy_country": "BR",
+                "browser":       "false",
+            }
+            r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
+            log(f"  ScrapingAnt {r.status_code} → {url[:60]}")
+            if r.status_code == 200:
+                return r.text
+            log(f"  ScrapingAnt erro: {r.text[:100]}")
+        except Exception as e:
+            log(f"  ScrapingAnt erro: {e}")
 
     # Fallback ZenRows
     if ZENROWS_KEY:
@@ -222,81 +192,35 @@ def scraper_fetch(url):
     return None
 
 
-def _extrair_lista_json(html, chave):
-    """Tenta extrair lista JSON pela chave dentro do HTML."""
-    idx = html.find(f'"{chave}":[{{')
-    if idx == -1:
-        idx = html.find(f'"{chave}": [{{')
-    if idx == -1:
-        return []
-    start = html.find('[', idx)
-    if start == -1:
-        return []
-    depth = 0
-    end = start
-    for i, c in enumerate(html[start:], start):
-        if c == '[': depth += 1
-        elif c == ']':
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-        if i - start > 500000:
-            break
-    try:
-        data = json.loads(html[start:end])
-        if isinstance(data, list) and len(data) > 0:
-            return data
-    except Exception:
-        pass
-    return []
-
-
 def extrair_produtos_html(html):
     if not html:
         return []
     log(f"  -> HTML: {len(html)} chars")
-
-    # Tenta múltiplas chaves candidatas — ML muda o formato com frequência
-    CHAVES_CANDIDATAS = [
-        "results", "items", "elements", "offers", "products",
-        "searchResults", "itemsList", "deals", "promotions",
-    ]
-    for chave in CHAVES_CANDIDATAS:
-        data = _extrair_lista_json(html, chave)
-        if data:
-            log(f"  -> {len(data)} itens extraídos (chave: '{chave}')")
+    try:
+        idx = html.find('"results":[{')
+        if idx == -1:
+            idx = html.find('"items":[{')
+        if idx == -1:
+            log("  -> JSON não encontrado")
+            return []
+        start = html.rfind('[', 0, idx + 15)
+        depth = 0
+        end = start
+        for i, c in enumerate(html[start:], start):
+            if c == '[': depth += 1
+            elif c == ']':
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+            if i - start > 500000:
+                break
+        data = json.loads(html[start:end])
+        if isinstance(data, list) and len(data) > 0:
+            log(f"  -> {len(data)} itens extraídos")
             return data
-
-    # Fallback: procura qualquer lista grande de objetos com campo "card" ou "title"
-    for kw in ['"card":{', '"card": {', '"title":{', '"title": {']:
-        idx = html.find(kw)
-        if idx > 0:
-            # Acha o array pai
-            start = html.rfind('[', 0, idx)
-            if start > 0:
-                depth = 0
-                end = start
-                for i, c in enumerate(html[start:], start):
-                    if c == '[': depth += 1
-                    elif c == ']':
-                        depth -= 1
-                        if depth == 0:
-                            end = i + 1
-                            break
-                    if i - start > 500000:
-                        break
-                try:
-                    data = json.loads(html[start:end])
-                    if isinstance(data, list) and len(data) > 0:
-                        log(f"  -> {len(data)} itens extraídos (fallback kw: '{kw}')")
-                        return data
-                except Exception:
-                    pass
-
-    # Debug: mostra quais chaves JSON existem no HTML para diagnóstico
-    chaves_encontradas = set(re.findall(r'"(\w+)":\s*\[', html))
-    log(f"  -> JSON não encontrado. Chaves disponíveis: {sorted(chaves_encontradas)[:30]}")
+    except Exception as e:
+        log(f"  -> Erro JSON: {e}")
     return []
 
 
@@ -469,10 +393,7 @@ def buscar_todos_produtos():
     vistos  = set()
     total_bruto = 0
 
-    # Garante que Video Games (MLB1039) sempre entra — resto sorteia
-    url_games   = [(u, n) for u, n in URLS_BUSCA if "MLB1039" in u]
-    url_outros  = [(u, n) for u, n in URLS_BUSCA if "MLB1039" not in u]
-    urls = url_games + random.sample(url_outros, min(3, len(url_outros)))
+    urls = random.sample(URLS_BUSCA, min(4, len(URLS_BUSCA)))
 
     for url, nome in urls:
         try:

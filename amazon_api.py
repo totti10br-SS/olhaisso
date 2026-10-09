@@ -24,12 +24,7 @@ CATEGORIAS = [
     ("Placas de Vídeo p2",    "https://www.amazon.com.br/gp/bestsellers/computers/16364811011/ref=zg_bs_pg_2_computers?ie=UTF8&pg=2"),
     ("Informática p1",        "https://www.amazon.com.br/gp/bestsellers/computers/ref=zg_bs_pg_1_computers?ie=UTF8&pg=1"),
     ("Informática p2",        "https://www.amazon.com.br/gp/bestsellers/computers/ref=zg_bs_pg_2_computers?ie=UTF8&pg=2"),
-    ("Games p1",              "https://www.amazon.com.br/gp/bestsellers/videogames/ref=zg_bs_pg_1?ie=UTF8&pg=1"),
-    ("Games p2",              "https://www.amazon.com.br/gp/bestsellers/videogames/ref=zg_bs_pg_2?ie=UTF8&pg=2"),
-    ("Consoles",              "https://www.amazon.com.br/gp/bestsellers/videogames/119698011"),
-    ("Controles",             "https://www.amazon.com.br/gp/bestsellers/videogames/119700011"),
-    ("Jogos PS5",             "https://www.amazon.com.br/gp/bestsellers/videogames/7481728011"),
-    ("Jogos Xbox",            "https://www.amazon.com.br/gp/bestsellers/videogames/7481730011"),
+    ("Games",                 "https://www.amazon.com.br/gp/bestsellers/videogames"),
     ("Eletrodomésticos",      "https://www.amazon.com.br/gp/bestsellers/kitchen"),
     ("Áudio e Fones",         "https://www.amazon.com.br/gp/bestsellers/electronics/16244120011"),
     # Produtos em Alta
@@ -304,7 +299,6 @@ def buscar_todos_produtos():
                 else:
                     log.info(f"Amazon: ASIN real {asin} → {nome[:40]}")
 
-                _is_game_cat = any(g in nome_cat.lower() for g in ["games", "consoles", "controles", "jogos"])
                 produtos.append({
                     "nome":           nome,
                     "preco":          preco,
@@ -318,7 +312,6 @@ def buscar_todos_produtos():
                     "score":          1,
                     "fontes":         ["amazon"],
                     "categoria":      nome_cat,
-                    "categoria_games": _is_game_cat,
                 })
             log.info(f"Amazon [{nome_cat}]: {len(parser.items)} brutos → {len(produtos)} acumulados")
             time.sleep(2)
@@ -372,7 +365,6 @@ def buscar_profundo():
                 asin = item.get("asin", "")
                 if not asin:
                     asin = hashlib.md5(nome.encode()).hexdigest()[:10].upper()
-                _is_game_cat = any(g in nome_cat.lower() for g in ["games", "consoles", "controles", "jogos"])
                 produtos.append({
                     "nome":           nome,
                     "preco":          preco,
@@ -386,7 +378,6 @@ def buscar_profundo():
                     "score":          1,
                     "fontes":         ["amazon"],
                     "categoria":      nome_cat,
-                    "categoria_games": _is_game_cat,
                 })
             time.sleep(1)
         except Exception as e:
