@@ -647,49 +647,8 @@ _ML_API_CATEGORIAS = [
 ]
 
 def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50):
-    """Stub — não usada quando API pública desativada."""
+    """Stub — não usada."""
     return []
-        produtos = []
-        for item in results:
-            try:
-                nome = item.get("title", "").strip()
-                preco = float(item.get("price") or 0)
-                preco_orig = float(item.get("original_price") or 0)
-                url_prod = item.get("permalink", "")
-                imagem = item.get("thumbnail", "").replace("I.jpg", "O.jpg")  # imagem maior
-                if not nome or not url_prod or preco <= 0:
-                    continue
-                if not produto_valido(nome):
-                    continue
-                if not produto_e_tech(nome):
-                    continue
-                if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
-                    continue
-                if preco_orig <= 0 or preco_orig <= preco:
-                    continue
-                desconto = int(round((1 - preco / preco_orig) * 100))
-                if desconto < desc_min:
-                    continue
-                link_curto = encurtar_link(gerar_link_afiliado(url_prod))
-                log(f"  ✅ [API] {nome[:45]} | R${preco} | {desconto}%")
-                produtos.append({
-                    "nome":           nome,
-                    "preco":          round(preco, 2),
-                    "preco_original": round(preco_orig, 2),
-                    "desconto":       desconto,
-                    "loja":           "MERCADOLIVRE",
-                    "frete":          "🚚 Frete a calcular",
-                    "link_afiliado":  link_curto,
-                    "imagem_url":     imagem,
-                    "score":          1,
-                    "fontes":         ["mercadolivre"],
-                })
-            except Exception as e:
-                continue
-        return produtos
-    except Exception as e:
-        log(f"  ML API {nome_cat} erro: {e}")
-        return []
 
 
 def buscar_todos_produtos():
