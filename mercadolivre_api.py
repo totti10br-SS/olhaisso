@@ -731,23 +731,6 @@ def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50)
 
 
 def buscar_todos_produtos():
-    # Tenta API JSON do ML via ScrapingAnt (sem CAPTCHA — API REST não usa bot-detect)
-    if SCRAPINGANT_KEY:
-        log("ML API JSON: iniciando busca via ScrapingAnt...")
-        todos_api = []
-        vistos_api = set()
-        for cat_id, cat_nome in _ML_API_CATEGORIAS:
-            prods = _buscar_ml_api_categoria(cat_id, cat_nome)
-            for p in prods:
-                chave = hashlib.md5(p["nome"].encode()).hexdigest()
-                if chave not in vistos_api:
-                    vistos_api.add(chave)
-                    todos_api.append(p)
-        if todos_api:
-            log(f"ML API JSON: {len(todos_api)} produtos válidos")
-            return todos_api
-        log("ML API JSON: 0 produtos — tentando scraping do site...")
-
     if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
         log("ML: nenhuma chave de scraping configurada")
         return []
@@ -762,10 +745,20 @@ def buscar_todos_produtos():
     url_outros = [(u, n) for u, n in URLS_BUSCA if (u, n) not in url_games]
     urls = url_games + random.sample(url_outros, min(3, len(url_outros)))
 
+    ml_bloqueado = False  # flag: se CAPTCHA em todas configs na 1ª URL, para tudo
+
     for url, nome in urls:
+        if ml_bloqueado:
+            log(f"ML pulando {nome} (bloqueado por CAPTCHA)")
+            continue
         try:
             log(f"ML buscando: {nome}")
             html  = scraper_fetch(url)
+            if html is None:
+                # scraper_fetch retorna None quando todas as configs falharam com CAPTCHA
+                ml_bloqueado = True
+                log("ML: CAPTCHA em todas as configs — abortando demais categorias")
+                break
             items = extrair_produtos_html(html)
             total_bruto += len(items)
 
@@ -827,23 +820,8 @@ URLS_BUSCA_EXTRA = [
 
 
 def buscar_profundo():
-    """Busca profunda ML — API JSON via ScrapingAnt primeiro, depois scraping."""
+    """Busca profunda ML via ScrapingAnt."""
     log("ML BUSCA PROFUNDA iniciada...")
-
-    if SCRAPINGANT_KEY:
-        todos_api = []
-        vistos_api = set()
-        for cat_id, cat_nome in _ML_API_CATEGORIAS:
-            prods = _buscar_ml_api_categoria(cat_id, cat_nome, desconto_min=15, limit=50)
-            for p in prods:
-                chave = hashlib.md5(p["nome"].encode()).hexdigest()
-                if chave not in vistos_api:
-                    vistos_api.add(chave)
-                    todos_api.append(p)
-        if todos_api:
-            log(f"ML BUSCA PROFUNDA (API JSON): {len(todos_api)} produtos")
-            return todos_api
-        log("ML profundo: API JSON 0 produtos — tentando scraping...")
 
     if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
         log("ML profundo: nenhuma chave de scraping configurada")
