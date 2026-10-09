@@ -647,7 +647,7 @@ _ML_API_CATEGORIAS = [
 ]
 
 def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50):
-    """Busca via API JSON do ML usando ScrapingAnt como proxy (sem CAPTCHA, só JSON)."""
+    """Busca via API JSON do ML diretamente (sem scraping)."""
     desc_min = desconto_min if desconto_min is not None else DESCONTO_MINIMO
     api_url = (
         f"https://api.mercadolibre.com/sites/MLB/search"
@@ -655,25 +655,29 @@ def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50)
     )
     raw_json = None
 
-    if SCRAPINGANT_KEY:
-        for pcountry in ["BR", "US"]:
-            try:
-                params = {
-                    "url": api_url,
-                    "x-api-key": SCRAPINGANT_KEY,
-                    "browser": "false",
-                    "proxy_country": pcountry,
-                }
-                r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
-                log(f"  ML API {nome_cat} via ScrapingAnt {pcountry}: {r.status_code}")
-                if r.status_code in (401, 402, 403):
-                    break  # cota/auth — para
-                if r.status_code == 200 and r.text.strip().startswith("{"):
-                    raw_json = r.text
-                    break
-            except Exception as e:
-                log(f"  ML API {nome_cat} ScrapingAnt erro: {e}")
-                break
+    # Tenta direto com headers completos de browser
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.mercadolivre.com.br/",
+        "Origin": "https://www.mercadolivre.com.br",
+        "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "cross-site",
+        "Connection": "keep-alive",
+    }
+    try:
+        r = requests.get(api_url, headers=headers, timeout=20)
+        log(f"  ML API {nome_cat} direto: {r.status_code}")
+        if r.status_code == 200 and r.text.strip().startswith("{"):
+            raw_json = r.text
+    except Exception as e:
+        log(f"  ML API {nome_cat} direto erro: {e}")
 
     if raw_json is None:
         return []
