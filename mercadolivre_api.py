@@ -171,51 +171,88 @@ def _is_captcha_html(html):
     return False
 
 
+def _scrapingant_get(url, browser, proxy_country, timeout=90):
+    """Faz uma requisição ao ScrapingAnt e retorna (status_code, html) ou (None, None) em erro."""
+    params = {
+        "url":       url,
+        "x-api-key": SCRAPINGANT_KEY,
+        "browser":   browser,
+    }
+    if proxy_country:
+        params["proxy_country"] = proxy_country
+    if browser == "true":
+        params["wait_for_selector"] = ".ui-search-results"
+        params["block_resource"] = "image,font"
+    try:
+        r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=timeout)
+        return r.status_code, r.text
+    except Exception as e:
+        log(f"  ScrapingAnt erro: {e}")
+        return None, None
+
+
+def _url_sem_filtros(url):
+    """Retorna versão da URL sem os filtros _NoIndex_ e _Discount_ (menos suspeita para o ML)."""
+    # Remove tudo a partir de _OrderId_ ou _Discount_ ou _NoIndex_
+    import re as _re
+    url_limpa = _re.sub(r'/_Order[^"]*', '', url)
+    url_limpa = _re.sub(r'/_Discount[^"]*', '', url_limpa)
+    url_limpa = _re.sub(r'/_NoIndex[^"]*', '', url_limpa)
+    return url_limpa.rstrip('/')
+
+
 def scraper_fetch(url):
-    # ScrapingAnt — tenta browser=false primeiro (mais barato);
-    # se HTML vier pequeno (<80KB) sem JSON de produtos, tenta browser=true
+    # ScrapingAnt — tenta 4 configs; se todas falharem com CAPTCHA,
+    # tenta URL alternativa sem filtros (menos sinalizável) com browser=true
     if SCRAPINGANT_KEY:
-        # Tenta combos de proxy_country: BR, depois sem proxy (para escapar de bloqueio anti-bot)
         configs = [
             {"browser": "false", "proxy_country": "BR"},
             {"browser": "true",  "proxy_country": "BR"},
             {"browser": "false", "proxy_country": "US"},
+            {"browser": "true",  "proxy_country": "US"},
         ]
+        captcha_count = 0
         for cfg in configs:
-            try:
-                params = {
-                    "url":       url,
-                    "x-api-key": SCRAPINGANT_KEY,
-                    "browser":   cfg["browser"],
-                }
-                if cfg.get("proxy_country"):
-                    params["proxy_country"] = cfg["proxy_country"]
-                r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
-                bmode = cfg["browser"]
-                pcountry = cfg.get("proxy_country", "sem-proxy")
-                log(f"  ScrapingAnt browser={bmode} proxy={pcountry} {r.status_code} → {url[:55]}")
-                if r.status_code != 200:
-                    log(f"  ScrapingAnt erro: {r.text[:100]}")
-                    break  # erro de auth/quota — não tenta de novo
-                html = r.text
-                # Detecta CAPTCHA
-                if _is_captcha_html(html):
-                    log(f"  ScrapingAnt CAPTCHA detectado (browser={bmode} proxy={pcountry}) — próxima config...")
-                    continue
-                # Se HTML veio grande O SUFICIENTE ou tem JSON de produtos, retorna
-                if len(html) > 80000:
-                    return html
-                # Verifica se tem JSON de produtos no HTML pequeno
-                tem_json = any(f'"{k}":[{{' in html for k in ["results","items","elements","offers","products","deals"])
-                if tem_json:
-                    return html
-                # HTML pequeno sem JSON nem CAPTCHA — pode ter produtos em HTML puro
-                if len(html) > 10000:
-                    return html
-                log(f"  ScrapingAnt HTML muito pequeno ({len(html)} chars) — próxima config...")
-            except Exception as e:
-                log(f"  ScrapingAnt erro: {e}")
-                break
+            bmode    = cfg["browser"]
+            pcountry = cfg.get("proxy_country", "")
+            status, html = _scrapingant_get(url, bmode, pcountry)
+            if status is None:
+                break  # exceção de rede — para
+            log(f"  ScrapingAnt browser={bmode} proxy={pcountry} {status} → {url[:55]}")
+            if status != 200:
+                log(f"  ScrapingAnt erro HTTP {status} — parando")
+                break  # erro de auth/quota — não tenta de novo
+            if _is_captcha_html(html):
+                log(f"  ScrapingAnt CAPTCHA detectado (browser={bmode} proxy={pcountry}) — próxima config...")
+                captcha_count += 1
+                continue
+            # HTML OK
+            if len(html) > 80000:
+                return html
+            tem_json = any(f'"{k}":[{{' in html for k in ["results","items","elements","offers","products","deals"])
+            if tem_json:
+                return html
+            if len(html) > 10000:
+                return html
+            log(f"  ScrapingAnt HTML muito pequeno ({len(html)} chars) — próxima config...")
+
+        # Se todas as configs falharam por CAPTCHA, tenta URL sem filtros com browser=true
+        if captcha_count >= 2:
+            url_alt = _url_sem_filtros(url)
+            if url_alt != url:
+                log(f"  Tentando URL sem filtros: {url_alt[:60]}")
+                for pcountry in ["BR", "US"]:
+                    status, html = _scrapingant_get(url_alt, "true", pcountry, timeout=90)
+                    if status is None:
+                        break
+                    log(f"  ScrapingAnt URL-alt browser=true proxy={pcountry} {status}")
+                    if status != 200:
+                        break
+                    if not _is_captcha_html(html) and len(html) > 10000:
+                        log(f"  ✅ URL-alt funcionou!")
+                        return html
+                    log(f"  URL-alt CAPTCHA (proxy={pcountry})")
+
 
     # Fallback ZenRows
     if ZENROWS_KEY:
