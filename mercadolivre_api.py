@@ -155,10 +155,18 @@ def _is_captcha_html(html):
     """Detecta se o HTML retornado é página de CAPTCHA do ML."""
     if not html:
         return True
+    # Busca no HTML inteiro (não só nos primeiros 5000 chars)
+    # O ML embute o CAPTCHA num JSON no meio da página
     captcha_signs = ["Cerrar", "REINTENTAR", "Reintentar", "robot", "captcha", "distil_r_captcha"]
-    lower = html[:5000].lower()
+    lower = html.lower()
     for sign in captcha_signs:
         if sign.lower() in lower:
+            return True
+    # Também detecta pela ausência de qualquer chave de produto conhecida
+    # quando o HTML parece ser página de erro (< 60KB sem nenhuma chave de produto)
+    if len(html) < 60000:
+        tem_produto = any(f'"{k}"' in html for k in ["results", "items", "elements", "offers", "products", "deals", "card", "title", "ui-search"])
+        if not tem_produto:
             return True
     return False
 
