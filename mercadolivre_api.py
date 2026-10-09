@@ -180,9 +180,6 @@ def _scrapingant_get(url, browser, proxy_country, timeout=90):
     }
     if proxy_country:
         params["proxy_country"] = proxy_country
-    if browser == "true":
-        params["wait_for_selector"] = ".ui-search-results"
-        params["block_resource"] = "image,font"
     try:
         r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=timeout)
         return r.status_code, r.text
@@ -219,9 +216,12 @@ def scraper_fetch(url):
             if status is None:
                 break  # exceção de rede — para
             log(f"  ScrapingAnt browser={bmode} proxy={pcountry} {status} → {url[:55]}")
-            if status != 200:
-                log(f"  ScrapingAnt erro HTTP {status} — parando")
+            if status in (401, 402, 403):
+                log(f"  ScrapingAnt erro auth/quota {status} — parando")
                 break  # erro de auth/quota — não tenta de novo
+            if status != 200:
+                log(f"  ScrapingAnt erro HTTP {status} — próxima config...")
+                continue  # erro técnico (422, 500, etc) — tenta próxima config
             if _is_captcha_html(html):
                 log(f"  ScrapingAnt CAPTCHA detectado (browser={bmode} proxy={pcountry}) — próxima config...")
                 captcha_count += 1
@@ -246,8 +246,11 @@ def scraper_fetch(url):
                     if status is None:
                         break
                     log(f"  ScrapingAnt URL-alt browser=true proxy={pcountry} {status}")
-                    if status != 200:
+                    if status in (401, 402, 403):
                         break
+                    if status != 200:
+                        log(f"  URL-alt erro HTTP {status} — próxima config...")
+                        continue
                     if not _is_captcha_html(html) and len(html) > 10000:
                         log(f"  ✅ URL-alt funcionou!")
                         return html
