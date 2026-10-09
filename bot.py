@@ -928,7 +928,10 @@ def _is_eletro(nome):
 def _is_tv(nome):
     return any(kw in nome.lower() for kw in KEYWORDS_TV)
 
-def _is_games(nome):
+def _is_games(nome, produto=None):
+    """Detecta produto de games por keyword no nome OU pela categoria marcada na Amazon."""
+    if produto and produto.get("categoria_games", False):
+        return True
     return any(kw in nome.lower() for kw in KEYWORDS_GAMES)
 
 def permitir_tv_games():
@@ -968,7 +971,7 @@ def montar_ciclo_tv_games(pool_ml, pool_amazon):
     def filtrar_games(pool):
         return [
             p for p in pool
-            if _is_games(p.get("nome", ""))
+            if _is_games(p.get("nome", ""), p)
             and p.get("desconto", 0) >= DESCONTO_MINIMO_GAMES
         ]
 

@@ -95,6 +95,9 @@ PALAVRAS_TECH = [
     "camera", "webcam", "impressora",
     "carregador", "cabo usb", "hub usb", "adaptador",
     "controle", "joystick", "videogame", "playstation", "xbox", "nintendo",
+    "ps5", "ps4", "dualsense", "dual sense", "switch 2", "switch2",
+    "jogo ps5", "jogo xbox", "jogo nintendo", "game ps5", "game xbox",
+    "headset gamer", "fone gamer", "console gamer",
     "smartwatch", "relogio inteligente",
     "drone", "gopro", "action cam",
     "power bank", "nobreak", "estabilizador",
@@ -125,11 +128,23 @@ def gerar_link_afiliado(url):
     return f"{url}{separador}matt_tool={ML_PUBLISHER_ID}"
 
 
+TINYURL_API_TOKEN = os.getenv("TINYURL_API_TOKEN", "5E6O0b6FW8c5FDRCSjjo1TBl4VO0JtmUwgDgtVr7opF1vCMzdu5NCD1f7T5k")
+
 def encurtar_link(url_longa):
     try:
-        r = requests.get(f"https://tinyurl.com/api-create.php?url={url_longa}", timeout=5)
-        if r.status_code == 200 and r.text.startswith("https://"):
-            return r.text.strip()
+        r = requests.post(
+            "https://api.tinyurl.com/create",
+            headers={
+                "Authorization": f"Bearer {TINYURL_API_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={"url": url_longa, "domain": "tinyurl.com"},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            short = r.json().get("data", {}).get("tiny_url", "")
+            if short.startswith("http"):
+                return short
     except:
         pass
     return url_longa
@@ -393,7 +408,10 @@ def buscar_todos_produtos():
     vistos  = set()
     total_bruto = 0
 
-    urls = random.sample(URLS_BUSCA, min(4, len(URLS_BUSCA)))
+    # Garante que Video Games (MLB1039) sempre entra — resto sorteia
+    url_games   = [(u, n) for u, n in URLS_BUSCA if "MLB1039" in u]
+    url_outros  = [(u, n) for u, n in URLS_BUSCA if "MLB1039" not in u]
+    urls = url_games + random.sample(url_outros, min(3, len(url_outros)))
 
     for url, nome in urls:
         try:
