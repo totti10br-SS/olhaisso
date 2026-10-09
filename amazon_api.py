@@ -62,32 +62,67 @@ class AmazonParser(HTMLParser):
         self._in_title = False
         self._in_price = False
         self._current = {}
+        self._depth = 0
 
     def handle_starttag(self, tag, attrs):
+        self._depth += 1
         attrs_dict = dict(attrs)
         cls = attrs_dict.get("class", "")
+        aid = attrs_dict.get("data-asin", "")
         if tag == "a":
             href = attrs_dict.get("href", "")
             m = re.search(r"/dp/([A-Z0-9]{10})", href)
             if m and "asin" not in self._current:
                 self._current["asin"] = m.group(1)
-        if "p13n-sc-truncate" in cls or "_cDEzb_p13n-sc-css-line-clamp" in cls:
+        # data-asin attribute nos containers de produto
+        if aid and re.match(r'^[A-Z0-9]{10}$', aid) and "asin" not in self._current:
+            self._current["asin"] = aid
+        # Classes de título — bestsellers normais e subcategorias
+        title_classes = [
+            "p13n-sc-truncate",
+            "_cDEzb_p13n-sc-css-line-clamp",
+            "a-size-base",
+            "a-link-normal",
+            "zg-bdg-text",
+            "p13n-sc-line-clamp",
+        ]
+        if any(tc in cls for tc in title_classes):
             self._in_title = True
-        if "p13n-sc-price" in cls or "_cDEzb_p13n-sc-price" in cls:
+        # Classes de preço
+        price_classes = [
+            "p13n-sc-price",
+            "_cDEzb_p13n-sc-price",
+            "a-price-whole",
+            "a-offscreen",
+        ]
+        if any(pc in cls for pc in price_classes):
             self._in_price = True
+
+    def handle_endtag(self, tag):
+        self._depth -= 1
 
     def handle_data(self, data):
         data = data.strip()
         if not data:
             return
-        if self._in_title and len(data) > 8:
-            self._current["nome"] = data
+        if self._in_title and len(data) > 8 and "nome" not in self._current:
+            # Evita capturar preços como título
+            if not re.match(r'^R\$\s*[\d,\.]+$', data) and not re.match(r'^[\d,\.]+$', data):
+                self._current["nome"] = data
             self._in_title = False
-        if self._in_price and "R$" in data:
-            self._current["preco_txt"] = data
-            if "nome" in self._current:
-                self.items.append(dict(self._current))
-                self._current = {}
+        if self._in_price:
+            # Aceita "R$ X.XXX,XX" ou só o número
+            if "R$" in data:
+                self._current["preco_txt"] = data
+                if "nome" in self._current:
+                    self.items.append(dict(self._current))
+                    self._current = {}
+            elif re.match(r'^[\d\.]+$', data.replace(",", ".")):
+                # número puro (ex: "1.299") — só usa se já tem nome
+                if "nome" in self._current and "preco_txt" not in self._current:
+                    self._current["preco_txt"] = f"R$ {data}"
+                    self.items.append(dict(self._current))
+                    self._current = {}
             self._in_price = False
 
 
@@ -265,6 +300,33 @@ def _buscar_imagem_produto(asin):
     return ""
 
 
+def _extrair_amazon_regex(html):
+    """Extração via regex do HTML da Amazon — fallback quando o parser HTML não encontra produtos."""
+    items = []
+    if not html:
+        return items
+    # Extrai pares (ASIN, nome, preço) do JSON embutido ou atributos data-asin
+    # Padrão 1: data-asin="XXXXX" com título e preço próximos
+    asin_blocks = re.finditer(r'data-asin="([A-Z0-9]{10})"', html)
+    for m in asin_blocks:
+        asin = m.group(1)
+        bloco = html[m.start():m.start()+2000]
+        # Busca nome
+        nome_m = re.search(r'class="[^"]*p13n-sc[^"]*"[^>]*>([^<]{10,150})<', bloco)
+        if not nome_m:
+            nome_m = re.search(r'"name"\s*:\s*"([^"]{10,150})"', bloco)
+        if not nome_m:
+            continue
+        nome = nome_m.group(1).strip()
+        # Busca preço
+        preco_m = re.search(r'R\$\s*([\d\.]+,\d{2})', bloco)
+        if not preco_m:
+            continue
+        preco_txt = f"R$ {preco_m.group(1)}"
+        items.append({"asin": asin, "nome": nome, "preco_txt": preco_txt})
+    return items[:20]
+
+
 def buscar_todos_produtos():
     produtos = []
     for nome_cat, url in CATEGORIAS:
@@ -276,7 +338,13 @@ def buscar_todos_produtos():
                 continue
             parser = AmazonParser()
             parser.feed(html)
-            for item in parser.items[:20]:
+            raw_items = parser.items[:20]
+            # Fallback regex se parser não encontrou nada
+            if not raw_items and html:
+                raw_items = _extrair_amazon_regex(html)
+                if raw_items:
+                    log.info(f"Amazon [{nome_cat}]: usando extração regex ({len(raw_items)} itens)")
+            for item in raw_items:
                 try:
                     preco = float(
                         item["preco_txt"]

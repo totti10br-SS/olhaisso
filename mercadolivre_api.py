@@ -21,13 +21,14 @@ PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
 URLS_BUSCA = [
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648", "Computação"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1051", "Celulares"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1000", "Eletrônicos"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1066", "TVs"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1039", "Video Games"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1002", "Áudio"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=gabinete%20gamer", "Gabinetes para PC"),
+    ("https://lista.mercadolivre.com.br/computacao/notebooks-acessorios/_OrderId_PRICE*DESC_Discount_30-100_NoIndex_True", "Notebooks"),
+    ("https://lista.mercadolivre.com.br/celulares-telefones/celulares-smartphones/_OrderId_PRICE*DESC_Discount_25-100_NoIndex_True", "Smartphones"),
+    ("https://lista.mercadolivre.com.br/eletronicos-audio-video/televisores/_OrderId_PRICE*DESC_Discount_30-100_NoIndex_True", "TVs"),
+    ("https://lista.mercadolivre.com.br/video-games/controles/_OrderId_PRICE*DESC_Discount_20-100_NoIndex_True", "Controles"),
+    ("https://lista.mercadolivre.com.br/video-games/videogames/_OrderId_PRICE*DESC_Discount_20-100_NoIndex_True", "Consoles"),
+    ("https://lista.mercadolivre.com.br/video-games/jogos-videogame/_OrderId_PRICE*DESC_Discount_20-100_NoIndex_True", "Jogos"),
+    ("https://lista.mercadolivre.com.br/eletronicos-audio-video/audio/fones-ouvido/_OrderId_PRICE*DESC_Discount_25-100_NoIndex_True", "Fones"),
+    ("https://lista.mercadolivre.com.br/informatica/monitores-telas/_OrderId_PRICE*DESC_Discount_25-100_NoIndex_True", "Monitores"),
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -150,24 +151,49 @@ def encurtar_link(url_longa):
     return url_longa
 
 
+def _is_captcha_html(html):
+    """Detecta se o HTML retornado é página de CAPTCHA do ML."""
+    if not html:
+        return True
+    captcha_signs = ["Cerrar", "REINTENTAR", "Reintentar", "robot", "captcha", "distil_r_captcha"]
+    lower = html[:5000].lower()
+    for sign in captcha_signs:
+        if sign.lower() in lower:
+            return True
+    return False
+
+
 def scraper_fetch(url):
     # ScrapingAnt — tenta browser=false primeiro (mais barato);
     # se HTML vier pequeno (<80KB) sem JSON de produtos, tenta browser=true
     if SCRAPINGANT_KEY:
-        for browser_mode in ["false", "true"]:
+        # Tenta combos de proxy_country: BR, depois sem proxy (para escapar de bloqueio anti-bot)
+        configs = [
+            {"browser": "false", "proxy_country": "BR"},
+            {"browser": "true",  "proxy_country": "BR"},
+            {"browser": "false", "proxy_country": "US"},
+        ]
+        for cfg in configs:
             try:
                 params = {
-                    "url":           url,
-                    "x-api-key":     SCRAPINGANT_KEY,
-                    "proxy_country": "BR",
-                    "browser":       browser_mode,
+                    "url":       url,
+                    "x-api-key": SCRAPINGANT_KEY,
+                    "browser":   cfg["browser"],
                 }
+                if cfg.get("proxy_country"):
+                    params["proxy_country"] = cfg["proxy_country"]
                 r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
-                log(f"  ScrapingAnt browser={browser_mode} {r.status_code} → {url[:60]}")
+                bmode = cfg["browser"]
+                pcountry = cfg.get("proxy_country", "sem-proxy")
+                log(f"  ScrapingAnt browser={bmode} proxy={pcountry} {r.status_code} → {url[:55]}")
                 if r.status_code != 200:
                     log(f"  ScrapingAnt erro: {r.text[:100]}")
                     break  # erro de auth/quota — não tenta de novo
                 html = r.text
+                # Detecta CAPTCHA
+                if _is_captcha_html(html):
+                    log(f"  ScrapingAnt CAPTCHA detectado (browser={bmode} proxy={pcountry}) — próxima config...")
+                    continue
                 # Se HTML veio grande O SUFICIENTE ou tem JSON de produtos, retorna
                 if len(html) > 80000:
                     return html
@@ -175,10 +201,10 @@ def scraper_fetch(url):
                 tem_json = any(f'"{k}":[{{' in html for k in ["results","items","elements","offers","products","deals"])
                 if tem_json:
                     return html
-                if browser_mode == "false":
-                    log(f"  ScrapingAnt browser=false retornou HTML pequeno ({len(html)} chars) — tentando browser=true")
-                    continue
-                return html  # browser=true — retorna o que tiver
+                # HTML pequeno sem JSON nem CAPTCHA — pode ter produtos em HTML puro
+                if len(html) > 10000:
+                    return html
+                log(f"  ScrapingAnt HTML muito pequeno ({len(html)} chars) — próxima config...")
             except Exception as e:
                 log(f"  ScrapingAnt erro: {e}")
                 break
@@ -250,6 +276,66 @@ def _extrair_lista_json(html, chave):
     except Exception:
         pass
     return []
+
+
+def extrair_produtos_html_lista(html):
+    """Parser HTML direto para lista.mercadolivre.com.br — extrai produtos das tags HTML."""
+    if not html or len(html) < 5000:
+        return []
+    produtos = []
+    try:
+        # Padrão: <li class="ui-search-layout__item">...</li>
+        # Nome: <h2 class="ui-search-item__title">NOME</h2>
+        # Preço atual: <span class="andes-money-amount__fraction">VALOR</span>
+        # Desconto: <span class="andes-badge__content">N% OFF</span>
+        # Link: <a class="ui-search-link" href="...">
+        # Imagem: <img class="ui-search-result-image__element" src="..." / data-src="...">
+        import html as htmllib
+
+        nome_pattern = re.compile(r'class="[^"]*ui-search-item__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE)
+        preco_pattern = re.compile(r'class="[^"]*andes-money-amount__fraction[^"]*"[^>]*>([0-9.,]+)<', re.IGNORECASE)
+        desconto_pattern = re.compile(r'(\d+)%\s*OFF', re.IGNORECASE)
+        link_pattern = re.compile(r'class="[^"]*ui-search-link[^"]*"\s+href="([^"]+)"', re.IGNORECASE)
+        img_pattern = re.compile(r'class="[^"]*ui-search-result-image__element[^"]*"[^>]+(?:data-src|src)="([^"]+)"', re.IGNORECASE)
+
+        nomes = nome_pattern.findall(html)
+        precos = preco_pattern.findall(html)
+        descontos = desconto_pattern.findall(html)
+        links = link_pattern.findall(html)
+        imagens = img_pattern.findall(html)
+
+        if not nomes or not precos:
+            return []
+
+        log(f"  -> HTML lista: {len(nomes)} nomes, {len(precos)} preços, {len(descontos)} descontos")
+
+        for i, nome in enumerate(nomes):
+            nome = htmllib.unescape(nome).strip()
+            if not nome or len(nome) < 5:
+                continue
+            preco_txt = precos[i] if i < len(precos) else ""
+            if not preco_txt:
+                continue
+            try:
+                preco = float(preco_txt.replace(".", "").replace(",", "."))
+            except Exception:
+                continue
+            desconto = int(descontos[i]) if i < len(descontos) else 0
+            url_prod = links[i] if i < len(links) else ""
+            imagem = imagens[i] if i < len(imagens) else ""
+            # Monta dict no formato que processar_item espera — aqui fazemos direto
+            produtos.append({
+                "_raw_html": True,
+                "nome": nome,
+                "preco": preco,
+                "preco_original": round(preco / (1 - desconto / 100), 2) if desconto > 0 else 0,
+                "desconto": desconto,
+                "url_prod": url_prod,
+                "imagem": imagem,
+            })
+    except Exception as e:
+        log(f"  HTML lista parse erro: {e}")
+    return produtos
 
 
 def extrair_produtos_html(html):
@@ -459,6 +545,47 @@ def processar_item(item):
         return None
 
 
+def _processar_item_html(item_raw):
+    """Processa produto já extraído do HTML de lista.mercadolivre.com.br."""
+    try:
+        nome = item_raw.get("nome", "").strip()
+        if not nome:
+            return None
+        if not produto_valido(nome):
+            return None
+        if not produto_e_tech(nome):
+            log(f"  🚫 Não-tech (lista): {nome[:50]}")
+            return None
+        preco = item_raw.get("preco", 0)
+        if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
+            return None
+        desconto = item_raw.get("desconto", 0)
+        if desconto < DESCONTO_MINIMO:
+            return None
+        preco_orig = item_raw.get("preco_original", 0)
+        url_prod = item_raw.get("url_prod", "")
+        imagem = item_raw.get("imagem", "")
+        if not url_prod:
+            return None
+        link_curto = encurtar_link(gerar_link_afiliado(url_prod))
+        log(f"  ✅ {nome[:45]} | R${preco} | {desconto}%")
+        return {
+            "nome":           nome,
+            "preco":          round(preco, 2),
+            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
+            "desconto":       desconto,
+            "loja":           "MERCADOLIVRE",
+            "frete":          "🚚 Frete a calcular",
+            "link_afiliado":  link_curto,
+            "imagem_url":     imagem,
+            "score":          1,
+            "fontes":         ["mercadolivre"],
+        }
+    except Exception as e:
+        log(f"  ML HTML item erro: {e}")
+        return None
+
+
 def buscar_todos_produtos():
     if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
         log("ML: nenhuma chave de scraping configurada")
@@ -469,9 +596,9 @@ def buscar_todos_produtos():
     vistos  = set()
     total_bruto = 0
 
-    # Garante que Video Games (MLB1039) sempre entra — resto sorteia
-    url_games   = [(u, n) for u, n in URLS_BUSCA if "MLB1039" in u]
-    url_outros  = [(u, n) for u, n in URLS_BUSCA if "MLB1039" not in u]
+    # Garante que Games sempre entram — resto sorteia
+    url_games  = [(u, n) for u, n in URLS_BUSCA if any(g in n.lower() for g in ["games", "consoles", "jogos", "controles"])]
+    url_outros = [(u, n) for u, n in URLS_BUSCA if (u, n) not in url_games]
     urls = url_games + random.sample(url_outros, min(3, len(url_outros)))
 
     for url, nome in urls:
@@ -486,12 +613,30 @@ def buscar_todos_produtos():
                 processar_item._logged = False
 
             for item in items:
-                p = processar_item(item)
+                if item.get("_raw_html"):
+                    p = _processar_item_html(item)
+                else:
+                    p = processar_item(item)
                 if p:
                     chave = hashlib.md5(p["nome"].encode()).hexdigest()
                     if chave not in vistos:
                         vistos.add(chave)
                         todos.append(p)
+
+            # Se JSON não funcionou, tenta parser HTML direto
+            if not items:
+                items_html = extrair_produtos_html_lista(html)
+                if items_html:
+                    log(f"  -> Fallback HTML lista: {len(items_html)} itens")
+                    total_bruto += len(items_html)
+                    for item in items_html:
+                        p = _processar_item_html(item)
+                        if p:
+                            chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                            if chave not in vistos:
+                                vistos.add(chave)
+                                todos.append(p)
+
             time.sleep(2)
         except Exception as e:
             log(f"ML erro {nome}: {e}")

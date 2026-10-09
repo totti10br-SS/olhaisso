@@ -330,93 +330,111 @@ def gerar_assinatura(params, secret):
     return hashlib.md5(base.encode("utf-8")).hexdigest().upper()
 
 
-def buscar_produtos_aliexpress(keyword, limit=10):
-    try:
-        timestamp = str(int(time.time() * 1000))
-        params = {
-            "app_key":         ALIEXPRESS_APP_KEY,
-            "timestamp":       timestamp,
-            "sign_method":     "md5",
-            "method":          "aliexpress.affiliate.product.query",
-            "keywords":        keyword,
-            "page_no":         str(random.randint(1, 3)),
-            "page_size":       str(limit),
-            "sort":            "LAST_VOLUME_DESC",
-            "min_sale_price":  PRECO_MIN_USD,
-            "max_sale_price":  PRECO_MAX_USD,
-            "target_currency": "BRL",
-            "target_language": "PT",
-            "tracking_id":     ALIEXPRESS_TRACKING,
-            "ship_to_country": "BR",
-            "fields":          "product_id,product_title,target_sale_price,target_original_price,target_sale_price_currency,discount,evaluate_rate,lastest_volume,product_main_image_url,promotion_link",
-        }
-        params["sign"] = gerar_assinatura(params, ALIEXPRESS_APP_SECRET)
+def buscar_produtos_aliexpress(keyword, limit=10, _log_erro=True):
+    # Tenta endpoints: sg (Ásia/Brasil) e eu (Europa) — AliExpress às vezes bloqueia um dos dois
+    endpoints = [
+        "https://api-sg.aliexpress.com/sync",
+        "https://api-eu.aliexpress.com/sync",
+    ]
+    # Tenta duas variações de sort — LAST_VOLUME_DESC pode estar descontinuado
+    sorts = ["SALE_PRICE_ASC", "LAST_VOLUME_DESC"]
 
-        r = requests.post("https://api-sg.aliexpress.com/sync", data=params, timeout=15)
-        if r.status_code != 200:
-            print(f"AliExpress HTTP erro: {r.status_code}")
-            return []
-
-        data = r.json()
-        resp = data.get("aliexpress_affiliate_product_query_response", {})
-        result = resp.get("resp_result", {})
-
-        if result.get("resp_code") != 200:
-            print(f"AliExpress API erro: {result.get('resp_msg')}")
-            return []
-
-        items = result.get("result", {}).get("products", {}).get("product", [])
-        produtos = []
-
-        for item in items:
+    for endpoint in endpoints:
+        for sort_val in sorts:
             try:
-                preco = float(str(item.get("target_sale_price", "0")).replace(",", "."))
-                preco_orig = float(str(item.get("target_original_price", "0")).replace(",", "."))
-            except:
-                continue
+                timestamp = str(int(time.time() * 1000))
+                params = {
+                    "app_key":         ALIEXPRESS_APP_KEY,
+                    "timestamp":       timestamp,
+                    "sign_method":     "md5",
+                    "method":          "aliexpress.affiliate.product.query",
+                    "keywords":        keyword,
+                    "page_no":         "1",
+                    "page_size":       str(limit),
+                    "sort":            sort_val,
+                    "min_sale_price":  PRECO_MIN_USD,
+                    "max_sale_price":  PRECO_MAX_USD,
+                    "target_currency": "BRL",
+                    "target_language": "PT",
+                    "tracking_id":     ALIEXPRESS_TRACKING,
+                    "ship_to_country": "BR",
+                    # campos mínimos — AliExpress mudou os campos disponíveis
+                    "fields": "product_id,product_title,target_sale_price,target_original_price,discount,product_main_image_url,promotion_link",
+                }
+                params["sign"] = gerar_assinatura(params, ALIEXPRESS_APP_SECRET)
 
-            if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
-                continue
+                r = requests.post(endpoint, data=params, timeout=15)
+                if r.status_code != 200:
+                    if _log_erro:
+                        print(f"AliExpress HTTP {r.status_code} [{endpoint[-20:]}]")
+                    continue
 
-            desconto = 0
-            if preco_orig > preco:
-                desconto = int((1 - preco / preco_orig) * 100)
+                data = r.json()
+                resp = data.get("aliexpress_affiliate_product_query_response", {})
+                result = resp.get("resp_result", {})
+                resp_code = result.get("resp_code")
 
-            if desconto < DESCONTO_MINIMO:
-                continue
+                if resp_code != 200:
+                    msg = result.get("resp_msg", "")
+                    if _log_erro:
+                        print(f"AliExpress API erro: {msg} (code={resp_code}, sort={sort_val})")
+                    # Se erro for de sort inválido, tenta próximo sort
+                    if "sort" in str(msg).lower() or resp_code in (27, 50, 0):
+                        continue
+                    # Se erro for de credencial/quota, para tudo
+                    if resp_code in (15, 400, 401, 403):
+                        return []
+                    continue
 
-            nome = item.get("product_title", "")
-            link_original = item.get("promotion_link", "")
-            imagem = item.get("product_main_image_url", "")
+                items = result.get("result", {}).get("products", {}).get("product", [])
+                if not items:
+                    if _log_erro:
+                        print(f"AliExpress API erro: The result is empty")
+                    continue  # tenta próxima combinação
 
-            if not nome or not link_original:
-                continue
+                # Sucesso — processa e retorna
+                produtos = []
+                for item in items:
+                    try:
+                        preco = float(str(item.get("target_sale_price", "0")).replace(",", "."))
+                        preco_orig = float(str(item.get("target_original_price", "0")).replace(",", "."))
+                    except Exception:
+                        continue
+                    if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
+                        continue
+                    desconto = 0
+                    if preco_orig > preco:
+                        desconto = int((1 - preco / preco_orig) * 100)
+                    if desconto < DESCONTO_MINIMO:
+                        continue
+                    nome = item.get("product_title", "")
+                    link_original = item.get("promotion_link", "")
+                    imagem = item.get("product_main_image_url", "")
+                    if not nome or not link_original:
+                        continue
+                    if not produto_valido(nome):
+                        print(f"  Bloqueado: {nome[:50]}")
+                        continue
+                    link = encurtar_link(link_original)
+                    produtos.append({
+                        "nome": nome,
+                        "preco": round(preco, 2),
+                        "preco_original": round(preco_orig, 2),
+                        "desconto": desconto,
+                        "loja": "ALIEXPRESS",
+                        "frete": "🚢 Frete grátis",
+                        "link_afiliado": link,
+                        "imagem_url": imagem,
+                        "score": 1,
+                        "fontes": ["aliexpress"],
+                    })
+                return produtos  # retorna assim que encontrar resultados
 
-            # Filtra produtos fora do nicho
-            if not produto_valido(nome):
-                print(f"  Bloqueado: {nome[:50]}")
-                continue
+            except Exception as e:
+                print(f"AliExpress erro ({keyword}): {e}")
+                continue  # tenta próximo endpoint/sort
 
-            link = encurtar_link(link_original)
-
-            produtos.append({
-                "nome": nome,
-                "preco": round(preco, 2),
-                "preco_original": round(preco_orig, 2),
-                "desconto": desconto,
-                "loja": "ALIEXPRESS",
-                "frete": "🚢 Frete grátis",
-                "link_afiliado": link,
-                "imagem_url": imagem,
-                "score": 1,
-                "fontes": ["aliexpress"],
-            })
-
-        return produtos
-
-    except Exception as e:
-        print(f"AliExpress erro ({keyword}): {e}")
-        return []
+    return []  # todos os endpoints/sorts falharam
 
 
 def buscar_todos_produtos():
