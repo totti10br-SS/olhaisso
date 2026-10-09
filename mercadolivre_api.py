@@ -647,11 +647,103 @@ _ML_API_CATEGORIAS = [
 ]
 
 def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50):
-    """Stub — não usada."""
-    return []
+    """Busca via API JSON do ML usando ScrapingAnt como proxy (sem CAPTCHA, só JSON)."""
+    desc_min = desconto_min if desconto_min is not None else DESCONTO_MINIMO
+    api_url = (
+        f"https://api.mercadolibre.com/sites/MLB/search"
+        f"?category={category_id}&sort=price_desc&limit={limit}"
+    )
+    raw_json = None
+
+    if SCRAPINGANT_KEY:
+        for pcountry in ["BR", "US"]:
+            try:
+                params = {
+                    "url": api_url,
+                    "x-api-key": SCRAPINGANT_KEY,
+                    "browser": "false",
+                    "proxy_country": pcountry,
+                }
+                r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=60)
+                log(f"  ML API {nome_cat} via ScrapingAnt {pcountry}: {r.status_code}")
+                if r.status_code in (401, 402, 403):
+                    break  # cota/auth — para
+                if r.status_code == 200 and r.text.strip().startswith("{"):
+                    raw_json = r.text
+                    break
+            except Exception as e:
+                log(f"  ML API {nome_cat} ScrapingAnt erro: {e}")
+                break
+
+    if raw_json is None:
+        return []
+
+    try:
+        data = json.loads(raw_json)
+    except Exception as e:
+        log(f"  ML API {nome_cat}: JSON parse erro {e}")
+        return []
+
+    results = data.get("results", [])
+    produtos = []
+    for item in results:
+        try:
+            nome = item.get("title", "").strip()
+            preco = float(item.get("price") or 0)
+            preco_orig = float(item.get("original_price") or 0)
+            url_prod = item.get("permalink", "")
+            imagem = item.get("thumbnail", "").replace("I.jpg", "O.jpg")
+            if not nome or not url_prod or preco <= 0:
+                continue
+            if not produto_valido(nome):
+                continue
+            if not produto_e_tech(nome):
+                continue
+            if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
+                continue
+            if preco_orig <= 0 or preco_orig <= preco:
+                continue
+            desconto = int(round((1 - preco / preco_orig) * 100))
+            if desconto < desc_min:
+                continue
+            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
+            log(f"  ✅ [API] {nome[:45]} | R${preco} | {desconto}%")
+            produtos.append({
+                "nome":           nome,
+                "preco":          round(preco, 2),
+                "preco_original": round(preco_orig, 2),
+                "desconto":       desconto,
+                "loja":           "MERCADOLIVRE",
+                "frete":          "🚚 Frete a calcular",
+                "link_afiliado":  link_curto,
+                "imagem_url":     imagem,
+                "score":          1,
+                "fontes":         ["mercadolivre"],
+            })
+        except Exception:
+            continue
+    log(f"  ML API {nome_cat}: {len(produtos)} produtos com desconto ≥{desc_min}%")
+    return produtos
 
 
 def buscar_todos_produtos():
+    # Tenta API JSON do ML via ScrapingAnt (sem CAPTCHA — API REST não usa bot-detect)
+    if SCRAPINGANT_KEY:
+        log("ML API JSON: iniciando busca via ScrapingAnt...")
+        todos_api = []
+        vistos_api = set()
+        for cat_id, cat_nome in _ML_API_CATEGORIAS:
+            prods = _buscar_ml_api_categoria(cat_id, cat_nome)
+            for p in prods:
+                chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                if chave not in vistos_api:
+                    vistos_api.add(chave)
+                    todos_api.append(p)
+        if todos_api:
+            log(f"ML API JSON: {len(todos_api)} produtos válidos")
+            return todos_api
+        log("ML API JSON: 0 produtos — tentando scraping do site...")
+
     if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
         log("ML: nenhuma chave de scraping configurada")
         return []
@@ -731,8 +823,23 @@ URLS_BUSCA_EXTRA = [
 
 
 def buscar_profundo():
-    """Busca profunda ML via ScrapingAnt."""
+    """Busca profunda ML — API JSON via ScrapingAnt primeiro, depois scraping."""
     log("ML BUSCA PROFUNDA iniciada...")
+
+    if SCRAPINGANT_KEY:
+        todos_api = []
+        vistos_api = set()
+        for cat_id, cat_nome in _ML_API_CATEGORIAS:
+            prods = _buscar_ml_api_categoria(cat_id, cat_nome, desconto_min=15, limit=50)
+            for p in prods:
+                chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                if chave not in vistos_api:
+                    vistos_api.add(chave)
+                    todos_api.append(p)
+        if todos_api:
+            log(f"ML BUSCA PROFUNDA (API JSON): {len(todos_api)} produtos")
+            return todos_api
+        log("ML profundo: API JSON 0 produtos — tentando scraping...")
 
     if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
         log("ML profundo: nenhuma chave de scraping configurada")
