@@ -634,7 +634,92 @@ def _processar_item_html(item_raw):
         return None
 
 
+# Mapeamento categoria MLB → URLs de busca
+_ML_API_CATEGORIAS = [
+    ("MLB1648", "Notebooks"),
+    ("MLB1051", "Smartphones"),
+    ("MLB1066", "TVs"),
+    ("MLB1039", "Controles"),
+    ("MLB1144", "Consoles"),
+    ("MLB1367", "Jogos"),
+    ("MLB1000", "Fones"),
+    ("MLB1648", "Monitores"),
+]
+
+def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50):
+    """Busca produtos via API pública do ML (sem scraping, sem CAPTCHA)."""
+    desc_min = desconto_min if desconto_min is not None else DESCONTO_MINIMO
+    url = (
+        f"https://api.mercadolibre.com/sites/MLB/search"
+        f"?category={category_id}&sort=price_desc&limit={limit}"
+    )
+    try:
+        r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200:
+            log(f"  ML API {nome_cat}: HTTP {r.status_code}")
+            return []
+        data = r.json()
+        results = data.get("results", [])
+        produtos = []
+        for item in results:
+            try:
+                nome = item.get("title", "").strip()
+                preco = float(item.get("price") or 0)
+                preco_orig = float(item.get("original_price") or 0)
+                url_prod = item.get("permalink", "")
+                imagem = item.get("thumbnail", "").replace("I.jpg", "O.jpg")  # imagem maior
+                if not nome or not url_prod or preco <= 0:
+                    continue
+                if not produto_valido(nome):
+                    continue
+                if not produto_e_tech(nome):
+                    continue
+                if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
+                    continue
+                if preco_orig <= 0 or preco_orig <= preco:
+                    continue
+                desconto = int(round((1 - preco / preco_orig) * 100))
+                if desconto < desc_min:
+                    continue
+                link_curto = encurtar_link(gerar_link_afiliado(url_prod))
+                log(f"  ✅ [API] {nome[:45]} | R${preco} | {desconto}%")
+                produtos.append({
+                    "nome":           nome,
+                    "preco":          round(preco, 2),
+                    "preco_original": round(preco_orig, 2),
+                    "desconto":       desconto,
+                    "loja":           "MERCADOLIVRE",
+                    "frete":          "🚚 Frete a calcular",
+                    "link_afiliado":  link_curto,
+                    "imagem_url":     imagem,
+                    "score":          1,
+                    "fontes":         ["mercadolivre"],
+                })
+            except Exception as e:
+                continue
+        return produtos
+    except Exception as e:
+        log(f"  ML API {nome_cat} erro: {e}")
+        return []
+
+
 def buscar_todos_produtos():
+    # Tenta primeiro pela API pública (sem scraping, sem CAPTCHA)
+    log("ML API pública: iniciando busca...")
+    todos_api = []
+    vistos_api = set()
+    for cat_id, cat_nome in _ML_API_CATEGORIAS:
+        prods = _buscar_ml_api_categoria(cat_id, cat_nome)
+        for p in prods:
+            chave = hashlib.md5(p["nome"].encode()).hexdigest()
+            if chave not in vistos_api:
+                vistos_api.add(chave)
+                todos_api.append(p)
+    if todos_api:
+        log(f"ML API pública: {len(todos_api)} produtos válidos")
+        return todos_api
+    log("ML API pública: 0 produtos — tentando scraping...")
+
     if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
         log("ML: nenhuma chave de scraping configurada")
         return []
@@ -714,12 +799,27 @@ URLS_BUSCA_EXTRA = [
 
 
 def buscar_profundo():
-    """Busca profunda ML — todas as URLs normais + extras."""
+    """Busca profunda ML — API pública primeiro, depois scraping."""
+    log("ML BUSCA PROFUNDA iniciada...")
+
+    # Tenta API pública com desconto mais baixo (15%) para achar mais produtos
+    todos_api = []
+    vistos_api = set()
+    for cat_id, cat_nome in _ML_API_CATEGORIAS:
+        prods = _buscar_ml_api_categoria(cat_id, cat_nome, desconto_min=15, limit=50)
+        for p in prods:
+            chave = hashlib.md5(p["nome"].encode()).hexdigest()
+            if chave not in vistos_api:
+                vistos_api.add(chave)
+                todos_api.append(p)
+    if todos_api:
+        log(f"ML BUSCA PROFUNDA (API): {len(todos_api)} produtos")
+        return todos_api
+    log("ML profundo: API pública 0 produtos — tentando scraping...")
+
     if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
         log("ML profundo: nenhuma chave de scraping configurada")
         return []
-
-    log("ML BUSCA PROFUNDA iniciada...")
     todos = []
     vistos = set()
     total_bruto = 0
