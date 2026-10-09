@@ -62,7 +62,7 @@ HORARIOS_MISTO      = ["12:30", "20:30"]  # Ciclo misto: metade smartphones + me
 HORARIOS_MONITOR    = ["15:00"]           # Ciclo dedicado apenas monitores
 HORARIOS_ELETRO     = ["16:00"]           # Ciclo dedicado eletrodomésticos (ML + Amazon)
 HORARIO_TICKET_BAIXO = ["19:00"]          # Ciclo dedicado produtos até R$200
-HORARIO_COPA         = ["20:00"]           # 📺🇧🇷 Momento TVs para Copa 2026
+HORARIO_TV_GAMES     = ["20:00"]           # 📺🎮 Momento TVs & Games
 PRECO_TICKET_BAIXO   = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))  # Teto para ticket baixo
 POSTS_TICKET_BAIXO_NO_CICLO = 2          # Qtde de tickets baixos nos ciclos normais
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
@@ -227,11 +227,11 @@ def carregar_fonte(tamanho, negrito=False):
     return ImageFont.load_default()
 
 
-def badge_score(score, ticket_baixo=False, copa_2026=False):
+def badge_score(score, ticket_baixo=False, tv_games=False):
     if ticket_baixo:
         return ("🤑 BOM e BARATO", COR_VERDE)
-    if copa_2026:
-        return ("📺🇧🇷⚽ COPA 2026", (0, 156, 59))
+    if tv_games:
+        return ("📺🎮 TVS & GAMES", (20, 90, 180))
     if score >= 3:
         return ("🔥 VIRAL AGORA", COR_LARANJA)
     elif score == 2:
@@ -265,7 +265,7 @@ def gerar_imagem(produto):
     draw = ImageDraw.Draw(img)
 
     # ── TOPO: badge único grande centralizado ──────────────────
-    label_score, cor_score = badge_score(produto.get("score", 0), produto.get("ticket_baixo", False), produto.get("copa_2026", False))
+    label_score, cor_score = badge_score(produto.get("score", 0), produto.get("ticket_baixo", False), produto.get("tv_games", False))
     f_badge = carregar_fonte(54, negrito=True)
     bw, bh = 580, 90
     bx = (W - bw) // 2
@@ -437,8 +437,8 @@ def montar_caption(produto):
         badge = "💰 <b>OFERTA DO DIA</b>"
     if produto.get("ticket_baixo", False):
         badge = "🤑 <b>Momento BOM e BARATO</b>"
-    if produto.get("copa_2026", False):
-        badge = "📺🇧🇷⚽ <b>MOMENTO TVS — COPA 2026!</b>"
+    if produto.get("tv_games", False):
+        badge = "📺🎮 <b>MOMENTO TVS & GAMES!</b>"
 
     # Badge de loja
     loja_badge = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
@@ -591,8 +591,8 @@ def postar_whatsapp(produto, imagem_path):
 
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
         _sc = produto.get("score", 0)
-        if produto.get("copa_2026", False):
-            badge = "📺🇧🇷⚽ MOMENTO TVS — COPA 2026!"
+        if produto.get("tv_games", False):
+            badge = "📺🎮 MOMENTO TVS & GAMES!"
         elif produto.get("ticket_baixo", False):
             badge = "🤑 Momento BOM e BARATO"
         elif _sc >= 3:
@@ -872,7 +872,21 @@ KEYWORDS_TV = [
     "android tv", "google tv", "roku tv", "fire tv",
 ]
 
-DESCONTO_MINIMO_TV = 30  # Desconto minimo para o ciclo Copa
+DESCONTO_MINIMO_TV = 30   # Desconto mínimo para TVs no ciclo TVs & Games
+DESCONTO_MINIMO_GAMES = 20  # Desconto mínimo para games no ciclo TVs & Games
+
+KEYWORDS_GAMES = [
+    "ps5", "playstation 5", "playstation5",
+    "xbox series", "xbox series x", "xbox series s",
+    "nintendo switch 2", "switch 2", "nintendo switch",
+    "controle ps5", "controle xbox", "controle sem fio",
+    "dualsense", "dual sense",
+    "jogo ps5", "jogo xbox", "jogo nintendo", "game ps5", "game xbox",
+    "headset gamer", "headset ps5", "headset xbox",
+    "fone gamer", "fone headset gamer",
+    "ssd ps5", "hd externo xbox",
+    "volante gamer", "joystick gamer",
+]
 
 KEYWORDS_MONITOR = [
     "monitor ", "monitor gamer", "monitor 4k", "monitor ips",
@@ -914,8 +928,14 @@ def _is_eletro(nome):
 def _is_tv(nome):
     return any(kw in nome.lower() for kw in KEYWORDS_TV)
 
-def permitir_copa():
-    return horario_dentro_de(HORARIO_COPA)
+def _is_games(nome, produto=None):
+    """Detecta produto de games por keyword no nome OU pela categoria marcada na Amazon."""
+    if produto and produto.get("categoria_games", False):
+        return True
+    return any(kw in nome.lower() for kw in KEYWORDS_GAMES)
+
+def permitir_tv_games():
+    return horario_dentro_de(HORARIO_TV_GAMES)
 
 
 def montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros):
@@ -937,9 +957,9 @@ def montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros
     return fila
 
 
-def montar_ciclo_copa(pool_ml, pool_amazon):
-    """📺🇧🇷 Ciclo 20:00 — Momento TVs para Copa 2026. 5 Amazon + 5 ML. Desconto >= 30%."""
-    log.info("📺🇧🇷⚽ CICLO COPA 2026 — Momento TVs!")
+def montar_ciclo_tv_games(pool_ml, pool_amazon):
+    """📺🎮 Ciclo 20:00 — Momento TVs & Games. ~6 TVs (30%+ desc) + ~4 Games (20%+ desc)."""
+    log.info("📺🎮 CICLO TVS & GAMES — Momento TVs e Video Games!")
 
     def filtrar_tvs(pool):
         return [
@@ -948,21 +968,53 @@ def montar_ciclo_copa(pool_ml, pool_amazon):
             and p.get("desconto", 0) >= DESCONTO_MINIMO_TV
         ]
 
-    tvs_ml     = filtrar_tvs(pool_ml)
-    tvs_amazon = filtrar_tvs(pool_amazon)
-    log.info(f"📺 TVs encontradas: ML={len(tvs_ml)} | Amazon={len(tvs_amazon)}")
+    def filtrar_games(pool):
+        return [
+            p for p in pool
+            if _is_games(p.get("nome", ""), p)
+            and p.get("desconto", 0) >= DESCONTO_MINIMO_GAMES
+        ]
 
-    fila = tvs_amazon[:5] + tvs_ml[:5]
-    extras = tvs_amazon[5:] + tvs_ml[5:]
-    for p in extras:
-        if len(fila) >= 10:
+    tvs_ml      = filtrar_tvs(pool_ml)
+    tvs_amazon  = filtrar_tvs(pool_amazon)
+    games_ml    = filtrar_games(pool_ml)
+    games_amazon= filtrar_games(pool_amazon)
+
+    log.info(f"📺 TVs encontradas: ML={len(tvs_ml)} | Amazon={len(tvs_amazon)}")
+    log.info(f"🎮 Games encontrados: ML={len(games_ml)} | Amazon={len(games_amazon)}")
+
+    # Prioridade: ~6 TVs (3 Amazon + 3 ML) + ~4 Games (2 Amazon + 2 ML)
+    fila_tvs   = tvs_amazon[:3] + tvs_ml[:3]
+    fila_games = games_amazon[:2] + games_ml[:2]
+
+    # Completa TVs se tiver menos de 6
+    extras_tvs = tvs_amazon[3:] + tvs_ml[3:]
+    for p in extras_tvs:
+        if len(fila_tvs) >= 6:
             break
-        fila.append(p)
+        fila_tvs.append(p)
+
+    # Completa Games se tiver menos de 4
+    extras_games = games_amazon[2:] + games_ml[2:]
+    for p in extras_games:
+        if len(fila_games) >= 4:
+            break
+        fila_games.append(p)
+
+    fila = fila_tvs + fila_games
+
+    # Completa com mais TVs se games não encontradas
+    if len(fila) < 6:
+        for p in extras_tvs:
+            if len(fila) >= 10:
+                break
+            if p not in fila:
+                fila.append(p)
 
     for p in fila:
-        p["copa_2026"] = True
+        p["tv_games"] = True
 
-    log.info(f"📺🇧🇷 {len(fila)} TV(s) prontas para o ciclo Copa")
+    log.info(f"📺🎮 {len(fila_tvs)} TV(s) + {len(fila_games)} Game(s) prontos para o ciclo TVs & Games")
     return fila
 
 
@@ -1065,8 +1117,8 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
     Recebe pools separados por loja e retorna lista filtrada por tipo de ciclo,
     mantendo proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee em todos os ciclos.
     """
-    if permitir_copa():
-        return montar_ciclo_copa(pool_ml, pool_amazon)
+    if permitir_tv_games():
+        return montar_ciclo_tv_games(pool_ml, pool_amazon)
 
     if permitir_misto():
         return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon)
@@ -1465,8 +1517,8 @@ def postar_whatsapp_custom(produto, imagem_path, group_id):
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee",
                       "AMAZON": "📦 Amazon", "MERCADOLIVRE": "🟡 Mercado Livre"}.get(loja, loja)
         _sc = produto.get("score", 0)
-        if produto.get("copa_2026", False):
-            badge = "📺🇧🇷⚽ MOMENTO TVS — COPA 2026!"
+        if produto.get("tv_games", False):
+            badge = "📺🎮 MOMENTO TVS & GAMES!"
         elif produto.get("ticket_baixo", False):
             badge = "🤑 Momento BOM e BARATO"
         elif _sc >= 3:
@@ -1789,9 +1841,9 @@ def main():
     log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
         schedule.every().day.at(h).do(ciclo)
-    for h in HORARIO_COPA:
+    for h in HORARIO_TV_GAMES:
         schedule.every().day.at(h).do(ciclo)
-    log.info(f"📺🇧🇷 Ciclo Copa 2026 (TVs): {chr(44).join(HORARIO_COPA)}")
+    log.info(f"📺🎮 Ciclo TVs & Games: {chr(44).join(HORARIO_TV_GAMES)}")
     log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
     log.info(f"🏠 Ciclo eletrodomésticos (ML+Amazon): {', '.join(HORARIOS_ELETRO)}")
     # Sobe API de histórico em thread separada
