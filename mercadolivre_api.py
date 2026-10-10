@@ -1,5 +1,5 @@
 """
-Mercado Livre — via ScraperAPI buscando site do ML
+Mercado Livre — via Playwright (primário) + ScrapingAnt (fallback)
 Publisher ID: ot20260326074822
 """
 
@@ -198,7 +198,134 @@ def _url_sem_filtros(url):
     return url_limpa.rstrip('/')
 
 
+def _playwright_fetch(url, timeout_ms=45000):
+    """
+    Busca URL usando Playwright + Chromium headless real.
+    Railway tem Chromium pré-instalado em /opt/pw-browsers/chromium
+    Retorna HTML ou None se falhar.
+    """
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+    except ImportError:
+        log("  Playwright: não instalado — pulando")
+        return None
+
+    chromium_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
+    # Playwright procura o executável dentro da pasta; tenta localizar o binário
+    exec_path = None
+    for candidate in [
+        "/opt/pw-browsers/chromium",
+        "/opt/pw-browsers/chromium-headless-shell",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+    ]:
+        if os.path.isfile(candidate):
+            exec_path = candidate
+            break
+    # Se não achou caminho direto, deixa o Playwright descobrir pelo env
+    if not exec_path:
+        import glob
+        # Busca dentro da pasta configurada
+        matches = glob.glob(f"{chromium_path}/**/chrome", recursive=True) + \
+                  glob.glob(f"{chromium_path}/**/chromium", recursive=True) + \
+                  glob.glob(f"{chromium_path}/**/chromium-headless-shell", recursive=True)
+        if matches:
+            exec_path = matches[0]
+
+    log(f"  Playwright: executável → {exec_path or 'auto'}")
+
+    try:
+        with sync_playwright() as pw:
+            launch_opts = {
+                "headless": True,
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--window-size=1920,1080",
+                    "--lang=pt-BR",
+                ],
+            }
+            if exec_path:
+                launch_opts["executable_path"] = exec_path
+
+            browser = pw.chromium.launch(**launch_opts)
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                locale="pt-BR",
+                timezone_id="America/Sao_Paulo",
+                viewport={"width": 1920, "height": 1080},
+                extra_http_headers={
+                    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                },
+            )
+            # Remove webdriver flag — evita detecção por JS
+            context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+
+            page = context.new_page()
+            try:
+                # Bloqueia imagens/fontes para carregar mais rápido
+                page.route("**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,eot}", lambda r: r.abort())
+
+                log(f"  Playwright: abrindo {url[:70]}")
+                page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+
+                # Aguarda conteúdo principal aparecer (busca lista de produtos)
+                try:
+                    page.wait_for_selector(
+                        ".ui-search-layout__item, .ui-search-results, #root-app",
+                        timeout=15000,
+                    )
+                except PlaywrightTimeout:
+                    log("  Playwright: seletor não encontrado — usando HTML parcial")
+
+                html = page.content()
+                log(f"  Playwright: HTML {len(html)} chars")
+
+                if _is_captcha_html(html):
+                    log("  Playwright: CAPTCHA detectado — tentando scroll")
+                    # Scroll suave para simular humano
+                    page.evaluate("window.scrollBy(0, 300)")
+                    time.sleep(2)
+                    page.evaluate("window.scrollBy(0, 600)")
+                    time.sleep(2)
+                    html = page.content()
+                    if _is_captcha_html(html):
+                        log("  Playwright: CAPTCHA persistente — falhou")
+                        return None
+
+                return html if len(html) > 10000 else None
+
+            finally:
+                try:
+                    page.close()
+                    context.close()
+                    browser.close()
+                except Exception:
+                    pass
+
+    except Exception as e:
+        log(f"  Playwright erro: {e}")
+        return None
+
+
 def scraper_fetch(url):
+    # Playwright — método primário (browser real, sem detecção de bot)
+    html = _playwright_fetch(url)
+    if html is not None:
+        log(f"  Playwright ✅ {len(html)} chars")
+        return html
+    log("  Playwright falhou — tentando ScrapingAnt...")
+
     # ScrapingAnt — tenta 4 configs; se todas falharem com CAPTCHA,
     # tenta URL alternativa sem filtros (menos sinalizável) com browser=true
     if SCRAPINGANT_KEY:
