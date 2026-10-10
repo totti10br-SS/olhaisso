@@ -21,6 +21,7 @@ import schedule
 import re
 import requests
 import textwrap
+import concurrent.futures
 from io import BytesIO
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
@@ -1196,7 +1197,17 @@ def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=T
     produtos_ali = []
     if usar_ali:
         log.info("Buscando AliExpress API...")
-        produtos_ali = buscar_aliexpress()
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(buscar_aliexpress)
+                produtos_ali = future.result(timeout=90)
+            log.info(f"AliExpress: {len(produtos_ali)} produtos encontrados")
+        except concurrent.futures.TimeoutError:
+            log.warning("AliExpress: timeout de 90s — pulando para próxima fonte")
+            produtos_ali = []
+        except Exception as e:
+            log.warning(f"AliExpress erro: {e} — pulando")
+            produtos_ali = []
     else:
         log.info("AliExpress ignorado (não selecionado)")
 
@@ -1290,7 +1301,12 @@ def montar_pipeline_profundo(usar_ml=True, usar_shopee=True, usar_ali=True, usar
     if usar_ali:
         log.info("🔍 AliExpress profundo...")
         try:
-            produtos_ali = buscar_aliexpress_profundo()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(buscar_aliexpress_profundo)
+                produtos_ali = future.result(timeout=90)
+        except concurrent.futures.TimeoutError:
+            log.warning("AliExpress profundo: timeout de 90s — pulando")
+            produtos_ali = []
         except Exception as e:
             log.warning(f"AliExpress profundo erro: {e}")
 

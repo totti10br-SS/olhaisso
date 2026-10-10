@@ -210,27 +210,34 @@ def _playwright_fetch(url, timeout_ms=45000):
         log("  Playwright: não instalado — pulando")
         return None
 
-    chromium_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
+    chromium_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/ms-playwright")
     # Playwright procura o executável dentro da pasta; tenta localizar o binário
     exec_path = None
     for candidate in [
+        "/opt/ms-playwright/chromium/chrome",
+        "/opt/ms-playwright/chromium-headless-shell/headless_shell",
         "/opt/pw-browsers/chromium",
         "/opt/pw-browsers/chromium-headless-shell",
         "/usr/bin/chromium-browser",
         "/usr/bin/chromium",
+        "/usr/bin/google-chrome",
     ]:
         if os.path.isfile(candidate):
             exec_path = candidate
             break
-    # Se não achou caminho direto, deixa o Playwright descobrir pelo env
+    # Se não achou caminho direto, faz glob recursivo nas pastas conhecidas
     if not exec_path:
         import glob
-        # Busca dentro da pasta configurada
-        matches = glob.glob(f"{chromium_path}/**/chrome", recursive=True) + \
-                  glob.glob(f"{chromium_path}/**/chromium", recursive=True) + \
-                  glob.glob(f"{chromium_path}/**/chromium-headless-shell", recursive=True)
-        if matches:
-            exec_path = matches[0]
+        search_paths = [chromium_path, "/opt/ms-playwright", "/opt/pw-browsers",
+                        os.path.expanduser("~/.cache/ms-playwright")]
+        for base in search_paths:
+            matches = (glob.glob(f"{base}/**/headless_shell", recursive=True) +
+                       glob.glob(f"{base}/**/chrome", recursive=True) +
+                       glob.glob(f"{base}/**/chromium", recursive=True) +
+                       glob.glob(f"{base}/**/chromium-headless-shell", recursive=True))
+            if matches:
+                exec_path = matches[0]
+                break
 
     log(f"  Playwright: executável → {exec_path or 'auto'}")
 
