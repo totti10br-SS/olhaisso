@@ -28,12 +28,9 @@ nixPkgs = [
 [phases.install]
 cmds = [
   "pip install -r requirements.txt --break-system-packages",
-  "PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright playwright install chromium || true",
-  "PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright playwright install-deps chromium || true",
+  "playwright install chromium || true",
+  "playwright install-deps chromium || true",
 ]
-
-[variables]
-PLAYWRIGHT_BROWSERS_PATH = "/opt/ms-playwright"
 
 [start]
 cmd = "python bot.py"

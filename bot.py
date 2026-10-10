@@ -1187,7 +1187,7 @@ def limitar_por_tema(produtos):
         log.info(f"🎯 Limite por tema ({MAX_POR_TEMA}/tema): {len(pulados)} removido(s) — {', '.join(set(pulados))}")
     return resultado
 
-def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=True):
+def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=False, usar_amazon=True):
     log.info("=== Pipeline v6.0 iniciado ===")
     tg = buscar_trends_google()
     tt = buscar_tiktok_trending()
@@ -1287,7 +1287,7 @@ def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=T
     return resultado
 
 
-def montar_pipeline_profundo(usar_ml=True, usar_shopee=True, usar_ali=True, usar_amazon=True):
+def montar_pipeline_profundo(usar_ml=True, usar_shopee=True, usar_ali=False, usar_amazon=True):
     """
     Pipeline de busca profunda — acionado quando o pipeline normal retornou poucos produtos.
     Usa mais categorias, mais páginas e keywords alternativas em todas as APIs.
@@ -1866,9 +1866,9 @@ def main():
     import threading
     t = threading.Thread(target=iniciar_api_historico, daemon=True)
     t.start()
-    # Dispara 1 oferta de teste no grupo teste a cada deploy (em thread para não bloquear o boot)
-    t_teste = threading.Thread(target=ciclo_teste, daemon=True)
-    t_teste.start()
+    # Ciclo de teste a cada deploy — desabilitado para não postar no grupo ao reiniciar
+    # t_teste = threading.Thread(target=ciclo_teste, daemon=True)
+    # t_teste.start()
     log.info("⏳ Aguardando próximo horário agendado...")
     while True:
         schedule.run_pending()

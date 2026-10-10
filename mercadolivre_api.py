@@ -210,10 +210,11 @@ def _playwright_fetch(url, timeout_ms=45000):
         log("  Playwright: não instalado — pulando")
         return None
 
-    chromium_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/ms-playwright")
+    chromium_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", os.path.expanduser("~/.cache/ms-playwright"))
     # Playwright procura o executável dentro da pasta; tenta localizar o binário
     exec_path = None
     for candidate in [
+        os.path.expanduser("~/.cache/ms-playwright/chromium-headless-shell/chrome-linux/headless_shell"),
         "/opt/ms-playwright/chromium/chrome",
         "/opt/ms-playwright/chromium-headless-shell/headless_shell",
         "/opt/pw-browsers/chromium",
@@ -228,8 +229,8 @@ def _playwright_fetch(url, timeout_ms=45000):
     # Se não achou caminho direto, faz glob recursivo nas pastas conhecidas
     if not exec_path:
         import glob
-        search_paths = [chromium_path, "/opt/ms-playwright", "/opt/pw-browsers",
-                        os.path.expanduser("~/.cache/ms-playwright")]
+        search_paths = [os.path.expanduser("~/.cache/ms-playwright"), chromium_path,
+                        "/opt/ms-playwright", "/opt/pw-browsers"]
         for base in search_paths:
             matches = (glob.glob(f"{base}/**/headless_shell", recursive=True) +
                        glob.glob(f"{base}/**/chrome", recursive=True) +
