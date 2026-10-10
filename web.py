@@ -568,6 +568,7 @@ HTML = """<!DOCTYPE html>
     <div class="tab" onclick="trocarAba('ml')">🔗 Gerar Link</div>
     <div class="tab" onclick="trocarAba('historico'); carregarHistorico()">📊 Histórico</div>
     <div class="tab" onclick="trocarAba('analytics'); carregarAnalytics()">📈 Analytics</div>
+    <div class="tab" onclick="trocarAba('teste')" style="background:#0d2a1a;border-color:#00BB44;color:#00BB44;">🧪 Teste</div>
   </div>
 
   <!-- FLUXO 1: Link de afiliado pronto -->
@@ -979,15 +980,15 @@ function copiarLink(btn) {
 }
 
 function trocarAba(aba) {
-  const abas = ['afiliado', 'produto', 'busca', 'web', 'ml', 'historico'];
+  const abas = ['afiliado', 'produto', 'busca', 'web', 'ml', 'historico', 'analytics', 'teste'];
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', aba === abas[i]));
   abas.forEach(a => {
     const card = document.getElementById('card_' + a);
     if (card) card.classList.toggle('active', aba === a);
   });
-  // Expande container para aba historico
+  // Expande container para abas que precisam de mais espaço
   const cont = document.querySelector('.container');
-  if (cont) cont.classList.toggle('wide', aba === 'historico');
+  if (cont) cont.classList.toggle('wide', aba === 'historico' || aba === 'teste' || aba === 'analytics');
 }
 
 function toggleDestino(id, checkbox) {
@@ -1694,6 +1695,106 @@ async function buscarInternet() {
   }
 }
 
+async function testarScraping() {
+  const usar_ml     = document.getElementById('ts_ml').checked;
+  const usar_shopee = document.getElementById('ts_shopee').checked;
+  const usar_ali    = document.getElementById('ts_ali').checked;
+  const usar_amazon = document.getElementById('ts_amazon').checked;
+
+  if (!usar_ml && !usar_shopee && !usar_ali && !usar_amazon) {
+    return alert('Selecione pelo menos uma loja para testar!');
+  }
+
+  const btn = document.getElementById('btn_teste');
+  btn.disabled = true;
+  document.getElementById('loader_ts').style.display = 'block';
+  document.getElementById('ts_resultados').innerHTML = '';
+  document.getElementById('ts_status').innerHTML = '<div class="info">⏳ Buscando produtos... Isso pode levar até 1 minuto (Playwright iniciando).</div>';
+
+  try {
+    const resp = await fetch('/testar_scraping', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ usar_ml, usar_shopee, usar_ali, usar_amazon })
+    });
+    const data = await resp.json();
+    const area = document.getElementById('ts_resultados');
+    document.getElementById('ts_status').innerHTML = '';
+
+    if (!data.ok) {
+      area.innerHTML = `<div class="msg msg-err">❌ ${data.erro || 'Erro desconhecido'}</div>`;
+      return;
+    }
+
+    const produtos = data.produtos || [];
+    const logs = data.logs || [];
+
+    // Mostra logs de debug
+    if (logs.length > 0) {
+      document.getElementById('ts_status').innerHTML = `<div style="background:#111;border:1px solid #2a2a2a;border-radius:10px;padding:12px;margin-bottom:12px;font-size:12px;color:#888;max-height:120px;overflow-y:auto;">
+        ${logs.map(l => `<div>${l}</div>`).join('')}
+      </div>`;
+    }
+
+    if (produtos.length === 0) {
+      area.innerHTML = `<div class="msg msg-err">❌ Nenhum produto encontrado. Verifique os logs acima.</div>`;
+      return;
+    }
+
+    const lojaEmoji = { MERCADOLIVRE: '🟡', SHOPEE: '🧡', ALIEXPRESS: '🛍️', AMAZON: '📦' };
+    const lojaCor   = { MERCADOLIVRE: '#FFE600', SHOPEE: '#FF6600', ALIEXPRESS: '#FF4500', AMAZON: '#FF9900' };
+
+    function fmtPreco(v) {
+      if (!v) return '-';
+      return 'R$ ' + parseFloat(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+    }
+
+    let html = `<div style="color:#00bb44;font-size:13px;margin-bottom:14px;font-weight:700;">✅ ${produtos.length} produto(s) encontrado(s) — apenas preview, nada foi enviado</div>`;
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">';
+
+    produtos.forEach((p, i) => {
+      const emoji = lojaEmoji[p.loja] || '🏪';
+      const cor = lojaCor[p.loja] || '#aaa';
+      const desc = p.desconto > 0 ? `<span style="background:#00BB44;color:#fff;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700;margin-left:6px;">-${p.desconto}%</span>` : '';
+      const imgHtml = p.imagem_url
+        ? `<img src="${p.imagem_url}" style="width:56px;height:56px;object-fit:contain;border-radius:8px;background:#2a2a2a;flex-shrink:0;" onerror="this.style.display='none'">`
+        : '<div style="width:56px;height:56px;background:#2a2a2a;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;">📦</div>';
+      const linkBtn = p.link_afiliado
+        ? `<a href="${p.link_afiliado}" target="_blank" style="background:#333;color:#FF6B1A;border-radius:7px;padding:5px 10px;font-size:12px;text-decoration:none;white-space:nowrap;font-weight:700;">🔗 Abrir</a>`
+        : '';
+      html += `
+      <div style="background:#1f1f1f;border:1px solid #2a2a2a;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;gap:10px;align-items:flex-start;">
+          ${imgHtml}
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;color:${cor};font-weight:700;margin-bottom:3px;">${emoji} ${p.loja || 'LOJA'}</div>
+            <div style="font-size:13px;color:#fff;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${p.nome || '-'}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
+          <span style="color:#FF6B1A;font-size:16px;font-weight:800;">${fmtPreco(p.preco)}</span>
+          ${p.preco_original > p.preco ? `<span style="color:#555;font-size:12px;text-decoration:line-through;">${fmtPreco(p.preco_original)}</span>` : ''}
+          ${desc}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:11px;color:#666;">${p.frete || ''}</span>
+          ${linkBtn}
+        </div>
+      </div>`;
+    });
+
+    html += '</div>';
+    area.innerHTML = html;
+
+  } catch(e) {
+    document.getElementById('ts_status').innerHTML = '';
+    document.getElementById('ts_resultados').innerHTML = `<div class="msg msg-err">❌ Erro: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    document.getElementById('loader_ts').style.display = 'none';
+  }
+}
+
 async function carregarAnalytics() {
   const loader = document.getElementById('analytics_loader');
   if (loader) loader.style.display = 'block';
@@ -1766,7 +1867,7 @@ async function carregarAnalytics() {
 </script>
 
   <!-- FLUXO 7: Analytics -->
-  <div class="card" id="card_analytics" style="display:none;">
+  <div class="card" id="card_analytics">
     <h2>📈 Analytics</h2>
     <div class="info">💡 Dashboard baseado nos últimos 100 posts registrados no banco</div>
 
@@ -1797,6 +1898,42 @@ async function carregarAnalytics() {
     </div>
 
     <div id="analytics_loader" style="text-align:center;padding:30px;color:#888;display:none;">⏳ Carregando analytics...</div>
+  </div>
+
+  <!-- ABA DE TESTE: Preview de produtos sem enviar nada -->
+  <div class="card" id="card_teste">
+    <h2>🧪 Testar Scraping — Preview sem Envios</h2>
+    <div class="info" style="background:#0d2a1a;border-color:#00BB44;color:#88cc88;">
+      💡 Busca produtos nas lojas selecionadas e mostra um preview. <strong>Nada é enviado ao WhatsApp ou Telegram.</strong> Use para validar se o Playwright/ScrapingAnt está funcionando.
+    </div>
+
+    <label style="margin-bottom:10px;font-size:14px;color:#ccc;">🏪 Lojas para testar:</label>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+      <label style="display:flex;align-items:center;gap:8px;background:#2a2a2a;border:2px solid #333;border-radius:10px;padding:10px 16px;cursor:pointer;" id="ts_lbl_ml">
+        <input type="checkbox" id="ts_ml" checked onchange="document.getElementById('ts_lbl_ml').style.borderColor=this.checked?'#FFE600':'#333';" style="width:16px;height:16px;accent-color:#FFE600;cursor:pointer;">
+        <span style="font-size:14px;font-weight:700;color:#FFE600;">🟡 Mercado Livre</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;background:#2a2a2a;border:2px solid #333;border-radius:10px;padding:10px 16px;cursor:pointer;" id="ts_lbl_shopee">
+        <input type="checkbox" id="ts_shopee" checked onchange="document.getElementById('ts_lbl_shopee').style.borderColor=this.checked?'#FF6600':'#333';" style="width:16px;height:16px;accent-color:#FF6600;cursor:pointer;">
+        <span style="font-size:14px;font-weight:700;color:#FF6600;">🧡 Shopee</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;background:#2a2a2a;border:2px solid #333;border-radius:10px;padding:10px 16px;cursor:pointer;" id="ts_lbl_ali">
+        <input type="checkbox" id="ts_ali" checked onchange="document.getElementById('ts_lbl_ali').style.borderColor=this.checked?'#FF4500':'#333';" style="width:16px;height:16px;accent-color:#FF4500;cursor:pointer;">
+        <span style="font-size:14px;font-weight:700;color:#FF4500;">🛍️ AliExpress</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;background:#2a2a2a;border:2px solid #333;border-radius:10px;padding:10px 16px;cursor:pointer;" id="ts_lbl_amazon">
+        <input type="checkbox" id="ts_amazon" onchange="document.getElementById('ts_lbl_amazon').style.borderColor=this.checked?'#FF9900':'#333';" style="width:16px;height:16px;accent-color:#FF9900;cursor:pointer;">
+        <span style="font-size:14px;font-weight:700;color:#FF9900;">📦 Amazon</span>
+      </label>
+    </div>
+
+    <button class="btn" id="btn_teste" onclick="testarScraping()" style="background:#00BB44;color:#fff;font-size:16px;font-weight:800;margin-bottom:10px;">
+      ▶️ Buscar e Pré-visualizar Produtos
+    </button>
+    <div class="loader" id="loader_ts" style="display:none;">⏳ Aguardando... O Playwright pode levar até 60s na primeira execução.</div>
+
+    <div id="ts_status"></div>
+    <div id="ts_resultados" style="margin-top:10px;"></div>
   </div>
 
 
@@ -2558,6 +2695,89 @@ def buscar_internet():
 
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/testar_scraping", methods=["POST"])
+def testar_scraping():
+    """Preview de produtos das lojas — SEM enviar nada ao WhatsApp/Telegram."""
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Não autorizado"}), 401
+
+    data        = request.json or {}
+    usar_ml     = data.get("usar_ml", True)
+    usar_shopee = data.get("usar_shopee", True)
+    usar_ali    = data.get("usar_ali", True)
+    usar_amazon = data.get("usar_amazon", False)
+
+    logs = []
+    todos = []
+
+    try:
+        # ── Mercado Livre via mercadolivre_api.py (Playwright → ScrapingAnt) ──
+        if usar_ml:
+            try:
+                import mercadolivre_api as ml_api
+                urls_busca = getattr(ml_api, "URLS_BUSCA", [])
+                if urls_busca:
+                    # Testa só a primeira URL para ser rápido no preview
+                    url_cat, nome_cat = urls_busca[0]
+                    logs.append(f"ML: testando '{nome_cat}' → {url_cat[:60]}...")
+                    html = ml_api.scraper_fetch(url_cat)
+                    if html:
+                        itens = ml_api.extrair_produtos_html(html)
+                        logs.append(f"ML: {len(itens)} itens brutos extraídos de '{nome_cat}'")
+                        for item in itens[:30]:
+                            if item.get("_raw_html"):
+                                p = ml_api._processar_item_html(item)
+                            else:
+                                p = ml_api.processar_item(item)
+                            if p:
+                                todos.append(p)
+                            if len([x for x in todos if x["loja"] == "MERCADOLIVRE"]) >= 6:
+                                break
+                        ml_count = len([x for x in todos if x["loja"] == "MERCADOLIVRE"])
+                        logs.append(f"ML: {ml_count} produtos válidos")
+                    else:
+                        logs.append("ML: HTML vazio ou CAPTCHA — Playwright e ScrapingAnt falharam")
+                else:
+                    logs.append("ML: URLS_BUSCA não definida no módulo")
+            except Exception as e:
+                logs.append(f"ML erro: {str(e)[:120]}")
+
+        # ── Shopee ──
+        if usar_shopee:
+            try:
+                logs.append("Shopee: buscando 'gadgets tecnologia'...")
+                produtos_sh = busca_shopee_sem_filtro("gadgets tecnologia", limit=5)
+                logs.append(f"Shopee: {len(produtos_sh)} produtos")
+                todos += produtos_sh
+            except Exception as e:
+                logs.append(f"Shopee erro: {str(e)[:100]}")
+
+        # ── AliExpress ──
+        if usar_ali:
+            try:
+                logs.append("AliExpress: buscando 'gadget'...")
+                produtos_ali = busca_aliexpress_sem_filtro("gadget", limit=5)
+                logs.append(f"AliExpress: {len(produtos_ali)} produtos")
+                todos += produtos_ali
+            except Exception as e:
+                logs.append(f"AliExpress erro: {str(e)[:100]}")
+
+        # ── Amazon (via ScrapingAnt) ──
+        if usar_amazon:
+            logs.append("Amazon: scraping ainda não implementado no teste")
+
+        if not todos:
+            return jsonify({"ok": True, "produtos": [], "logs": logs,
+                            "erro": None})
+
+        # Ordena por desconto e limita
+        todos.sort(key=lambda p: p.get("desconto", 0), reverse=True)
+        return jsonify({"ok": True, "produtos": todos[:30], "logs": logs})
+
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e), "logs": logs})
 
 
 if __name__ == "__main__":
