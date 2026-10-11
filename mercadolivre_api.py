@@ -33,14 +33,14 @@ PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
 URLS_BUSCA = [
-    ("https://lista.mercadolivre.com.br/notebooks-acessorios_Discount_20-100", "Notebooks"),
-    ("https://lista.mercadolivre.com.br/celulares-smartphones_Discount_20-100", "Smartphones"),
-    ("https://lista.mercadolivre.com.br/televisores_Discount_20-100", "TVs"),
-    ("https://lista.mercadolivre.com.br/video-games-controles_Discount_20-100", "Controles"),
-    ("https://lista.mercadolivre.com.br/video-games-consoles_Discount_20-100", "Consoles"),
-    ("https://lista.mercadolivre.com.br/video-games-jogos_Discount_20-100", "Jogos"),
-    ("https://lista.mercadolivre.com.br/fones-ouvido-headsets_Discount_20-100", "Fones"),
-    ("https://lista.mercadolivre.com.br/monitores-telas_Discount_20-100", "Monitores"),
+    ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
+    ("https://lista.mercadolivre.com.br/celulares-smartphones", "Smartphones"),
+    ("https://lista.mercadolivre.com.br/televisores", "TVs"),
+    ("https://lista.mercadolivre.com.br/video-games-controles", "Controles"),
+    ("https://lista.mercadolivre.com.br/video-games-consoles", "Consoles"),
+    ("https://lista.mercadolivre.com.br/video-games-jogos", "Jogos"),
+    ("https://lista.mercadolivre.com.br/fones-ouvido-headsets", "Fones"),
+    ("https://lista.mercadolivre.com.br/monitores-telas", "Monitores"),
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -855,17 +855,13 @@ def buscar_todos_produtos():
             log(f"ML buscando: {nome}")
             html  = scraper_fetch(url)
             if html is None:
-                # scraper_fetch retorna None quando todas as configs falharam com CAPTCHA
-                ml_bloqueado = True
-                log("ML: CAPTCHA em todas as configs — abortando demais categorias")
-                break
+                log(f"ML: {nome} falhou (sem HTML) — continuando próxima categoria")
+                continue
             items = extrair_produtos_html(html)
             total_bruto += len(items)
+            log(f"  -> {len(items)} itens brutos extraídos para {nome}")
 
-            if items and len(todos) == 0:
-                # Debug primeiro item
-                processar_item._logged = False
-
+            validos_cat = 0
             for item in items:
                 if item.get("_raw_html"):
                     p = _processar_item_html(item)
@@ -876,6 +872,11 @@ def buscar_todos_produtos():
                     if chave not in vistos:
                         vistos.add(chave)
                         todos.append(p)
+                        validos_cat += 1
+            if items:
+                # Diagnóstico: mostra primeiro item bruto para debug
+                amostra = items[0]
+                log(f"  -> {validos_cat} válidos | amostra: preco={amostra.get('preco',amostra.get('price',0))} orig={amostra.get('preco_original',amostra.get('original_price',0))} desc={amostra.get('desconto',0)}")
 
             # Se JSON não funcionou, tenta parser HTML direto
             if not items:
@@ -902,20 +903,20 @@ def buscar_todos_produtos():
 
 # URLs extras para busca profunda ML
 URLS_BUSCA_EXTRA = [
-    ("https://lista.mercadolivre.com.br/notebooks-acessorios_Discount_20-100", "Notebooks"),
-    ("https://lista.mercadolivre.com.br/monitores-gamer_Discount_20-100", "Monitores Gamer"),
-    ("https://lista.mercadolivre.com.br/ssd-nvme_Discount_20-100", "SSDs"),
-    ("https://lista.mercadolivre.com.br/placas-de-video_Discount_20-100", "Placas de Vídeo"),
-    ("https://lista.mercadolivre.com.br/samsung-celulares_Discount_20-100", "Samsung"),
-    ("https://lista.mercadolivre.com.br/motorola-celulares_Discount_20-100", "Motorola"),
-    ("https://lista.mercadolivre.com.br/xiaomi-celulares_Discount_20-100", "Xiaomi"),
-    ("https://lista.mercadolivre.com.br/smartwatch_Discount_20-100", "Smartwatch"),
-    ("https://lista.mercadolivre.com.br/fone-bluetooth_Discount_20-100", "Fones BT"),
-    ("https://lista.mercadolivre.com.br/caixa-de-som-bluetooth_Discount_20-100", "Caixas de Som"),
-    ("https://lista.mercadolivre.com.br/smart-tv-55_Discount_20-100", "Smart TV 55"),
-    ("https://lista.mercadolivre.com.br/smart-tv-65_Discount_20-100", "Smart TV 65"),
-    ("https://lista.mercadolivre.com.br/controle-gamer_Discount_20-100", "Controles Gamer"),
-    ("https://lista.mercadolivre.com.br/soundbar_Discount_20-100", "Soundbar"),
+    ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
+    ("https://lista.mercadolivre.com.br/monitores-gamer", "Monitores Gamer"),
+    ("https://lista.mercadolivre.com.br/ssd-nvme", "SSDs"),
+    ("https://lista.mercadolivre.com.br/placas-de-video", "Placas de Vídeo"),
+    ("https://lista.mercadolivre.com.br/samsung-celulares", "Samsung"),
+    ("https://lista.mercadolivre.com.br/motorola-celulares", "Motorola"),
+    ("https://lista.mercadolivre.com.br/xiaomi-celulares", "Xiaomi"),
+    ("https://lista.mercadolivre.com.br/smartwatch", "Smartwatch"),
+    ("https://lista.mercadolivre.com.br/fone-bluetooth", "Fones BT"),
+    ("https://lista.mercadolivre.com.br/caixa-de-som-bluetooth", "Caixas de Som"),
+    ("https://lista.mercadolivre.com.br/smart-tv-55", "Smart TV 55"),
+    ("https://lista.mercadolivre.com.br/smart-tv-65", "Smart TV 65"),
+    ("https://lista.mercadolivre.com.br/controle-gamer", "Controles Gamer"),
+    ("https://lista.mercadolivre.com.br/soundbar", "Soundbar"),
 ]
 
 
