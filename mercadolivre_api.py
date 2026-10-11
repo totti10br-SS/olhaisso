@@ -13,8 +13,9 @@ import time
 import requests
 
 ML_PUBLISHER_ID = os.getenv("ML_PUBLISHER_ID", "ot20260326074822")
-SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
-ZENROWS_KEY     = os.getenv("ZENROWS_KEY", "")      # fallback
+SCRAPINGANT_KEY  = os.getenv("SCRAPINGANT_KEY", "")
+ZENROWS_KEY      = os.getenv("ZENROWS_KEY", "")       # fallback
+BRIGHTDATA_KEY   = os.getenv("BRIGHTDATA_API_KEY", "") # Web Unlocker — resolve CAPTCHA
 
 # ScraperAPI — suporta múltiplas keys: SCRAPERAPI_KEY, SCRAPERAPI_KEY2, SCRAPERAPI_KEY3...
 # Se a key 1 estiver esgotada (402/403), tenta automaticamente a próxima.
@@ -402,7 +403,6 @@ def scraper_fetch(url):
                         return html
                     log(f"  URL-alt CAPTCHA (proxy={pcountry})")
 
-
     # Fallback ZenRows
     if ZENROWS_KEY:
         try:
@@ -421,6 +421,30 @@ def scraper_fetch(url):
             log(f"  ZenRows erro: {r.text[:100]}")
         except Exception as e:
             log(f"  ZenRows erro: {e}")
+
+    # Fallback Bright Data Web Unlocker — resolve CAPTCHA automaticamente
+    if BRIGHTDATA_KEY:
+        try:
+            payload = {
+                "zone":   "web_unlocker1",
+                "url":    url,
+                "format": "raw",
+            }
+            headers = {
+                "Content-Type":  "application/json",
+                "Authorization": f"Bearer {BRIGHTDATA_KEY}",
+            }
+            r = requests.post("https://api.brightdata.com/request", json=payload, headers=headers, timeout=60)
+            log(f"  BrightData WebUnlocker {r.status_code} → {url[:60]}")
+            if r.status_code == 200 and not _is_captcha_html(r.text):
+                log(f"  BrightData ✅ {len(r.text)} chars")
+                return r.text
+            if r.status_code == 200:
+                log("  BrightData: CAPTCHA ainda presente")
+            else:
+                log(f"  BrightData erro: {r.text[:150]}")
+        except Exception as e:
+            log(f"  BrightData erro: {e}")
 
     # Fallback ScraperAPI — tenta múltiplas keys em sequência (SCRAPERAPI_KEY, SCRAPERAPI_KEY2, ...)
     scraperapi_keys = _get_scraperapi_keys()
@@ -482,12 +506,6 @@ def extrair_produtos_html_lista(html):
         return []
     produtos = []
     try:
-        # Padrão: <li class="ui-search-layout__item">...</li>
-        # Nome: <h2 class="ui-search-item__title">NOME</h2>
-        # Preço atual: <span class="andes-money-amount__fraction">VALOR</span>
-        # Desconto: <span class="andes-badge__content">N% OFF</span>
-        # Link: <a class="ui-search-link" href="...">
-        # Imagem: <img class="ui-search-result-image__element" src="..." / data-src="...">
         import html as htmllib
 
         nome_pattern = re.compile(r'class="[^"]*ui-search-item__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE)
@@ -521,7 +539,6 @@ def extrair_produtos_html_lista(html):
             desconto = int(descontos[i]) if i < len(descontos) else 0
             url_prod = links[i] if i < len(links) else ""
             imagem = imagens[i] if i < len(imagens) else ""
-            # Monta dict no formato que processar_item espera — aqui fazemos direto
             produtos.append({
                 "_raw_html": True,
                 "nome": nome,
@@ -881,7 +898,7 @@ def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50)
 
 
 def buscar_todos_produtos():
-    if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
+    if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY and not BRIGHTDATA_KEY:
         log("ML: nenhuma chave de scraping configurada")
         return []
 
@@ -973,7 +990,7 @@ def buscar_profundo():
     """Busca profunda ML via ScrapingAnt."""
     log("ML BUSCA PROFUNDA iniciada...")
 
-    if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY:
+    if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY and not BRIGHTDATA_KEY:
         log("ML profundo: nenhuma chave de scraping configurada")
         return []
     todos = []
