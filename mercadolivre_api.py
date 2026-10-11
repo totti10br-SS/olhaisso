@@ -33,14 +33,14 @@ PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
 URLS_BUSCA = [
-    ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
-    ("https://lista.mercadolivre.com.br/celulares-smartphones", "Smartphones"),
-    ("https://lista.mercadolivre.com.br/televisores", "TVs"),
-    ("https://lista.mercadolivre.com.br/video-games-controles", "Controles"),
-    ("https://lista.mercadolivre.com.br/video-games-consoles", "Consoles"),
-    ("https://lista.mercadolivre.com.br/video-games-jogos", "Jogos"),
-    ("https://lista.mercadolivre.com.br/fones-ouvido-headsets", "Fones"),
-    ("https://lista.mercadolivre.com.br/monitores-telas", "Monitores"),
+    ("https://lista.mercadolivre.com.br/notebooks-acessorios_Discount_20-100", "Notebooks"),
+    ("https://lista.mercadolivre.com.br/celulares-smartphones_Discount_20-100", "Smartphones"),
+    ("https://lista.mercadolivre.com.br/televisores_Discount_20-100", "TVs"),
+    ("https://lista.mercadolivre.com.br/video-games-controles_Discount_20-100", "Controles"),
+    ("https://lista.mercadolivre.com.br/video-games-consoles_Discount_20-100", "Consoles"),
+    ("https://lista.mercadolivre.com.br/video-games-jogos_Discount_20-100", "Jogos"),
+    ("https://lista.mercadolivre.com.br/fones-ouvido-headsets_Discount_20-100", "Fones"),
+    ("https://lista.mercadolivre.com.br/monitores-telas_Discount_20-100", "Monitores"),
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -348,12 +348,9 @@ def _playwright_fetch(url, timeout_ms=45000):
 
 
 def scraper_fetch(url):
-    # Playwright — método primário (browser real, sem detecção de bot)
-    html = _playwright_fetch(url)
-    if html is not None:
-        log(f"  Playwright ✅ {len(html)} chars")
-        return html
-    log("  Playwright falhou — tentando Bright Data Web Unlocker...")
+    # Playwright desabilitado para ML — Railway IP blacklistado, sempre retorna CAPTCHA
+    # Indo direto para Bright Data Web Unlocker
+    log("  → Bright Data Web Unlocker...")
 
     # NOTA: ScrapingAnt e ZenRows desabilitados para ML (todos retornam CAPTCHA com IPs de datacenter)
     # Chain atual: Playwright → Bright Data Web Unlocker → ScraperAPI (rotação de keys)
@@ -905,20 +902,20 @@ def buscar_todos_produtos():
 
 # URLs extras para busca profunda ML
 URLS_BUSCA_EXTRA = [
-    ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
-    ("https://lista.mercadolivre.com.br/monitores-gamer", "Monitores Gamer"),
-    ("https://lista.mercadolivre.com.br/ssd-nvme", "SSDs"),
-    ("https://lista.mercadolivre.com.br/placas-de-video", "Placas de Vídeo"),
-    ("https://lista.mercadolivre.com.br/samsung-celulares", "Samsung"),
-    ("https://lista.mercadolivre.com.br/motorola-celulares", "Motorola"),
-    ("https://lista.mercadolivre.com.br/xiaomi-celulares", "Xiaomi"),
-    ("https://lista.mercadolivre.com.br/smartwatch", "Smartwatch"),
-    ("https://lista.mercadolivre.com.br/fone-bluetooth", "Fones BT"),
-    ("https://lista.mercadolivre.com.br/caixa-de-som-bluetooth", "Caixas de Som"),
-    ("https://lista.mercadolivre.com.br/smart-tv-55", "Smart TV 55"),
-    ("https://lista.mercadolivre.com.br/smart-tv-65", "Smart TV 65"),
-    ("https://lista.mercadolivre.com.br/controle-gamer", "Controles Gamer"),
-    ("https://lista.mercadolivre.com.br/soundbar", "Soundbar"),
+    ("https://lista.mercadolivre.com.br/notebooks-acessorios_Discount_20-100", "Notebooks"),
+    ("https://lista.mercadolivre.com.br/monitores-gamer_Discount_20-100", "Monitores Gamer"),
+    ("https://lista.mercadolivre.com.br/ssd-nvme_Discount_20-100", "SSDs"),
+    ("https://lista.mercadolivre.com.br/placas-de-video_Discount_20-100", "Placas de Vídeo"),
+    ("https://lista.mercadolivre.com.br/samsung-celulares_Discount_20-100", "Samsung"),
+    ("https://lista.mercadolivre.com.br/motorola-celulares_Discount_20-100", "Motorola"),
+    ("https://lista.mercadolivre.com.br/xiaomi-celulares_Discount_20-100", "Xiaomi"),
+    ("https://lista.mercadolivre.com.br/smartwatch_Discount_20-100", "Smartwatch"),
+    ("https://lista.mercadolivre.com.br/fone-bluetooth_Discount_20-100", "Fones BT"),
+    ("https://lista.mercadolivre.com.br/caixa-de-som-bluetooth_Discount_20-100", "Caixas de Som"),
+    ("https://lista.mercadolivre.com.br/smart-tv-55_Discount_20-100", "Smart TV 55"),
+    ("https://lista.mercadolivre.com.br/smart-tv-65_Discount_20-100", "Smart TV 65"),
+    ("https://lista.mercadolivre.com.br/controle-gamer_Discount_20-100", "Controles Gamer"),
+    ("https://lista.mercadolivre.com.br/soundbar_Discount_20-100", "Soundbar"),
 ]
 
 
