@@ -32,14 +32,14 @@ PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
 URLS_BUSCA = [
-    ("https://lista.mercadolivre.com.br/computacao/notebooks-acessorios/_OrderId_PRICE*DESC_Discount_30-100_NoIndex_True", "Notebooks"),
-    ("https://lista.mercadolivre.com.br/celulares-telefones/celulares-smartphones/_OrderId_PRICE*DESC_Discount_25-100_NoIndex_True", "Smartphones"),
-    ("https://lista.mercadolivre.com.br/eletronicos-audio-video/televisores/_OrderId_PRICE*DESC_Discount_30-100_NoIndex_True", "TVs"),
-    ("https://lista.mercadolivre.com.br/video-games/controles/_OrderId_PRICE*DESC_Discount_20-100_NoIndex_True", "Controles"),
-    ("https://lista.mercadolivre.com.br/video-games/videogames/_OrderId_PRICE*DESC_Discount_20-100_NoIndex_True", "Consoles"),
-    ("https://lista.mercadolivre.com.br/video-games/jogos-videogame/_OrderId_PRICE*DESC_Discount_20-100_NoIndex_True", "Jogos"),
-    ("https://lista.mercadolivre.com.br/eletronicos-audio-video/audio/fones-ouvido/_OrderId_PRICE*DESC_Discount_25-100_NoIndex_True", "Fones"),
-    ("https://lista.mercadolivre.com.br/informatica/monitores-telas/_OrderId_PRICE*DESC_Discount_25-100_NoIndex_True", "Monitores"),
+    ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
+    ("https://lista.mercadolivre.com.br/celulares-smartphones", "Smartphones"),
+    ("https://lista.mercadolivre.com.br/televisores", "TVs"),
+    ("https://lista.mercadolivre.com.br/video-games-controles", "Controles"),
+    ("https://lista.mercadolivre.com.br/video-games-consoles", "Consoles"),
+    ("https://lista.mercadolivre.com.br/video-games-jogos", "Jogos"),
+    ("https://lista.mercadolivre.com.br/fones-ouvido-headsets", "Fones"),
+    ("https://lista.mercadolivre.com.br/monitores-telas", "Monitores"),
 ]
 
 PALAVRAS_BLOQUEADAS = [
@@ -952,20 +952,20 @@ def buscar_todos_produtos():
 
 # URLs extras para busca profunda ML
 URLS_BUSCA_EXTRA = [
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=notebook", "Notebooks"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=monitor+gamer", "Monitores Gamer"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=ssd+nvme", "SSDs"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1648&q=placa+de+video", "Placas de Vídeo"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1051&q=smartphone+samsung", "Samsung"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1051&q=smartphone+motorola", "Motorola"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1051&q=xiaomi", "Xiaomi"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1000&q=smartwatch", "Smartwatch"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1000&q=fone+bluetooth", "Fones"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1000&q=caixa+de+som+bluetooth", "Caixas de Som"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1066&q=smart+tv+55", "Smart TV 55"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1066&q=smart+tv+65", "Smart TV 65"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1039&q=controle+gamer", "Controles"),
-    ("https://www.mercadolivre.com.br/ofertas?category=MLB1002&q=soundbar", "Soundbar"),
+    ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
+    ("https://lista.mercadolivre.com.br/monitores-gamer", "Monitores Gamer"),
+    ("https://lista.mercadolivre.com.br/ssd-nvme", "SSDs"),
+    ("https://lista.mercadolivre.com.br/placas-de-video", "Placas de Vídeo"),
+    ("https://lista.mercadolivre.com.br/samsung-celulares", "Samsung"),
+    ("https://lista.mercadolivre.com.br/motorola-celulares", "Motorola"),
+    ("https://lista.mercadolivre.com.br/xiaomi-celulares", "Xiaomi"),
+    ("https://lista.mercadolivre.com.br/smartwatch", "Smartwatch"),
+    ("https://lista.mercadolivre.com.br/fone-bluetooth", "Fones BT"),
+    ("https://lista.mercadolivre.com.br/caixa-de-som-bluetooth", "Caixas de Som"),
+    ("https://lista.mercadolivre.com.br/smart-tv-55", "Smart TV 55"),
+    ("https://lista.mercadolivre.com.br/smart-tv-65", "Smart TV 65"),
+    ("https://lista.mercadolivre.com.br/controle-gamer", "Controles Gamer"),
+    ("https://lista.mercadolivre.com.br/soundbar", "Soundbar"),
 ]
 
 
