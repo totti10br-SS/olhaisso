@@ -15,7 +15,18 @@ import requests
 ML_PUBLISHER_ID = os.getenv("ML_PUBLISHER_ID", "ot20260326074822")
 SCRAPINGANT_KEY = os.getenv("SCRAPINGANT_KEY", "")
 ZENROWS_KEY     = os.getenv("ZENROWS_KEY", "")      # fallback
-SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")   # fallback
+
+# ScraperAPI — suporta múltiplas keys: SCRAPERAPI_KEY, SCRAPERAPI_KEY2, SCRAPERAPI_KEY3...
+# Se a key 1 estiver esgotada (402/403), tenta automaticamente a próxima.
+def _get_scraperapi_keys():
+    keys = []
+    for i in range(1, 6):
+        k = os.getenv(f"SCRAPERAPI_KEY{i}", "") if i > 1 else os.getenv("SCRAPERAPI_KEY", "")
+        if k:
+            keys.append(k)
+    return keys
+
+SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")   # mantido para compatibilidade
 PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
 PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
@@ -411,22 +422,26 @@ def scraper_fetch(url):
         except Exception as e:
             log(f"  ZenRows erro: {e}")
 
-    # Fallback ScraperAPI
-    if SCRAPERAPI_KEY:
+    # Fallback ScraperAPI — tenta múltiplas keys em sequência (SCRAPERAPI_KEY, SCRAPERAPI_KEY2, ...)
+    scraperapi_keys = _get_scraperapi_keys()
+    for idx, skey in enumerate(scraperapi_keys, 1):
         try:
             payload = {
-                "api_key":      SCRAPERAPI_KEY,
+                "api_key":      skey,
                 "url":          url,
                 "country_code": "br",
                 "render":       "false",
             }
             r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
-            log(f"  ScraperAPI {r.status_code} → {url[:60]}")
+            log(f"  ScraperAPI key{idx} {r.status_code} → {url[:60]}")
             if r.status_code == 200:
                 return r.text
-            log(f"  Erro: {r.text[:100]}")
+            if r.status_code in (402, 403):
+                log(f"  ScraperAPI key{idx} quota esgotada — tentando próxima key...")
+                continue  # tenta próxima key
+            log(f"  ScraperAPI key{idx} erro: {r.text[:100]}")
         except Exception as e:
-            log(f"  ScraperAPI erro: {e}")
+            log(f"  ScraperAPI key{idx} erro: {e}")
 
     return None
 
