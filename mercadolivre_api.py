@@ -441,49 +441,126 @@ def extrair_produtos_html_lista(html):
     try:
         import html as htmllib
 
-        nome_pattern = re.compile(r'class="[^"]*ui-search-item__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE)
-        preco_pattern = re.compile(r'class="[^"]*andes-money-amount__fraction[^"]*"[^>]*>([0-9.,]+)<', re.IGNORECASE)
-        desconto_pattern = re.compile(r'(\d+)%\s*OFF', re.IGNORECASE)
-        link_pattern = re.compile(r'class="[^"]*ui-search-link[^"]*"\s+href="([^"]+)"', re.IGNORECASE)
-        img_pattern = re.compile(r'class="[^"]*ui-search-result-image__element[^"]*"[^>]+(?:data-src|src)="([^"]+)"', re.IGNORECASE)
+        # Divide o HTML em blocos por item de resultado (cada card de produto)
+        # ML usa classes como ui-search-layout__item ou ui-search-result
+        blocos = re.split(r'(?=<li[^>]+class="[^"]*ui-search-layout__item)', html, flags=re.IGNORECASE)
+        if len(blocos) < 2:
+            # Tenta split alternativo
+            blocos = re.split(r'(?=<div[^>]+class="[^"]*ui-search-result[^"]*")', html, flags=re.IGNORECASE)
 
-        nomes = nome_pattern.findall(html)
-        precos = preco_pattern.findall(html)
-        descontos = desconto_pattern.findall(html)
-        links = link_pattern.findall(html)
-        imagens = img_pattern.findall(html)
-
-        if not nomes or not precos:
+        if len(blocos) < 2:
+            # Fallback: extrai pelo JSON embedado nos scripts (window.__PRELOADED_STATE__ ou similar)
+            # Tenta extrair de __NEXT_DATA__ ou initialState
+            for pattern in [r'window\.__PRELOADED_STATE__\s*=\s*(\{.{100,}?\});?\s*</script>',
+                            r'"items"\s*:\s*(\[.{100,}?\])\s*[,}]']:
+                m = re.search(pattern, html, re.DOTALL)
+                if m:
+                    try:
+                        data = json.loads(m.group(1))
+                        if isinstance(data, list):
+                            log(f"  -> HTML script JSON: {len(data)} itens")
+                            return data
+                    except Exception:
+                        pass
             return []
 
-        log(f"  -> HTML lista: {len(nomes)} nomes, {len(precos)} preços, {len(descontos)} descontos")
+        log(f"  -> HTML lista: {len(blocos)-1} blocos de produto encontrados")
 
-        for i, nome in enumerate(nomes):
-            nome = htmllib.unescape(nome).strip()
-            if not nome or len(nome) < 5:
-                continue
-            preco_txt = precos[i] if i < len(precos) else ""
-            if not preco_txt:
-                continue
+        nome_re    = re.compile(r'class="[^"]*ui-search-item__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE)
+        preco_re   = re.compile(r'class="[^"]*andes-money-amount__fraction[^"]*"[^>]*>([0-9.,]+)<', re.IGNORECASE)
+        centavos_re = re.compile(r'class="[^"]*andes-money-amount__cents[^"]*"[^>]*>([0-9]+)<', re.IGNORECASE)
+        desc_re    = re.compile(r'(\d+)%\s*OFF', re.IGNORECASE)
+        link_re    = re.compile(r'href="(https://(?:www\.)?mercadolivre\.com\.br/[^"]+)"', re.IGNORECASE)
+        img_re     = re.compile(r'(?:data-src|src)="(https://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', re.IGNORECASE)
+
+        for bloco in blocos[1:]:  # pula primeiro bloco (cabeçalho)
             try:
-                preco = float(preco_txt.replace(".", "").replace(",", "."))
+                # Nome
+                m_nome = nome_re.search(bloco)
+                if not m_nome:
+                    continue
+                nome = htmllib.unescape(m_nome.group(1)).strip()
+                if not nome or len(nome) < 5:
+                    continue
+
+                # Preço (pode ter parte inteira + centavos)
+                precos_bloco = preco_re.findall(bloco)
+                if not precos_bloco:
+                    continue
+                # Primeiro preço é o atual (com desconto), segundo pode ser original
+                preco_txt = precos_bloco[0].replace(".", "").replace(",", ".")
+                try:
+                    preco = float(preco_txt)
+                except Exception:
+                    continue
+                if preco <= 0:
+                    continue
+
+                # Centavos
+                m_cents = centavos_re.search(bloco)
+                if m_cents:
+                    try:
+                        cents = int(m_cents.group(1))
+                        preco = preco + cents / 100
+                    except Exception:
+                        pass
+
+                # Preço original (segundo preço, se existir)
+                preco_orig = 0.0
+                if len(precos_bloco) >= 2:
+                    try:
+                        preco_orig = float(precos_bloco[1].replace(".", "").replace(",", "."))
+                    except Exception:
+                        pass
+
+                # Desconto
+                m_desc = desc_re.search(bloco)
+                desconto = int(m_desc.group(1)) if m_desc else 0
+                if desconto == 0 and preco_orig > preco > 0:
+                    desconto = round((1 - preco / preco_orig) * 100)
+
+                # URL
+                m_link = link_re.search(bloco)
+                url_prod = m_link.group(1) if m_link else ""
+
+                # Imagem
+                m_img = img_re.search(bloco)
+                imagem = m_img.group(1) if m_img else ""
+
+                produtos.append({
+                    "_raw_html": True,
+                    "nome": nome,
+                    "preco": preco,
+                    "preco_original": preco_orig if preco_orig > preco else 0,
+                    "desconto": desconto,
+                    "url_prod": url_prod,
+                    "imagem": imagem,
+                })
             except Exception:
                 continue
-            desconto = int(descontos[i]) if i < len(descontos) else 0
-            url_prod = links[i] if i < len(links) else ""
-            imagem = imagens[i] if i < len(imagens) else ""
-            produtos.append({
-                "_raw_html": True,
-                "nome": nome,
-                "preco": preco,
-                "preco_original": round(preco / (1 - desconto / 100), 2) if desconto > 0 else 0,
-                "desconto": desconto,
-                "url_prod": url_prod,
-                "imagem": imagem,
-            })
+
     except Exception as e:
         log(f"  HTML lista parse erro: {e}")
     return produtos
+
+
+def _itens_sao_produtos(items):
+    """Verifica se a lista de itens parece conter produtos ML reais (não banners/UI)."""
+    if not items:
+        return False
+    # Chaves que indicam produto real
+    campos_produto = {"card", "title", "price", "prices", "permalink", "preco", "nome", "sale_price"}
+    # Chaves que indicam elemento de UI (não produto)
+    campos_ui = {"subtitle", "blog_id", "tag"}
+    for item in items[:5]:
+        if not isinstance(item, dict):
+            continue
+        chaves = set(item.keys())
+        if chaves & campos_produto:
+            return True
+        if chaves & campos_ui and not (chaves & campos_produto):
+            return False
+    return False
 
 
 def extrair_produtos_html(html):
@@ -491,16 +568,24 @@ def extrair_produtos_html(html):
         return []
     log(f"  -> HTML: {len(html)} chars")
 
-    # Tenta múltiplas chaves candidatas — ML muda o formato com frequência
+    # Tenta parser HTML direto PRIMEIRO — mais confiável para lista.mercadolivre.com.br
+    itens_html = extrair_produtos_html_lista(html)
+    if itens_html:
+        log(f"  -> {len(itens_html)} itens extraídos (parser HTML direto)")
+        return itens_html
+
+    # Tenta múltiplas chaves candidatas JSON — ML muda o formato com frequência
     CHAVES_CANDIDATAS = [
         "results", "items", "elements", "offers", "products",
         "searchResults", "itemsList", "deals", "promotions",
     ]
     for chave in CHAVES_CANDIDATAS:
         data = _extrair_lista_json(html, chave)
-        if data:
-            log(f"  -> {len(data)} itens extraídos (chave: '{chave}')")
+        if data and _itens_sao_produtos(data):
+            log(f"  -> {len(data)} itens extraídos (chave JSON: '{chave}')")
             return data
+        elif data:
+            log(f"  -> chave '{chave}' retornou {len(data)} itens mas não são produtos (keys: {list(data[0].keys())[:5]})")
 
     # Fallback: procura qualquer lista grande de objetos com campo "card" ou "title"
     for kw in ['"card":{', '"card": {', '"title":{', '"title": {']:
@@ -522,7 +607,7 @@ def extrair_produtos_html(html):
                         break
                 try:
                     data = json.loads(html[start:end])
-                    if isinstance(data, list) and len(data) > 0:
+                    if isinstance(data, list) and len(data) > 0 and _itens_sao_produtos(data):
                         log(f"  -> {len(data)} itens extraídos (fallback kw: '{kw}')")
                         return data
                 except Exception:
@@ -530,7 +615,7 @@ def extrair_produtos_html(html):
 
     # Debug: mostra quais chaves JSON existem no HTML para diagnóstico
     chaves_encontradas = set(re.findall(r'"(\w+)":\s*\[', html))
-    log(f"  -> JSON não encontrado. Chaves disponíveis: {sorted(chaves_encontradas)[:30]}")
+    log(f"  -> Nenhum produto encontrado. Chaves JSON disponíveis: {sorted(chaves_encontradas)[:30]}")
     return []
 
 
