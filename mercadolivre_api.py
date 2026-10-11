@@ -167,19 +167,28 @@ def _is_captcha_html(html):
     """Detecta se o HTML retornado é página de CAPTCHA do ML."""
     if not html:
         return True
-    # Busca no HTML inteiro (não só nos primeiros 5000 chars)
-    # O ML embute o CAPTCHA num JSON no meio da página
-    captcha_signs = ["Cerrar", "REINTENTAR", "Reintentar", "robot", "captcha", "distil_r_captcha"]
+
+    # HTML grande (>200KB) quase certamente é página real — CAPTCHA é sempre pequeno
+    # Evita falso positivo: "robot" / "Reintentar" aparecem no HTML normal do ML
+    if len(html) > 200_000:
+        # Ainda verifica sinais específicos de CAPTCHA que não ocorrem em página normal
+        if "distil_r_captcha" in html or "cf-challenge" in html:
+            return True
+        return False
+
+    # Para HTMLs pequenos: verifica sinais de CAPTCHA
+    captcha_signs = ["REINTENTAR", "Reintentar", "captcha", "distil_r_captcha", "cf-challenge"]
     lower = html.lower()
     for sign in captcha_signs:
         if sign.lower() in lower:
             return True
-    # Também detecta pela ausência de qualquer chave de produto conhecida
-    # quando o HTML parece ser página de erro (< 60KB sem nenhuma chave de produto)
+
+    # HTML pequeno sem nenhuma chave de produto = página de erro/bloqueio
     if len(html) < 60000:
         tem_produto = any(f'"{k}"' in html for k in ["results", "items", "elements", "offers", "products", "deals", "card", "title", "ui-search"])
         if not tem_produto:
             return True
+
     return False
 
 
@@ -364,11 +373,10 @@ def scraper_fetch(url):
             r = requests.post("https://api.brightdata.com/request", json=payload, headers=headers, timeout=60)
             log(f"  BrightData WebUnlocker {r.status_code} → {url[:60]}")
             if r.status_code == 200:
-                log(f"  BrightData HTML: {len(r.text)} chars | primeiros 300: {r.text[:300]!r}")
                 if not _is_captcha_html(r.text):
                     log(f"  BrightData ✅ {len(r.text)} chars")
                     return r.text
-                log("  BrightData: CAPTCHA ainda presente — diagnóstico acima")
+                log(f"  BrightData: CAPTCHA ainda presente ({len(r.text)} chars)")
             else:
                 log(f"  BrightData erro: {r.text[:300]}")
         except Exception as e:
