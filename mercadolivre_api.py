@@ -433,6 +433,53 @@ def _extrair_lista_json(html, chave):
     return []
 
 
+def _extrair_next_data_produtos(html):
+    """Extrai produtos do JSON __NEXT_DATA__ embutido no HTML (Next.js/React do ML)."""
+    # Tenta <script id="__NEXT_DATA__"> primeiro
+    m = re.search(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE)
+    if not m:
+        # Fallback: window.__PRELOADED_STATE__
+        m = re.search(r'window\.__PRELOADED_STATE__\s*=\s*(\{.*?\});\s*(?:</script>|window\.)', html, re.DOTALL)
+    if not m:
+        return []
+    try:
+        data = json.loads(m.group(1))
+    except Exception:
+        return []
+
+    # Navega pela árvore JSON procurando arrays com produtos
+    # ML estrutura: props.pageProps.initialState.results OU initialData.results
+    def _busca_resultados(obj, depth=0):
+        if depth > 8 or not isinstance(obj, (dict, list)):
+            return None
+        if isinstance(obj, list) and len(obj) >= 3:
+            # Verifica se parece lista de produtos
+            sample = obj[0] if obj else {}
+            if isinstance(sample, dict):
+                keys = set(sample.keys())
+                if keys & {"title", "permalink", "price", "id"} and "price" in keys:
+                    return obj
+                if "card" in keys and isinstance(sample.get("card"), dict):
+                    return obj
+        if isinstance(obj, dict):
+            # Chaves que geralmente contêm produtos no ML
+            for key in ["results", "items", "elements", "listings", "searchResults", "products"]:
+                if key in obj:
+                    r = _busca_resultados(obj[key], depth + 1)
+                    if r:
+                        return r
+            for v in obj.values():
+                r = _busca_resultados(v, depth + 1)
+                if r:
+                    return r
+        return None
+
+    produtos = _busca_resultados(data)
+    if produtos:
+        log(f"  -> __NEXT_DATA__: {len(produtos)} produtos encontrados")
+    return produtos or []
+
+
 def extrair_produtos_html_lista(html):
     """Parser HTML direto para lista.mercadolivre.com.br — extrai produtos das tags HTML."""
     if not html or len(html) < 5000:
@@ -440,6 +487,11 @@ def extrair_produtos_html_lista(html):
     produtos = []
     try:
         import html as htmllib
+
+        # Tenta primeiro extrair do JSON __NEXT_DATA__ (ML usa Next.js)
+        next_data = _extrair_next_data_produtos(html)
+        if next_data and len(next_data) >= 3:
+            return next_data
 
         # Divide o HTML em blocos por item de resultado (cada card de produto)
         # ML usa classes como ui-search-layout__item ou ui-search-result
@@ -449,42 +501,51 @@ def extrair_produtos_html_lista(html):
             blocos = re.split(r'(?=<div[^>]+class="[^"]*ui-search-result[^"]*")', html, flags=re.IGNORECASE)
 
         if len(blocos) < 2:
-            # Fallback: extrai pelo JSON embedado nos scripts (window.__PRELOADED_STATE__ ou similar)
-            # Tenta extrair de __NEXT_DATA__ ou initialState
-            for pattern in [r'window\.__PRELOADED_STATE__\s*=\s*(\{.{100,}?\});?\s*</script>',
-                            r'"items"\s*:\s*(\[.{100,}?\])\s*[,}]']:
-                m = re.search(pattern, html, re.DOTALL)
-                if m:
-                    try:
-                        data = json.loads(m.group(1))
-                        if isinstance(data, list):
-                            log(f"  -> HTML script JSON: {len(data)} itens")
-                            return data
-                    except Exception:
-                        pass
             return []
 
         log(f"  -> HTML lista: {len(blocos)-1} blocos de produto encontrados")
 
-        nome_re    = re.compile(r'class="[^"]*ui-search-item__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE)
+        # DIAGNÓSTICO: mostra primeiro bloco real para identificar classes CSS
+        if len(blocos) > 1:
+            b0 = blocos[1][:600]
+            log(f"  -> DIAG bloco[0]: {repr(b0)}")
+
+        # Regex para nome — múltiplas estratégias de fallback
+        nome_res = [
+            re.compile(r'class="[^"]*ui-search-item__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE),
+            re.compile(r'class="[^"]*poly-component__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE),
+            re.compile(r'class="[^"]*item__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE),
+            re.compile(r'<h2[^>]*>([^<]{10,150})</h2>', re.IGNORECASE),
+            re.compile(r'<h3[^>]*>([^<]{10,150})</h3>', re.IGNORECASE),
+            re.compile(r'aria-label="([^"]{10,150})"', re.IGNORECASE),
+        ]
         preco_re   = re.compile(r'class="[^"]*andes-money-amount__fraction[^"]*"[^>]*>([0-9.,]+)<', re.IGNORECASE)
         centavos_re = re.compile(r'class="[^"]*andes-money-amount__cents[^"]*"[^>]*>([0-9]+)<', re.IGNORECASE)
+        # Preço fallback — qualquer número grande formatado como preço BR
+        preco_fallback_re = re.compile(r'R\$\s*([0-9]{2,}(?:\.[0-9]{3})*(?:,[0-9]{2})?)', re.IGNORECASE)
         desc_re    = re.compile(r'(\d+)%\s*OFF', re.IGNORECASE)
         link_re    = re.compile(r'href="(https://(?:www\.)?mercadolivre\.com\.br/[^"]+)"', re.IGNORECASE)
         img_re     = re.compile(r'(?:data-src|src)="(https://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', re.IGNORECASE)
 
         for bloco in blocos[1:]:  # pula primeiro bloco (cabeçalho)
             try:
-                # Nome
-                m_nome = nome_re.search(bloco)
-                if not m_nome:
-                    continue
-                nome = htmllib.unescape(m_nome.group(1)).strip()
-                if not nome or len(nome) < 5:
+                # Nome — tenta cada regex em ordem
+                nome = ""
+                for nre in nome_res:
+                    m = nre.search(bloco)
+                    if m:
+                        nome = htmllib.unescape(m.group(1)).strip()
+                        if nome and len(nome) >= 10:
+                            break
+                        nome = ""
+                if not nome:
                     continue
 
                 # Preço (pode ter parte inteira + centavos)
                 precos_bloco = preco_re.findall(bloco)
+                if not precos_bloco:
+                    # Fallback: tenta R$ XX.XXX,XX no texto do bloco
+                    precos_bloco = preco_fallback_re.findall(bloco)
                 if not precos_bloco:
                     continue
                 # Primeiro preço é o atual (com desconto), segundo pode ser original
@@ -619,10 +680,90 @@ def extrair_produtos_html(html):
     return []
 
 
+def _processar_item_next_data(item):
+    """Processa item no formato direto do __NEXT_DATA__ (title/price/permalink)."""
+    try:
+        nome = item.get("title", "")
+        if not nome:
+            return None
+        if not produto_valido(nome):
+            return None
+        if not produto_e_tech(nome):
+            return None
+
+        # Preço pode estar em price (número) ou prices.amount
+        preco = 0.0
+        p = item.get("price")
+        if isinstance(p, (int, float)):
+            preco = float(p)
+        elif isinstance(p, dict):
+            preco = float(p.get("amount", 0) or p.get("value", 0) or 0)
+        if not preco:
+            prices = item.get("prices", {}) or {}
+            preco = float(prices.get("price", {}).get("amount", 0) or 0)
+        if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
+            return None
+
+        # Preço original
+        preco_orig = 0.0
+        orig = item.get("original_price") or item.get("originalPrice")
+        if isinstance(orig, (int, float)):
+            preco_orig = float(orig)
+
+        # Desconto
+        desconto = item.get("discount_percentage") or item.get("discountPercentage") or 0
+        if not desconto and preco_orig > preco > 0:
+            desconto = round((1 - preco / preco_orig) * 100)
+        if desconto < DESCONTO_MINIMO:
+            return None
+
+        url_prod = item.get("permalink", "") or item.get("url", "") or item.get("link", "")
+        if not url_prod:
+            return None
+        if not url_prod.startswith("http"):
+            url_prod = "https://www.mercadolivre.com.br" + url_prod
+
+        # Imagem
+        imagem = ""
+        thumb = item.get("thumbnail") or item.get("picture") or ""
+        if isinstance(thumb, str):
+            imagem = thumb
+        elif isinstance(thumb, dict):
+            imagem = thumb.get("url", "")
+
+        item_id = item.get("id", "")
+        try:
+            from mercadolivre_link import gerar_link_afiliado_ml
+            link_curto = gerar_link_afiliado_ml(url_prod, item_id) or encurtar_link(gerar_link_afiliado(url_prod))
+        except Exception:
+            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
+
+        log(f"  ✅ [next_data] {nome[:45]} | R${preco} | {desconto}%")
+        return {
+            "nome":           nome,
+            "preco":          round(preco, 2),
+            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
+            "desconto":       desconto,
+            "loja":           "MERCADOLIVRE",
+            "frete":          "🚚 Frete a calcular",
+            "link_afiliado":  link_curto,
+            "imagem_url":     imagem,
+            "score":          1,
+            "fontes":         ["mercadolivre"],
+        }
+    except Exception as e:
+        log(f"  ML next_data item erro: {e}")
+        return None
+
+
 def processar_item(item):
     try:
         if not isinstance(item, dict):
             return None
+
+        # Formato direto (title/price/permalink) — vem do __NEXT_DATA__
+        if "title" in item and ("price" in item or "prices" in item) and "card" not in item:
+            return _processar_item_next_data(item)
 
         card = item.get("card", {})
         if not card:
