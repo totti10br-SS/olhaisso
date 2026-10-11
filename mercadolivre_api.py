@@ -111,6 +111,7 @@ PALAVRAS_TECH = [
     "ps5", "ps4", "dualsense", "dual sense", "switch 2", "switch2",
     "jogo ps5", "jogo xbox", "jogo nintendo", "game ps5", "game xbox",
     "headset gamer", "fone gamer", "console gamer",
+    "console", "video game", "vídeo game", "sega", "atari", "retro game",
     "smartwatch", "relogio inteligente",
     "drone", "gopro", "action cam",
     "power bank", "nobreak", "estabilizador",
