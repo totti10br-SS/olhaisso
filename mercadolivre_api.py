@@ -538,6 +538,16 @@ def extrair_produtos_html_lista(html):
         ]
         preco_re   = re.compile(r'class="[^"]*andes-money-amount__fraction[^"]*"[^>]*>([0-9.,]+)<', re.IGNORECASE)
         centavos_re = re.compile(r'class="[^"]*andes-money-amount__cents[^"]*"[^>]*>([0-9]+)<', re.IGNORECASE)
+        # Preço riscado (original) — captura fraction dentro de --previous
+        preco_previous_re = re.compile(
+            r'andes-money-amount--previous[^>]*>.*?andes-money-amount__fraction[^>]*>([0-9.,]+)<',
+            re.IGNORECASE | re.DOTALL
+        )
+        # Preço atual com desconto — captura fraction dentro de --discount-price ou poly-price__current
+        preco_current_re = re.compile(
+            r'(?:andes-money-amount--discount-price|poly-price__current|price-tag-fraction)[^>]*>.*?andes-money-amount__fraction[^>]*>([0-9.,]+)<',
+            re.IGNORECASE | re.DOTALL
+        )
         # Preço fallback — qualquer número grande formatado como preço BR
         preco_fallback_re = re.compile(r'R\$\s*([0-9]{2,}(?:\.[0-9]{3})*(?:,[0-9]{2})?)', re.IGNORECASE)
         desc_re    = re.compile(r'(\d+)%\s*OFF', re.IGNORECASE)
@@ -558,51 +568,77 @@ def extrair_produtos_html_lista(html):
                 if not nome:
                     continue
 
-                # Preço (pode ter parte inteira + centavos)
-                precos_bloco = preco_re.findall(bloco)
-                if not precos_bloco:
-                    # Fallback: tenta R$ XX.XXX,XX no texto do bloco
-                    precos_bloco = preco_fallback_re.findall(bloco)
-                if not precos_bloco:
-                    continue
-                # Primeiro preço é o atual (com desconto), segundo pode ser original
-                preco_txt = precos_bloco[0].replace(".", "").replace(",", ".")
-                try:
-                    preco = float(preco_txt)
-                except Exception:
-                    continue
-                if preco <= 0:
-                    continue
-
-                # Centavos
-                m_cents = centavos_re.search(bloco)
-                if m_cents:
-                    try:
-                        cents = int(m_cents.group(1))
-                        preco = preco + cents / 100
-                    except Exception:
-                        pass
-
-                # Preço original (busca preço riscado "previous" no bloco)
+                # Preço original riscado — captura ANTES do preço atual
+                # ML às vezes coloca o --previous ANTES do preço com desconto no HTML
                 preco_orig = 0.0
-                # Tenta capturar preço riscado (andes-money-amount--previous)
-                m_prev = re.search(
-                    r'andes-money-amount--previous[^>]*>.*?'
-                    r'andes-money-amount__fraction[^>]*>([0-9][0-9.]*)',
-                    bloco, re.S
-                )
+                m_prev = preco_previous_re.search(bloco)
                 if m_prev:
                     try:
                         preco_orig = float(m_prev.group(1).replace(".", "").replace(",", "."))
                     except Exception:
                         pass
 
-                # Fallback: segundo preço na lista (se for maior que o atual)
-                if preco_orig == 0.0 and len(precos_bloco) >= 2:
+                # Preço atual — tenta pegar direto do elemento de preço com desconto
+                preco = 0.0
+                m_curr = preco_current_re.search(bloco)
+                if m_curr:
                     try:
-                        cand = float(precos_bloco[1].replace(".", "").replace(",", "."))
-                        if cand > preco:
-                            preco_orig = cand
+                        preco = float(m_curr.group(1).replace(".", "").replace(",", "."))
+                    except Exception:
+                        pass
+
+                # Fallback: usa todos os preços do bloco
+                if preco <= 0:
+                    precos_bloco = preco_re.findall(bloco)
+                    if not precos_bloco:
+                        precos_bloco = preco_fallback_re.findall(bloco)
+                    if not precos_bloco:
+                        continue
+                    # Se temos preço original, o atual é o menor da lista
+                    if preco_orig > 0:
+                        candidatos = []
+                        for p in precos_bloco:
+                            try:
+                                v = float(p.replace(".", "").replace(",", "."))
+                                if v > 0 and v < preco_orig:
+                                    candidatos.append(v)
+                            except Exception:
+                                pass
+                        preco = min(candidatos) if candidatos else 0.0
+                    # Sem preço original, pega o menor preço encontrado (provavelmente o atual)
+                    if preco <= 0:
+                        candidatos = []
+                        for p in precos_bloco:
+                            try:
+                                v = float(p.replace(".", "").replace(",", "."))
+                                if v > 0:
+                                    candidatos.append(v)
+                            except Exception:
+                                pass
+                        if not candidatos:
+                            continue
+                        # Se há dois preços e um é bem maior, o menor é o atual
+                        if len(candidatos) >= 2:
+                            candidatos_sorted = sorted(candidatos)
+                            if candidatos_sorted[-1] > candidatos_sorted[0] * 1.1:
+                                preco = candidatos_sorted[0]
+                                if preco_orig == 0.0:
+                                    preco_orig = candidatos_sorted[-1]
+                            else:
+                                preco = candidatos_sorted[0]
+                        else:
+                            preco = candidatos[0]
+
+                if preco <= 0:
+                    continue
+
+                # Centavos (adiciona ao preço atual)
+                m_cents = centavos_re.search(bloco)
+                if m_cents and preco_orig == 0.0:
+                    # Centavos só faz sentido se não há preço riscado antes
+                    try:
+                        cents = int(m_cents.group(1))
+                        preco = preco + cents / 100
                     except Exception:
                         pass
 
