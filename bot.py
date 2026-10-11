@@ -454,7 +454,8 @@ def montar_caption(produto):
             txt += f"  |  Economia de <b>{eco}</b>"
         txt += "\n"
 
-    txt += f"\n💵 De <s>{fmt_preco(orig)}</s> por apenas\n"
+    if orig > preco:
+        txt += f"\n💵 De <s>{fmt_preco(orig)}</s> por apenas\n"
     txt += f"💰 <b>{fmt_preco(preco)}</b>\n\n"
 
     txt += f"{loja_badge}"
@@ -611,8 +612,11 @@ def postar_whatsapp(produto, imagem_path):
         texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
         texto += f"*{nome}*\n\n"
         if desc > 0:
-            eco = round(orig - preco, 2)
-            texto += f"🏷️ *{desc}% OFF*  |  Economia de *{fmt(eco)}*\n"
+            eco = round(orig - preco, 2) if orig > preco else 0
+            txt_desc = f"🏷️ *{desc}% OFF*"
+            if eco > 0:
+                txt_desc += f"  |  Economia de *{fmt(eco)}*"
+            texto += txt_desc + "\n"
         if orig > preco:
             texto += f"\n💵 De {fmt(orig)} por apenas\n"
         texto += f"💰 *{fmt(preco)}*\n\n"
@@ -1474,8 +1478,11 @@ def postar_whatsapp_teste(produto, imagem_path):
         texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
         texto += f"*{nome}*\n\n"
         if desc > 0:
-            eco = round(orig - preco, 2)
-            texto += f"🏷️ *{desc}% OFF*  |  Economia de *{fmt(eco)}*\n"
+            eco = round(orig - preco, 2) if orig > preco else 0
+            txt_desc = f"🏷️ *{desc}% OFF*"
+            if eco > 0:
+                txt_desc += f"  |  Economia de *{fmt(eco)}*"
+            texto += txt_desc + "\n"
         if orig > preco:
             texto += f"\n💵 De {fmt(orig)} por apenas\n"
         texto += f"💰 *{fmt(preco)}*\n\n"
@@ -1548,8 +1555,11 @@ def postar_whatsapp_custom(produto, imagem_path, group_id):
         texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
         texto += f"*{nome}*\n\n"
         if desc > 0:
-            eco = round(orig - preco, 2)
-            texto += f"🏷️ *{desc}% OFF*  |  Economia de *{fmt(eco)}*\n"
+            eco = round(orig - preco, 2) if orig > preco else 0
+            txt_desc = f"🏷️ *{desc}% OFF*"
+            if eco > 0:
+                txt_desc += f"  |  Economia de *{fmt(eco)}*"
+            texto += txt_desc + "\n"
         if orig > preco:
             texto += f"\n💵 De {fmt(orig)} por apenas\n"
         texto += f"💰 *{fmt(preco)}*\n\n"

@@ -144,22 +144,38 @@ def gerar_link_afiliado(url):
 TINYURL_API_TOKEN = os.getenv("TINYURL_API_TOKEN", "5E6O0b6FW8c5FDRCSjjo1TBl4VO0JtmUwgDgtVr7opF1vCMzdu5NCD1f7T5k")
 
 def encurtar_link(url_longa):
+    # Tenta TinyURL com token (API autenticada)
+    if TINYURL_API_TOKEN:
+        try:
+            r = requests.post(
+                "https://api.tinyurl.com/create",
+                headers={
+                    "Authorization": f"Bearer {TINYURL_API_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                json={"url": url_longa, "domain": "tinyurl.com"},
+                timeout=8,
+            )
+            if r.status_code == 200:
+                short = r.json().get("data", {}).get("tiny_url", "")
+                if short.startswith("http"):
+                    log(f"  🔗 TinyURL OK: {short}")
+                    return short
+            else:
+                log(f"  ⚠️ TinyURL status {r.status_code}")
+        except Exception as e:
+            log(f"  ⚠️ TinyURL erro: {e}")
+    # Fallback: TinyURL sem autenticação (endpoint legado)
     try:
-        r = requests.post(
-            "https://api.tinyurl.com/create",
-            headers={
-                "Authorization": f"Bearer {TINYURL_API_TOKEN}",
-                "Content-Type": "application/json",
-            },
-            json={"url": url_longa, "domain": "tinyurl.com"},
+        r2 = requests.get(
+            f"https://tinyurl.com/api-create.php?url={requests.utils.quote(url_longa, safe='')}",
             timeout=8,
         )
-        if r.status_code == 200:
-            short = r.json().get("data", {}).get("tiny_url", "")
-            if short.startswith("http"):
-                return short
-    except:
-        pass
+        if r2.status_code == 200 and r2.text.startswith("http"):
+            log(f"  🔗 TinyURL (legado) OK: {r2.text.strip()}")
+            return r2.text.strip()
+    except Exception as e:
+        log(f"  ⚠️ TinyURL legado erro: {e}")
     return url_longa
 
 
@@ -941,8 +957,13 @@ def _processar_item_html(item_raw):
         imagem = item_raw.get("imagem", "")
         if not url_prod:
             return None
-        link_curto = encurtar_link(gerar_link_afiliado(url_prod))
-        log(f"  ✅ {nome[:45]} | R${preco} | {desconto}%")
+        # Tenta link oficial meli.la primeiro (curto + afiliado), depois TinyURL, depois URL longa com matt_tool
+        try:
+            from mercadolivre_link import gerar_link_afiliado_ml
+            link_curto = gerar_link_afiliado_ml(url_prod) or encurtar_link(gerar_link_afiliado(url_prod))
+        except Exception:
+            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
+        log(f"  ✅ {nome[:45]} | R${preco} | {desconto}% | 🔗 {link_curto[:60]}")
         return {
             "nome":           nome,
             "preco":          round(preco, 2),
