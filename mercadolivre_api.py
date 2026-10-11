@@ -874,9 +874,15 @@ def buscar_todos_produtos():
                         todos.append(p)
                         validos_cat += 1
             if items:
-                # Diagnóstico: mostra primeiro item bruto para debug
+                # Diagnóstico: mostra estrutura do primeiro item bruto
                 amostra = items[0]
-                log(f"  -> {validos_cat} válidos | amostra: preco={amostra.get('preco',amostra.get('price',0))} orig={amostra.get('preco_original',amostra.get('original_price',0))} desc={amostra.get('desconto',0)}")
+                chaves = list(amostra.keys())[:20]
+                log(f"  -> {validos_cat} válidos | chaves item: {chaves}")
+                # Mostra valores de campos de preço conhecidos
+                for campo in ["price","prices","sale_price","preco","original_price","preco_original","discount","desconto","discount_percentage"]:
+                    v = amostra.get(campo)
+                    if v is not None:
+                        log(f"     {campo}={str(v)[:80]}")
 
             # Se JSON não funcionou, tenta parser HTML direto
             if not items:
