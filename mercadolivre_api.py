@@ -582,11 +582,26 @@ def extrair_produtos_html_lista(html):
                     except Exception:
                         pass
 
-                # Preço original (segundo preço, se existir)
+                # Preço original (busca preço riscado "previous" no bloco)
                 preco_orig = 0.0
-                if len(precos_bloco) >= 2:
+                # Tenta capturar preço riscado (andes-money-amount--previous)
+                m_prev = re.search(
+                    r'andes-money-amount--previous[^>]*>.*?'
+                    r'andes-money-amount__fraction[^>]*>([0-9][0-9.]*)',
+                    bloco, re.S
+                )
+                if m_prev:
                     try:
-                        preco_orig = float(precos_bloco[1].replace(".", "").replace(",", "."))
+                        preco_orig = float(m_prev.group(1).replace(".", "").replace(",", "."))
+                    except Exception:
+                        pass
+
+                # Fallback: segundo preço na lista (se for maior que o atual)
+                if preco_orig == 0.0 and len(precos_bloco) >= 2:
+                    try:
+                        cand = float(precos_bloco[1].replace(".", "").replace(",", "."))
+                        if cand > preco:
+                            preco_orig = cand
                     except Exception:
                         pass
 
@@ -595,6 +610,13 @@ def extrair_produtos_html_lista(html):
                 desconto = int(m_desc.group(1)) if m_desc else 0
                 if desconto == 0 and preco_orig > preco > 0:
                     desconto = round((1 - preco / preco_orig) * 100)
+
+                # Se ainda sem preço original mas temos desconto, calcula de trás pra frente
+                if preco_orig == 0.0 and desconto > 0:
+                    try:
+                        preco_orig = round(preco / (1 - desconto / 100), 2)
+                    except Exception:
+                        pass
 
                 # URL
                 m_link = link_re.search(bloco)
