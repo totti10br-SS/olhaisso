@@ -40,6 +40,11 @@ CATEGORIAS = [
 ]
 
 PALAVRAS_BLOQUEADAS = [
+    # Condição do produto — bloqueia usados e recondicionados
+    "recondicionado", "recondicionada", "remanufaturado", "remanufaturada",
+    "usado", "usada", "seminovo", "seminova", "semi novo", "semi nova",
+    "segunda mao", "segunda mão", "refurbished", "vitrine", "de vitrine",
+    "outlet", "com defeito", "para pecas",
     "perfume", "shampoo", "sabonete", "creme", "maquiagem", "roupa",
     "camisa", "tenis", "sapato", "sandalia", "calcado", "vestuario",
     "suplemento", "vitamina", "remedio", "brinquedo", "livro", "album",

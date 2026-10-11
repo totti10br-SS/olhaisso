@@ -44,6 +44,11 @@ URLS_BUSCA = [
 ]
 
 PALAVRAS_BLOQUEADAS = [
+    # Condição do produto — bloqueia usados e recondicionados
+    "recondicionado", "recondicionada", "remanufaturado", "remanufaturada",
+    "usado", "usada", "seminovo", "seminova", "semi novo", "semi nova",
+    "segunda mao", "segunda mão", "2a mao", "2ª mão", "refurbished",
+    "vitrine", "de vitrine", "outlet", "com defeito", "para pecas",
     # Ferramentas e equipamentos industriais
     "guincho", "girafa", "talha", "macaco hidraulico", "compressor",
     "furadeira", "parafusadeira", "martelo", "serra", "esmerilhadeira",
