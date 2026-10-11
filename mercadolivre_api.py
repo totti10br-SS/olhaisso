@@ -344,85 +344,12 @@ def scraper_fetch(url):
     if html is not None:
         log(f"  Playwright ✅ {len(html)} chars")
         return html
-    log("  Playwright falhou — tentando ScrapingAnt...")
+    log("  Playwright falhou — tentando Bright Data Web Unlocker...")
 
-    # ScrapingAnt — tenta 4 configs; se todas falharem com CAPTCHA,
-    # tenta URL alternativa sem filtros (menos sinalizável) com browser=true
-    if SCRAPINGANT_KEY:
-        configs = [
-            {"browser": "false", "proxy_country": "BR"},
-            {"browser": "true",  "proxy_country": "BR"},
-            {"browser": "false", "proxy_country": "US"},
-            {"browser": "true",  "proxy_country": "US"},
-        ]
-        captcha_count = 0
-        for cfg in configs:
-            bmode    = cfg["browser"]
-            pcountry = cfg.get("proxy_country", "")
-            status, html = _scrapingant_get(url, bmode, pcountry)
-            if status is None:
-                break  # exceção de rede — para
-            log(f"  ScrapingAnt browser={bmode} proxy={pcountry} {status} → {url[:55]}")
-            if status in (401, 402, 403):
-                log(f"  ScrapingAnt erro auth/quota {status} — parando")
-                break  # erro de auth/quota — não tenta de novo
-            if status != 200:
-                log(f"  ScrapingAnt erro HTTP {status} — próxima config...")
-                continue  # erro técnico (422, 500, etc) — tenta próxima config
-            if _is_captcha_html(html):
-                log(f"  ScrapingAnt CAPTCHA detectado (browser={bmode} proxy={pcountry}) — próxima config...")
-                captcha_count += 1
-                continue
-            # HTML OK
-            if len(html) > 80000:
-                return html
-            tem_json = any(f'"{k}":[{{' in html for k in ["results","items","elements","offers","products","deals"])
-            if tem_json:
-                return html
-            if len(html) > 10000:
-                return html
-            log(f"  ScrapingAnt HTML muito pequeno ({len(html)} chars) — próxima config...")
+    # NOTA: ScrapingAnt e ZenRows desabilitados para ML (todos retornam CAPTCHA com IPs de datacenter)
+    # Chain atual: Playwright → Bright Data Web Unlocker → ScraperAPI (rotação de keys)
 
-        # Se todas as configs falharam por CAPTCHA, tenta URL sem filtros com browser=true
-        if captcha_count >= 2:
-            url_alt = _url_sem_filtros(url)
-            if url_alt != url:
-                log(f"  Tentando URL sem filtros: {url_alt[:60]}")
-                for pcountry in ["BR", "US"]:
-                    status, html = _scrapingant_get(url_alt, "true", pcountry, timeout=90)
-                    if status is None:
-                        break
-                    log(f"  ScrapingAnt URL-alt browser=true proxy={pcountry} {status}")
-                    if status in (401, 402, 403):
-                        break
-                    if status != 200:
-                        log(f"  URL-alt erro HTTP {status} — próxima config...")
-                        continue
-                    if not _is_captcha_html(html) and len(html) > 10000:
-                        log(f"  ✅ URL-alt funcionou!")
-                        return html
-                    log(f"  URL-alt CAPTCHA (proxy={pcountry})")
-
-    # Fallback ZenRows
-    if ZENROWS_KEY:
-        try:
-            params = {
-                "url":           url,
-                "apikey":        ZENROWS_KEY,
-                "js_render":     "false",
-                "antibot":       "true",
-                "premium_proxy": "true",
-                "proxy_country": "br",
-            }
-            r = requests.get("https://api.zenrows.com/v1/", params=params, timeout=60)
-            log(f"  ZenRows {r.status_code} → {url[:60]}")
-            if r.status_code == 200:
-                return r.text
-            log(f"  ZenRows erro: {r.text[:100]}")
-        except Exception as e:
-            log(f"  ZenRows erro: {e}")
-
-    # Fallback Bright Data Web Unlocker — resolve CAPTCHA automaticamente
+    # Bright Data Web Unlocker — resolve CAPTCHA automaticamente
     if BRIGHTDATA_KEY:
         try:
             payload = {
@@ -436,13 +363,14 @@ def scraper_fetch(url):
             }
             r = requests.post("https://api.brightdata.com/request", json=payload, headers=headers, timeout=60)
             log(f"  BrightData WebUnlocker {r.status_code} → {url[:60]}")
-            if r.status_code == 200 and not _is_captcha_html(r.text):
-                log(f"  BrightData ✅ {len(r.text)} chars")
-                return r.text
             if r.status_code == 200:
-                log("  BrightData: CAPTCHA ainda presente")
+                log(f"  BrightData HTML: {len(r.text)} chars | primeiros 300: {r.text[:300]!r}")
+                if not _is_captcha_html(r.text):
+                    log(f"  BrightData ✅ {len(r.text)} chars")
+                    return r.text
+                log("  BrightData: CAPTCHA ainda presente — diagnóstico acima")
             else:
-                log(f"  BrightData erro: {r.text[:150]}")
+                log(f"  BrightData erro: {r.text[:300]}")
         except Exception as e:
             log(f"  BrightData erro: {e}")
 
