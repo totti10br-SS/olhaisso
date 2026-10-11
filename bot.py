@@ -58,12 +58,13 @@ AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
-HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "16:00", "17:30", "19:00", "20:30", "22:30", "01:00"]
-HORARIOS_MISTO      = ["12:30", "20:30"]  # Ciclo misto: metade smartphones + metade monitores
+HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "16:00", "19:00", "22:30"]
+HORARIOS_MISTO      = ["12:30"]  # Ciclo misto: metade smartphones + metade monitores
 HORARIOS_MONITOR    = ["15:00"]           # Ciclo dedicado apenas monitores
 HORARIOS_ELETRO     = ["16:00"]           # Ciclo dedicado eletrodomésticos (ML + Amazon)
 HORARIO_TICKET_BAIXO = ["19:00"]          # Ciclo dedicado produtos até R$200
-HORARIO_TV_GAMES     = ["20:00"]           # 📺🎮 Momento TVs & Games
+HORARIO_TV_GAMES     = ["17:30"]           # 📺🎮 Momento TVs & Games
+HORARIO_TOP_OFERTAS  = ["18:00"]           # 🔥 TOP Ofertas em Alta (ML + Amazon, sem filtros restritivos)
 PRECO_TICKET_BAIXO   = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))  # Teto para ticket baixo
 POSTS_TICKET_BAIXO_NO_CICLO = 2          # Qtde de tickets baixos nos ciclos normais
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
@@ -901,19 +902,21 @@ KEYWORDS_MONITOR = [
 ]
 
 def distribuir_por_loja(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros, total):
-    """Monta fila com distribuição 40% ML, 40% Amazon, 10% Ali, 10% Shopee."""
-    qtd_ml     = max(1, round(total * 0.40))
+    """Monta fila com distribuição 50% ML, 40% Amazon, 0% Ali, 10% Shopee.
+    AliExpress removido do cálculo — mantido no código para fallback mas com cota zero.
+    """
+    qtd_ml     = max(1, round(total * 0.50))
     qtd_amazon = max(1, round(total * 0.40))
-    qtd_ali    = max(1, round(total * 0.10))
+    qtd_ali    = 0  # AliExpress desativado da distribuição
     qtd_shopee = max(1, total - qtd_ml - qtd_amazon - qtd_ali)
     log.info(f"Distribuição alvo: {qtd_ml} ML | {qtd_amazon} Amazon | {qtd_ali} Ali | {qtd_shopee} Shopee")
     fila = []
     fila += pool_ml[:qtd_ml]
     fila += pool_amazon[:qtd_amazon]
-    fila += pool_ali[:qtd_ali]
+    # pool_ali ignorado — qtd_ali = 0
     fila += pool_shopee[:qtd_shopee]
-    # Completa com extras se faltar
-    extras = pool_ml[qtd_ml:] + pool_amazon[qtd_amazon:] + pool_ali[qtd_ali:] + pool_shopee[qtd_shopee:] + pool_outros
+    # Completa com extras se faltar (Ali entra só como último recurso)
+    extras = pool_ml[qtd_ml:] + pool_amazon[qtd_amazon:] + pool_shopee[qtd_shopee:] + pool_outros + pool_ali
     for p in extras:
         if len(fila) >= total * 2:
             break
@@ -941,6 +944,9 @@ def _is_games(nome, produto=None):
 
 def permitir_tv_games():
     return horario_dentro_de(HORARIO_TV_GAMES)
+
+def permitir_top_ofertas():
+    return horario_dentro_de(HORARIO_TOP_OFERTAS)
 
 
 def montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros):
@@ -1085,35 +1091,35 @@ def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon=
     sh_ph,  sh_mo,  sh_ot  = split_cat(pool_shopee)
     az_ph,  az_mo,  az_ot  = split_cat(pool_amazon)
 
-    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es) | 40/40/10/10")
+    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es) | 50/40/0/10 (ML/Az/Ali/Sh)")
 
-    # Smartphones com proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee
-    qtd_ml_ph  = max(0, round(metade * 0.40))
+    # Smartphones com proporção 50% ML / 40% Amazon / 0% Ali / 10% Shopee
+    qtd_ml_ph  = max(0, round(metade * 0.50))
     qtd_az_ph  = max(0, round(metade * 0.40))
-    qtd_ali_ph = max(0, round(metade * 0.10))
+    qtd_ali_ph = 0  # AliExpress desativado
     qtd_sh_ph  = max(0, metade - qtd_ml_ph - qtd_az_ph - qtd_ali_ph)
-    smartphones = ml_ph[:qtd_ml_ph] + az_ph[:qtd_az_ph] + ali_ph[:qtd_ali_ph] + sh_ph[:qtd_sh_ph]
-    # Completa se alguma loja não tiver suficiente (fallback nas extras)
-    extras_ph = az_ph[qtd_az_ph:] + ml_ph[qtd_ml_ph:] + ali_ph[qtd_ali_ph:] + sh_ph[qtd_sh_ph:]
+    smartphones = ml_ph[:qtd_ml_ph] + az_ph[:qtd_az_ph] + sh_ph[:qtd_sh_ph]
+    # Completa se alguma loja não tiver suficiente (Ali entra só como último recurso)
+    extras_ph = az_ph[qtd_az_ph:] + ml_ph[qtd_ml_ph:] + sh_ph[qtd_sh_ph:] + ali_ph
     smartphones += extras_ph[:max(0, metade - len(smartphones))]
 
-    # Monitores com proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee
-    qtd_ml_mo  = max(0, round(metade * 0.40))
+    # Monitores com proporção 50% ML / 40% Amazon / 0% Ali / 10% Shopee
+    qtd_ml_mo  = max(0, round(metade * 0.50))
     qtd_az_mo  = max(0, round(metade * 0.40))
-    qtd_ali_mo = max(0, round(metade * 0.10))
+    qtd_ali_mo = 0  # AliExpress desativado
     qtd_sh_mo  = max(0, metade - qtd_ml_mo - qtd_az_mo - qtd_ali_mo)
-    monitores = ml_mo[:qtd_ml_mo] + az_mo[:qtd_az_mo] + ali_mo[:qtd_ali_mo] + sh_mo[:qtd_sh_mo]
-    extras_mo = az_mo[qtd_az_mo:] + ml_mo[qtd_ml_mo:] + ali_mo[qtd_ali_mo:] + sh_mo[qtd_sh_mo:]
+    monitores = ml_mo[:qtd_ml_mo] + az_mo[:qtd_az_mo] + sh_mo[:qtd_sh_mo]
+    extras_mo = az_mo[qtd_az_mo:] + ml_mo[qtd_ml_mo:] + sh_mo[qtd_sh_mo:] + ali_mo
     monitores += extras_mo[:max(0, metade - len(monitores))]
 
     resultado = smartphones + monitores
     faltando = POSTS_POR_CICLO - len(resultado)
     if faltando > 0:
-        extras = az_ot + ml_ot + ali_ot + sh_ot + pool_outros
+        extras = az_ot + ml_ot + sh_ot + pool_outros + ali_ot
         resultado += extras[:faltando]
         log.info(f"   Completado com {min(faltando, len(extras))} produto(s) genérico(s)")
 
-    log.info(f"   {len(smartphones)} smartphone(s) | {len(monitores)} monitor(es) (ML:{qtd_ml_ph}/{qtd_ml_mo} Az:{qtd_az_ph}/{qtd_az_mo} Ali:{qtd_ali_ph}/{qtd_ali_mo} Sh:{qtd_sh_ph}/{qtd_sh_mo})")
+    log.info(f"   {len(smartphones)} smartphone(s) | {len(monitores)} monitor(es) (ML:{qtd_ml_ph}/{qtd_ml_mo} Az:{qtd_az_ph}/{qtd_az_mo} Ali:0/0 Sh:{qtd_sh_ph}/{qtd_sh_mo})")
     return resultado
 
 
@@ -1129,13 +1135,13 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
         return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon)
 
     if permitir_monitor_dedicado():
-        log.info("🖥️ CICLO DEDICADO — apenas Monitores (40% ML / 40% Amazon / 10% Ali / 10% Shopee)")
+        log.info("🖥️ CICLO DEDICADO — apenas Monitores (50% ML / 40% Amazon / 0% Ali / 10% Shopee)")
         ml_mo  = [p for p in pool_ml     if _is_monitor(p.get("nome",""))]
         ali_mo = [p for p in pool_ali    if _is_monitor(p.get("nome",""))]
         sh_mo  = [p for p in pool_shopee if _is_monitor(p.get("nome",""))]
         az_mo  = [p for p in pool_amazon if _is_monitor(p.get("nome",""))]
         total  = len(ml_mo) + len(ali_mo) + len(sh_mo) + len(az_mo)
-        log.info(f"🖥️ {total} monitor(es) disponíveis (ML:{len(ml_mo)} Amazon:{len(az_mo)} Ali:{len(ali_mo)} Sh:{len(sh_mo)})")
+        log.info(f"🖥️ {total} monitor(es) disponíveis (ML:{len(ml_mo)} Amazon:{len(az_mo)} Ali:0 Sh:{len(sh_mo)})")
         return distribuir_por_loja(ml_mo, ali_mo, sh_mo, az_mo, [], POSTS_POR_CICLO)
 
     if permitir_eletro_dedicado():
@@ -1372,6 +1378,100 @@ def montar_pipeline_profundo(usar_ml=True, usar_shopee=True, usar_ali=False, usa
     resultado = limitar_por_tema(resultado)
     log.info(f"🔍 Busca profunda: {len(resultado)} produtos prontos")
     return resultado
+
+
+# ============================================================
+# PIPELINE TOP OFERTAS — 18:00 — sem filtros restritivos
+# ============================================================
+
+def montar_pipeline_top_ofertas():
+    """
+    Ciclo 🔥 TOP Ofertas — busca as melhores ofertas em alta do ML e Amazon,
+    sem filtros de categoria, sem restrição de nicho tech.
+    Apenas ML + Amazon, ordenado por maior desconto.
+    """
+    log.info("🔥 TOP OFERTAS — iniciando pipeline sem filtros restritivos...")
+
+    # Busca ML + Amazon em paralelo
+    produtos_ml = []
+    produtos_amazon = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        fut_ml     = executor.submit(buscar_ml_profundo)
+        fut_amazon = executor.submit(buscar_amazon_profundo)
+        try:
+            produtos_ml = fut_ml.result(timeout=120)
+            log.info(f"🔥 ML: {len(produtos_ml)} produtos")
+        except Exception as e:
+            log.warning(f"🔥 ML erro: {e}")
+        try:
+            produtos_amazon = fut_amazon.result(timeout=120)
+            log.info(f"🔥 Amazon: {len(produtos_amazon)} produtos")
+        except Exception as e:
+            log.warning(f"🔥 Amazon erro: {e}")
+
+    todos = produtos_ml + produtos_amazon
+
+    if not todos:
+        log.warning("🔥 TOP Ofertas: sem produtos — abortando ciclo")
+        return []
+
+    # Filtro mínimo: só preço positivo e desconto >= 15% (mais flexível que o normal)
+    todos = [p for p in todos if p.get("preco", 0) > 0 and p.get("desconto", 0) >= 15]
+
+    # Remove já postados
+    antes = len(todos)
+    todos = [p for p in todos if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+    log.info(f"🔥 {antes} brutos → {len(todos)} após dedup histórico")
+
+    # Ordena por maior desconto (sem score de tendências — aqui vence quem tem mais OFF)
+    todos.sort(key=lambda x: x.get("desconto", 0), reverse=True)
+
+    # Distribuição: 60% ML / 40% Amazon
+    pool_ml     = [p for p in todos if p.get("loja") == "MERCADOLIVRE"]
+    pool_amazon = [p for p in todos if p.get("loja") == "AMAZON"]
+    qtd_ml     = max(1, round(POSTS_POR_CICLO * 0.60))
+    qtd_amazon = max(1, POSTS_POR_CICLO - qtd_ml)
+    fila = pool_ml[:qtd_ml] + pool_amazon[:qtd_amazon]
+    # Completa se faltar de alguma loja
+    extras = pool_ml[qtd_ml:] + pool_amazon[qtd_amazon:]
+    fila += extras[:max(0, POSTS_POR_CICLO * 2 - len(fila))]
+
+    log.info(f"🔥 TOP Ofertas: {len(fila)} produto(s) prontos (ML:{min(qtd_ml,len(pool_ml))} Az:{min(qtd_amazon,len(pool_amazon))})")
+    for p in fila[:8]:
+        log.info(f"  [{p.get('desconto',0)}% OFF][{p['loja']}] {p['nome'][:45]} | R$ {p.get('preco',0):.0f}")
+    return fila
+
+
+def ciclo_top_ofertas():
+    """Ciclo dedicado 🔥 TOP Ofertas — 18:00."""
+    log.info(f"\n{'='*50}")
+    log.info(f"🔥 CICLO TOP OFERTAS — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    limpar_historico_antigo()
+
+    produtos = montar_pipeline_top_ofertas()
+    if not produtos:
+        log.warning("🔥 TOP Ofertas: nenhum produto disponível — ciclo encerrado")
+        return
+
+    postou = 0
+    for produto in produtos:
+        if postou >= POSTS_POR_CICLO:
+            break
+        log.info(f"🔥 Postando [{produto.get('desconto',0)}% OFF]: {produto['nome'][:50]}")
+        imagem = gerar_imagem(produto)
+        ok_tg = postar_telegram(produto, imagem)
+        if ok_tg:
+            ok_wa = postar_whatsapp(produto, imagem)
+            registrar_post(produto)
+            postou += 1
+            status = "✅ Telegram + WhatsApp" if ok_wa else "✅ Telegram (WA falhou)"
+            log.info(f"  {status}")
+        else:
+            registrar_post(produto)
+            log.warning("  ⏭️ Telegram falhou — registrado")
+        time.sleep(10)
+
+    log.info(f"🔥 Ciclo TOP Ofertas concluído — {postou} post(s)\n")
 
 
 # ============================================================
@@ -1869,7 +1969,10 @@ def main():
         schedule.every().day.at(h).do(ciclo)
     for h in HORARIO_TV_GAMES:
         schedule.every().day.at(h).do(ciclo)
+    for h in HORARIO_TOP_OFERTAS:
+        schedule.every().day.at(h).do(ciclo_top_ofertas)
     log.info(f"📺🎮 Ciclo TVs & Games: {chr(44).join(HORARIO_TV_GAMES)}")
+    log.info(f"🔥 Ciclo TOP Ofertas: {', '.join(HORARIO_TOP_OFERTAS)}")
     log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
     log.info(f"🏠 Ciclo eletrodomésticos (ML+Amazon): {', '.join(HORARIOS_ELETRO)}")
     # Sobe API de histórico em thread separada
