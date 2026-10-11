@@ -35,7 +35,7 @@ DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 URLS_BUSCA = [
     ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
     ("https://lista.mercadolivre.com.br/celulares-smartphones", "Smartphones"),
-    ("https://lista.mercadolivre.com.br/televisores", "TVs"),
+    ("https://lista.mercadolivre.com.br/smart-tv", "TVs"),
     ("https://lista.mercadolivre.com.br/video-games-controles", "Controles"),
     ("https://lista.mercadolivre.com.br/video-games-consoles", "Consoles"),
     ("https://lista.mercadolivre.com.br/video-games-jogos", "Jogos"),
