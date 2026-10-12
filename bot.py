@@ -1412,20 +1412,21 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
     - NÃO reserva categorias para horários específicos
     - Ordena por MAIOR DESCONTO (produto mais barato relativo ao original primeiro)
     - Traz o melhor de todos os setores: tech, eletro, games, tudo
-    - Usa busca profunda (buscar_ml_profundo + buscar_amazon_profundo) para maximizar pool
+    - Usa a busca normal (rápida e completa) — a profunda é lenta e redundante aqui
     """
     log.info("🎮 PIPELINE MANUAL — buscando o melhor de todos os setores...")
 
     todos_raw = []
 
+    # IMPORTANTE: timeout generoso (300s). A busca ML normal leva ~3-4min via
+    # BrightData e retorna ~50 produtos válidos. Timeout curto descartava tudo.
+    # NÃO usamos busca profunda aqui — ela leva 15+ min e retorna ~0 válidos.
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futuros = {}
         if usar_ml:
-            futuros["ml_normal"] = executor.submit(buscar_ml)
-            futuros["ml_profundo"] = executor.submit(buscar_ml_profundo)
+            futuros["ml"] = executor.submit(buscar_ml)
         if usar_amazon:
             futuros["amazon"] = executor.submit(buscar_amazon)
-            futuros["amazon_profundo"] = executor.submit(buscar_amazon_profundo)
         if usar_shopee:
             futuros["shopee"] = executor.submit(buscar_shopee)
         if usar_ali:
@@ -1433,9 +1434,11 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
 
         for nome_fut, fut in futuros.items():
             try:
-                resultado_fut = fut.result(timeout=120)
+                resultado_fut = fut.result(timeout=300)
                 log.info(f"🎮 {nome_fut}: {len(resultado_fut)} produtos")
                 todos_raw.extend(resultado_fut)
+            except concurrent.futures.TimeoutError:
+                log.warning(f"🎮 {nome_fut}: timeout de 300s — busca muito lenta")
             except Exception as e:
                 log.warning(f"🎮 {nome_fut} erro: {e}")
 
