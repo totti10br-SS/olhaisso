@@ -1400,6 +1400,127 @@ def montar_pipeline_profundo(usar_ml=True, usar_shopee=True, usar_ali=False, usa
 
 
 # ============================================================
+# PIPELINE MANUAL — traz o melhor de TODOS os setores sem exceção
+# Ordenado por maior desconto, sem reservas de ciclo especial
+# ============================================================
+
+def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_amazon=True):
+    """
+    Pipeline exclusivo para ciclo manual acionado pelo painel web.
+    Diferente do pipeline normal:
+    - NÃO aplica filtros de ciclo especial (smartphones, TVs, games, eletros — tudo entra)
+    - NÃO reserva categorias para horários específicos
+    - Ordena por MAIOR DESCONTO (produto mais barato relativo ao original primeiro)
+    - Traz o melhor de todos os setores: tech, eletro, games, tudo
+    - Usa busca profunda (buscar_ml_profundo + buscar_amazon_profundo) para maximizar pool
+    """
+    log.info("🎮 PIPELINE MANUAL — buscando o melhor de todos os setores...")
+
+    todos_raw = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futuros = {}
+        if usar_ml:
+            futuros["ml_normal"] = executor.submit(buscar_ml)
+            futuros["ml_profundo"] = executor.submit(buscar_ml_profundo)
+        if usar_amazon:
+            futuros["amazon"] = executor.submit(buscar_amazon)
+            futuros["amazon_profundo"] = executor.submit(buscar_amazon_profundo)
+        if usar_shopee:
+            futuros["shopee"] = executor.submit(buscar_shopee)
+        if usar_ali:
+            futuros["ali"] = executor.submit(buscar_aliexpress)
+
+        for nome_fut, fut in futuros.items():
+            try:
+                resultado_fut = fut.result(timeout=120)
+                log.info(f"🎮 {nome_fut}: {len(resultado_fut)} produtos")
+                todos_raw.extend(resultado_fut)
+            except Exception as e:
+                log.warning(f"🎮 {nome_fut} erro: {e}")
+
+    if not todos_raw:
+        log.warning("🎮 Pipeline manual: nenhum produto encontrado")
+        return []
+
+    # Aplica score de tendências
+    tg = buscar_trends_google()
+    for p in todos_raw:
+        calcular_score(p, tg, [], [])
+
+    # Filtro de preço e desconto mínimo (usa parâmetros globais)
+    # Para manual: aceita desconto a partir de 5% (mais permissivo)
+    DESCONTO_MANUAL = max(5, DESCONTO_MINIMO - 15)
+    todos_raw = [
+        p for p in todos_raw
+        if p.get("preco", 0) > 0
+        and p.get("preco", 9999) <= PRECO_MAXIMO
+        and p.get("desconto", 0) >= DESCONTO_MANUAL
+    ]
+
+    # Remove já postados
+    antes = len(todos_raw)
+    todos_raw = [p for p in todos_raw if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+    log.info(f"🎮 {antes} → {len(todos_raw)} após dedup histórico")
+
+    # Remove duplicatas por nome
+    vistos = set()
+    sem_dup = []
+    for p in todos_raw:
+        chave = hashlib.md5(p["nome"].encode()).hexdigest()
+        if chave not in vistos:
+            vistos.add(chave)
+            sem_dup.append(p)
+
+    # ─── ORDENAÇÃO: prioriza maior desconto, depois maior score ───
+    sem_dup.sort(key=lambda x: (x.get("desconto", 0), x.get("score", 0)), reverse=True)
+
+    # ─── DISTRIBUIÇÃO: variedade entre setores, mas DESCONTO é soberano ───
+    # Pega até 2 produtos por setor para garantir diversidade mínima,
+    # depois completa com os maiores descontos restantes — sem limite de categoria
+    grupos = {
+        "eletro":     [p for p in sem_dup if _is_eletro(p.get("nome",""))],
+        "smartphone": [p for p in sem_dup if _is_smartphone(p.get("nome",""))],
+        "tv":         [p for p in sem_dup if _is_tv(p.get("nome",""))],
+        "monitor":    [p for p in sem_dup if _is_monitor(p.get("nome",""))],
+        "games":      [p for p in sem_dup if _is_games(p.get("nome",""), p)],
+        "outros":     [p for p in sem_dup
+                       if not _is_eletro(p.get("nome",""))
+                       and not _is_smartphone(p.get("nome",""))
+                       and not _is_tv(p.get("nome",""))
+                       and not _is_monitor(p.get("nome",""))
+                       and not _is_games(p.get("nome",""), p)],
+    }
+
+    # 1 representante de cada setor que tiver produto (garante diversidade mínima)
+    reservados = set()
+    diversidade = []
+    for grupo, produtos_grupo in grupos.items():
+        if produtos_grupo:
+            melhor = produtos_grupo[0]  # já ordenado por desconto
+            diversidade.append(melhor)
+            reservados.add(hashlib.md5(melhor["nome"].encode()).hexdigest())
+            log.info(f"🎮 {grupo}: melhor={melhor.get('desconto',0)}% OFF — {melhor.get('nome','')[:40]}")
+
+    # Restante: todos os produtos não reservados, ordenados por desconto
+    restante = [p for p in sem_dup if hashlib.md5(p["nome"].encode()).hexdigest() not in reservados]
+
+    # Junta: primeiro os representantes (por desconto), depois o restante (por desconto)
+    diversidade.sort(key=lambda x: x.get("desconto", 0), reverse=True)
+    fila = diversidade + restante  # restante já está ordenado por desconto
+
+    # Distribuição por loja
+    lojas_log = {}
+    for p in fila[:POSTS_POR_CICLO * 2]:
+        lojas_log[p.get("loja", "")] = lojas_log.get(p.get("loja", ""), 0) + 1
+    log.info(f"🎮 Pipeline manual: {len(fila)} produto(s) prontos | Lojas: {lojas_log}")
+    for p in fila[:10]:
+        log.info(f"  [{p.get('desconto',0)}% OFF][{p.get('loja','')}] {p.get('nome','')[:45]} | R$ {p.get('preco',0):.0f}")
+
+    return fila
+
+
+# ============================================================
 # PIPELINE TOP OFERTAS — 18:00 — sem filtros restritivos
 # ============================================================
 
@@ -1854,7 +1975,7 @@ def iniciar_api_historico():
                         try:
                             import time as _t
                             log.info(f"🎮 Ciclo manual via Web — {qtde} post(s)")
-                            produtos = montar_pipeline(usar_ml=usar_ml, usar_shopee=usar_shopee, usar_ali=usar_ali, usar_amazon=usar_amazon)
+                            produtos = montar_pipeline_manual(usar_ml=usar_ml, usar_shopee=usar_shopee, usar_ali=usar_ali, usar_amazon=usar_amazon)
                             log.info(f"🎮 Pipeline retornou {len(produtos)} produto(s)")
                             # Filtra lojas se necessário (garantia dupla)
                             if not usar_ml:
