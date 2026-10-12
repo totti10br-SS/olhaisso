@@ -63,7 +63,7 @@ HORARIOS_MISTO      = ["12:30"]  # Ciclo misto: metade smartphones + metade moni
 HORARIOS_MONITOR    = ["15:00"]           # Ciclo dedicado apenas monitores
 HORARIOS_ELETRO     = ["16:00"]           # Ciclo dedicado eletrodomésticos (ML + Amazon)
 HORARIO_TICKET_BAIXO = ["19:00"]          # Ciclo dedicado produtos até R$200
-HORARIO_TV_GAMES     = ["17:30"]           # 📺🎮 Momento TVs & Games
+HORARIO_TV_GAMES     = ["14:10", "17:30"]  # 📺🎮 Momento TVs & Games
 HORARIO_TOP_OFERTAS  = ["18:00"]           # 🔥 TOP Ofertas em Alta (ML + Amazon, sem filtros restritivos)
 PRECO_TICKET_BAIXO   = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))  # Teto para ticket baixo
 POSTS_TICKET_BAIXO_NO_CICLO = 2          # Qtde de tickets baixos nos ciclos normais
@@ -1150,9 +1150,13 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
     if permitir_ciclo_ticket_baixo():
         return montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros)
 
-    # Ciclo normal — remove smartphones e monitores
+    # Ciclo normal — remove smartphones, monitores, TVs e fones (reservados para ciclos dedicados)
     def filtrar_normal(pool):
-        return [p for p in pool if not _is_smartphone(p.get("nome","")) and not _is_monitor(p.get("nome",""))]
+        return [p for p in pool
+                if not _is_smartphone(p.get("nome",""))
+                and not _is_monitor(p.get("nome",""))
+                and not _is_tv(p.get("nome",""))
+                and not _is_games(p.get("nome",""), p)]
 
     ml_n  = filtrar_normal(pool_ml)
     ali_n = filtrar_normal(pool_ali)
@@ -1160,7 +1164,7 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
     az_n  = filtrar_normal(pool_amazon)
     removidos = (len(pool_ml) - len(ml_n)) + (len(pool_ali) - len(ali_n)) + (len(pool_shopee) - len(sh_n)) + (len(pool_amazon) - len(az_n))
     if removidos > 0:
-        log.info(f"🔒 {removidos} produto(s) reservados para ciclos especiais")
+        log.info(f"🔒 {removidos} produto(s) reservados para ciclos especiais (TV/Games/Smartphone/Monitor)")
 
     # Ciclo normal: garante 2 tickets baixos na fila
     todos_normal = distribuir_por_loja(ml_n, ali_n, sh_n, az_n, pool_outros, POSTS_POR_CICLO * 3)
@@ -1971,7 +1975,7 @@ def main():
         schedule.every().day.at(h).do(ciclo)
     for h in HORARIO_TOP_OFERTAS:
         schedule.every().day.at(h).do(ciclo_top_ofertas)
-    log.info(f"📺🎮 Ciclo TVs & Games: {chr(44).join(HORARIO_TV_GAMES)}")
+    log.info(f"📺🎮 Ciclo TVs & Games: {', '.join(HORARIO_TV_GAMES)}")
     log.info(f"🔥 Ciclo TOP Ofertas: {', '.join(HORARIO_TOP_OFERTAS)}")
     log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
     log.info(f"🏠 Ciclo eletrodomésticos (ML+Amazon): {', '.join(HORARIOS_ELETRO)}")
