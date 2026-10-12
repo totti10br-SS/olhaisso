@@ -61,10 +61,8 @@ PALAVRAS_BLOQUEADAS = [
     # Automotivo
     "pneu", "rodas", "amortecedor", "escapamento", "farol",
     "retrovisor", "para-choque", "capota", "banco de carro",
-    # Casa e jardim
+    # Casa e jardim (eletrodomésticos REMOVIDOS — têm ciclo próprio no bot)
     "cortador de grama", "vaso de planta", "mangueira",
-    "churrasqueira", "fogueira", "fogao", "geladeira", "lava-roupa",
-    "maquina de lavar", "secadora", "lava-loucas",
     "sofa", "colchao", "cama", "guarda-roupa", "estante",
     "tapete", "cortina", "persiana", "luminaria de teto",
     # Vestuário e moda
@@ -1234,6 +1232,19 @@ URLS_BUSCA_EXTRA = [
     ("https://lista.mercadolivre.com.br/smart-tv-65", "Smart TV 65"),
     ("https://lista.mercadolivre.com.br/controle-gamer", "Controles Gamer"),
     ("https://lista.mercadolivre.com.br/soundbar", "Soundbar"),
+    # Eletrodomésticos — pequenos e linha branca
+    ("https://lista.mercadolivre.com.br/fritadeira-air-fryer", "Fritadeiras Air Fryer"),
+    ("https://lista.mercadolivre.com.br/liquidificadores", "Liquidificadores"),
+    ("https://lista.mercadolivre.com.br/micro-ondas", "Micro-ondas"),
+    ("https://lista.mercadolivre.com.br/cafeteiras", "Cafeteiras"),
+    ("https://lista.mercadolivre.com.br/batedeiras", "Batedeiras"),
+    ("https://lista.mercadolivre.com.br/fornos-eletricos", "Fornos Elétricos"),
+    ("https://lista.mercadolivre.com.br/aspiradores-de-po", "Aspiradores"),
+    ("https://lista.mercadolivre.com.br/geladeiras-refrigeradores", "Geladeiras"),
+    ("https://lista.mercadolivre.com.br/maquinas-de-lavar", "Máquinas de Lavar"),
+    ("https://lista.mercadolivre.com.br/ar-condicionado", "Ar-Condicionado"),
+    ("https://lista.mercadolivre.com.br/panelas-eletricas", "Panelas Elétricas"),
+    ("https://lista.mercadolivre.com.br/purificadores-de-agua", "Purificadores"),
 ]
 
 

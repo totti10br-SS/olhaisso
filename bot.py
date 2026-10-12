@@ -58,7 +58,7 @@ AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
-HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "16:00", "19:00", "22:30"]
+HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "19:00", "22:30"]  # 16:00 removido — gerenciado por ciclo_eletro()
 HORARIOS_MISTO      = ["12:30"]  # Ciclo misto: metade smartphones + metade monitores
 HORARIOS_MONITOR    = ["15:00"]           # Ciclo dedicado apenas monitores
 HORARIOS_ELETRO     = ["16:00"]           # Ciclo dedicado eletrodomésticos (ML + Amazon)
@@ -66,6 +66,8 @@ HORARIO_TICKET_BAIXO = ["19:00"]          # Ciclo dedicado produtos até R$200
 HORARIO_TV_GAMES     = ["14:10", "17:30"]  # 📺🎮 Momento TVs & Games
 HORARIO_TOP_OFERTAS  = ["18:00"]           # 🔥 TOP Ofertas em Alta (ML + Amazon, sem filtros restritivos)
 PRECO_TICKET_BAIXO   = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))  # Teto para ticket baixo
+PRECO_MAXIMO_ELETRO  = float(os.getenv("PRECO_MAXIMO_ELETRO", "5000.0"))  # Eletro pode ser caro — geladeiras, ACs etc.
+DESCONTO_MINIMO_ELETRO = int(os.getenv("DESCONTO_MINIMO_ELETRO", "10"))   # Eletro raramente tem 20%+ de desconto
 POSTS_TICKET_BAIXO_NO_CICLO = 2          # Qtde de tickets baixos nos ciclos normais
 DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
@@ -858,14 +860,27 @@ def permitir_eletro_dedicado():
     return horario_dentro_de(HORARIOS_ELETRO)
 
 KEYWORDS_ELETRO = [
-    "geladeira", "refrigerador", "fogão", "fogao", "micro-ondas", "microondas",
-    "máquina de lavar", "maquina de lavar", "lava e seca", "secadora",
-    "ar condicionado", "ventilador", "liquidificador", "batedeira", "mixer",
-    "sanduicheira", "grill", "fritadeira", "airfryer", "air fryer",
-    "panela elétrica", "panela eletrica", "cafeteira", "torradeira",
-    "aspirador", "ferro de passar", "purificador", "aquecedor",
-    "churrasqueira elétrica", "forno elétrico", "forno eletrico",
-    "processador de alimentos", "espremedor",
+    # Linha branca grande
+    "geladeira", "refrigerador", "frost free", "duplex",
+    "fogão", "fogao", "cooktop", "coifa", "depurador",
+    "máquina de lavar", "maquina de lavar", "lavadora", "lava e seca", "secadora", "lava-louças", "lava louças",
+    "ar condicionado", "ar-condicionado", "split", "inverter ar",
+    # Pequenos eletrodomésticos
+    "ventilador", "climatizador", "umidificador",
+    "liquidificador", "batedeira", "mixer", "processador de alimentos", "espremedor", "centrifuga", "centrífuga",
+    "sanduicheira", "grill", "waffle",
+    "fritadeira", "airfryer", "air fryer",
+    "panela elétrica", "panela eletrica", "panela de pressão elétrica", "multicooker",
+    "cafeteira", "expresso", "nespresso", "dolce gusto", "cafeteira elétrica",
+    "torradeira", "forno elétrico", "forno eletrico", "micro-ondas", "microondas",
+    "churrasqueira elétrica", "churrasqueira eletrica",
+    # Limpeza e cuidados
+    "aspirador", "robô aspirador", "robo aspirador", "vassoura elétrica",
+    "ferro de passar", "vaporizador de roupas", "centrífuga de roupas",
+    "purificador", "purificador de água", "filtro de água",
+    # Aquecimento e banho
+    "aquecedor", "aquecedor elétrico", "chuveiro", "torneira elétrica",
+    "boiler", "aquecedor de água",
 ]
 
 KEYWORDS_TV = [
@@ -1446,6 +1461,103 @@ def montar_pipeline_top_ofertas():
     return fila
 
 
+def montar_pipeline_eletro():
+    """
+    Pipeline dedicado para o ciclo das 16:00 — Eletrodomésticos.
+    Usa PRECO_MAXIMO_ELETRO (R$5000) e DESCONTO_MINIMO_ELETRO (10%),
+    totalmente independente do pipeline normal para não perder geladeiras,
+    ACs, lavadoras e outros eletro de ticket alto.
+    """
+    log.info("🏠 PIPELINE ELETRO — buscando eletrodomésticos (ML + Amazon, até R$5000)...")
+
+    produtos_ml = []
+    produtos_amazon = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        fut_ml     = executor.submit(buscar_ml_profundo)
+        fut_amazon = executor.submit(buscar_amazon_profundo)
+        try:
+            produtos_ml = fut_ml.result(timeout=120)
+            log.info(f"🏠 ML bruto: {len(produtos_ml)} produtos")
+        except Exception as e:
+            log.warning(f"🏠 ML erro: {e}")
+        try:
+            produtos_amazon = fut_amazon.result(timeout=120)
+            log.info(f"🏠 Amazon bruto: {len(produtos_amazon)} produtos")
+        except Exception as e:
+            log.warning(f"🏠 Amazon erro: {e}")
+
+    todos = produtos_ml + produtos_amazon
+
+    if not todos:
+        log.warning("🏠 Eletro pipeline: nenhum produto encontrado — abortando")
+        return []
+
+    # Filtro específico para eletro: preço até R$5000, desconto mínimo 10%
+    todos = [
+        p for p in todos
+        if _is_eletro(p.get("nome", ""))
+        and p.get("preco", 0) > 0
+        and p.get("preco", 9999) <= PRECO_MAXIMO_ELETRO
+        and p.get("desconto", 0) >= DESCONTO_MINIMO_ELETRO
+    ]
+    log.info(f"🏠 Após filtro eletro: {len(todos)} produto(s)")
+
+    # Remove já postados
+    antes = len(todos)
+    todos = [p for p in todos if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+    log.info(f"🏠 {antes} → {len(todos)} após dedup histórico")
+
+    # Ordena por maior desconto
+    todos.sort(key=lambda x: x.get("desconto", 0), reverse=True)
+
+    # Distribuição 50% ML / 50% Amazon
+    pool_ml     = [p for p in todos if p.get("loja") == "MERCADOLIVRE"]
+    pool_amazon = [p for p in todos if p.get("loja") == "AMAZON"]
+    qtd_ml     = max(1, round(POSTS_POR_CICLO * 0.50))
+    qtd_amazon = max(1, POSTS_POR_CICLO - qtd_ml)
+    fila = pool_ml[:qtd_ml] + pool_amazon[:qtd_amazon]
+    # Completa se faltar de uma loja
+    extras = pool_ml[qtd_ml:] + pool_amazon[qtd_amazon:]
+    fila += extras[:max(0, POSTS_POR_CICLO * 2 - len(fila))]
+
+    log.info(f"🏠 Eletro pipeline: {len(fila)} produto(s) prontos (ML:{min(qtd_ml,len(pool_ml))} Az:{min(qtd_amazon,len(pool_amazon))})")
+    for p in fila[:8]:
+        log.info(f"  [{p.get('desconto',0)}% OFF][{p['loja']}] {p['nome'][:45]} | R$ {p.get('preco',0):.0f}")
+    return fila
+
+
+def ciclo_eletro():
+    """Ciclo dedicado 🏠 Eletrodomésticos — 16:00."""
+    log.info(f"\n{'='*50}")
+    log.info(f"🏠 CICLO ELETRO — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    limpar_historico_antigo()
+
+    produtos = montar_pipeline_eletro()
+    if not produtos:
+        log.warning("🏠 Eletro: nenhum produto disponível — ciclo encerrado")
+        return
+
+    postou = 0
+    for produto in produtos:
+        if postou >= POSTS_POR_CICLO:
+            break
+        log.info(f"🏠 Postando [{produto.get('desconto',0)}% OFF]: {produto['nome'][:50]}")
+        imagem = gerar_imagem(produto)
+        ok_tg = postar_telegram(produto, imagem)
+        if ok_tg:
+            ok_wa = postar_whatsapp(produto, imagem)
+            registrar_post(produto)
+            postou += 1
+            status = "✅ Telegram + WhatsApp" if ok_wa else "✅ Telegram (WA falhou)"
+            log.info(f"  {status}")
+        else:
+            registrar_post(produto)
+            log.warning("  ⏭️ Telegram falhou — registrado")
+        time.sleep(10)
+
+    log.info(f"🏠 Ciclo Eletro concluído — {postou} post(s)\n")
+
+
 def ciclo_top_ofertas():
     """Ciclo dedicado 🔥 TOP Ofertas — 18:00."""
     log.info(f"\n{'='*50}")
@@ -1975,10 +2087,12 @@ def main():
         schedule.every().day.at(h).do(ciclo)
     for h in HORARIO_TOP_OFERTAS:
         schedule.every().day.at(h).do(ciclo_top_ofertas)
+    for h in HORARIOS_ELETRO:
+        schedule.every().day.at(h).do(ciclo_eletro)
     log.info(f"📺🎮 Ciclo TVs & Games: {', '.join(HORARIO_TV_GAMES)}")
     log.info(f"🔥 Ciclo TOP Ofertas: {', '.join(HORARIO_TOP_OFERTAS)}")
     log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
-    log.info(f"🏠 Ciclo eletrodomésticos (ML+Amazon): {', '.join(HORARIOS_ELETRO)}")
+    log.info(f"🏠 Ciclo Eletro (ML+Amazon, até R${PRECO_MAXIMO_ELETRO:.0f}, ≥{DESCONTO_MINIMO_ELETRO}% OFF): {', '.join(HORARIOS_ELETRO)}")
     # Sobe API de histórico em thread separada
     import threading
     t = threading.Thread(target=iniciar_api_historico, daemon=True)
