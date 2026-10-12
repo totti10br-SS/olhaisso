@@ -1418,16 +1418,17 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
 
     todos_raw = []
 
-    # IMPORTANTE: timeout MUITO generoso (900s = 15min). A busca ML via BrightData
-    # pode levar 7-8min quando o BrightData dá read-timeout de 60s e cai pro
-    # ScraperAPI (às vezes com quota esgotada). Timeout curto descartava ~27-50
-    # produtos válidos que a busca ACHAVA, mas 2min depois do timeout disparar.
+    # IMPORTANTE: timeout MUITO generoso (2400s = 40min). O modo completo varre
+    # ~32 categorias (tech + eletro) e cada uma leva ~45-60s via BrightData, mais
+    # retry quando falha. O timeout é só uma rede de segurança: a busca normalmente
+    # termina em ~20-25min e os produtos são coletados assim que ela retorna.
     # Roda em thread de fundo (daemon), então bloquear por minutos é seguro.
     # NÃO usamos busca profunda aqui — ela leva 15+ min e retorna ~0 válidos.
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futuros = {}
         if usar_ml:
-            futuros["ml"] = executor.submit(buscar_ml)
+            # completo=True: varre TODAS as categorias (tech + eletro) + retry em falhas
+            futuros["ml"] = executor.submit(buscar_ml, completo=True)
         if usar_amazon:
             futuros["amazon"] = executor.submit(buscar_amazon)
         if usar_shopee:
@@ -1437,11 +1438,11 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
 
         for nome_fut, fut in futuros.items():
             try:
-                resultado_fut = fut.result(timeout=900)
+                resultado_fut = fut.result(timeout=2400)
                 log.info(f"🎮 {nome_fut}: {len(resultado_fut)} produtos")
                 todos_raw.extend(resultado_fut)
             except concurrent.futures.TimeoutError:
-                log.warning(f"🎮 {nome_fut}: timeout de 900s — busca travou (anormal)")
+                log.warning(f"🎮 {nome_fut}: timeout de 2400s — busca travou (anormal)")
             except Exception as e:
                 log.warning(f"🎮 {nome_fut} erro: {e}")
 
@@ -1478,12 +1479,25 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
             vistos.add(chave)
             sem_dup.append(p)
 
-    # ─── ORDENAÇÃO: prioriza maior desconto, depois maior score ───
-    sem_dup.sort(key=lambda x: (x.get("desconto", 0), x.get("score", 0)), reverse=True)
+    # ─── RELEVÂNCIA: desconto (motor) + bônus "EM ALTA" (best-seller do ML) ───
+    # Produto marcado "MAIS VENDIDO" ganha +20 pts; quanto melhor a posição no
+    # ranking de vendas, maior o bônus extra. Desconto continua dominante, mas um
+    # best-seller com desconto médio sobe na frente de um desconto médio comum.
+    def relevancia(p):
+        base = p.get("desconto", 0)
+        if p.get("mais_vendido"):
+            base += 20
+            rank = p.get("rank_vendas", 0) or 0
+            if 1 <= rank <= 10:
+                base += (11 - rank)  # 1º=+10, 10º=+1
+        return base
+    for p in sem_dup:
+        p["_relevancia"] = relevancia(p)
+    sem_dup.sort(key=lambda x: x.get("_relevancia", 0), reverse=True)
 
-    # ─── DISTRIBUIÇÃO: variedade entre setores, mas DESCONTO é soberano ───
-    # Pega até 2 produtos por setor para garantir diversidade mínima,
-    # depois completa com os maiores descontos restantes — sem limite de categoria
+    # ─── DISTRIBUIÇÃO: variedade entre setores, relevância (desconto+alta) manda ───
+    # Pega 1 representante de cada setor para garantir diversidade mínima,
+    # depois completa com os de maior relevância — sem limite de categoria
     grupos = {
         "eletro":     [p for p in sem_dup if _is_eletro(p.get("nome",""))],
         "smartphone": [p for p in sem_dup if _is_smartphone(p.get("nome",""))],
@@ -1503,17 +1517,18 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
     diversidade = []
     for grupo, produtos_grupo in grupos.items():
         if produtos_grupo:
-            melhor = produtos_grupo[0]  # já ordenado por desconto
+            melhor = produtos_grupo[0]  # já ordenado por relevância
             diversidade.append(melhor)
             reservados.add(hashlib.md5(melhor["nome"].encode()).hexdigest())
-            log.info(f"🎮 {grupo}: melhor={melhor.get('desconto',0)}% OFF — {melhor.get('nome','')[:40]}")
+            alta = "🔥" if melhor.get("mais_vendido") else ""
+            log.info(f"🎮 {grupo}: melhor={melhor.get('desconto',0)}% OFF {alta} — {melhor.get('nome','')[:40]}")
 
-    # Restante: todos os produtos não reservados, ordenados por desconto
+    # Restante: todos os produtos não reservados, ordenados por relevância
     restante = [p for p in sem_dup if hashlib.md5(p["nome"].encode()).hexdigest() not in reservados]
 
-    # Junta: primeiro os representantes (por desconto), depois o restante (por desconto)
-    diversidade.sort(key=lambda x: x.get("desconto", 0), reverse=True)
-    fila = diversidade + restante  # restante já está ordenado por desconto
+    # Junta: primeiro os representantes (por relevância), depois o restante
+    diversidade.sort(key=lambda x: x.get("_relevancia", 0), reverse=True)
+    fila = diversidade + restante  # restante já está ordenado por relevância
 
     # Distribuição por loja
     lojas_log = {}
@@ -1521,7 +1536,8 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
         lojas_log[p.get("loja", "")] = lojas_log.get(p.get("loja", ""), 0) + 1
     log.info(f"🎮 Pipeline manual: {len(fila)} produto(s) prontos | Lojas: {lojas_log}")
     for p in fila[:10]:
-        log.info(f"  [{p.get('desconto',0)}% OFF][{p.get('loja','')}] {p.get('nome','')[:45]} | R$ {p.get('preco',0):.0f}")
+        alta = "🔥EM ALTA" if p.get("mais_vendido") else ""
+        log.info(f"  [{p.get('desconto',0)}% OFF][{p.get('loja','')}] {p.get('nome','')[:45]} | R$ {p.get('preco',0):.0f} {alta}")
 
     return fila
 

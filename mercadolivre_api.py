@@ -556,6 +556,9 @@ def extrair_produtos_html_lista(html):
         desc_re    = re.compile(r'(\d+)%\s*OFF', re.IGNORECASE)
         link_re    = re.compile(r'href="(https://(?:www\.)?mercadolivre\.com\.br/[^"]+)"', re.IGNORECASE)
         img_re     = re.compile(r'(?:data-src|src)="(https://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', re.IGNORECASE)
+        # "EM ALTA" — selo MAIS VENDIDO do ML + ranking ("2º em Mais vendidos em ...")
+        mv_re      = re.compile(r'(mais vendido|más vendido|best\s*seller)', re.IGNORECASE)
+        rank_re    = re.compile(r'(\d+)\s*º?\s*(?:em|no|lugar)[^<]{0,30}mais vendid', re.IGNORECASE)
 
         for bloco in blocos[1:]:  # pula primeiro bloco (cabeçalho)
             try:
@@ -666,6 +669,13 @@ def extrair_produtos_html_lista(html):
                 m_img = img_re.search(bloco)
                 imagem = m_img.group(1) if m_img else ""
 
+                # EM ALTA — selo "MAIS VENDIDO" e posição no ranking de vendas
+                mais_vendido = bool(mv_re.search(bloco))
+                m_rank = rank_re.search(bloco)
+                rank_vendas = int(m_rank.group(1)) if m_rank else 0
+                if rank_vendas:
+                    mais_vendido = True
+
                 produtos.append({
                     "_raw_html": True,
                     "nome": nome,
@@ -674,6 +684,8 @@ def extrair_produtos_html_lista(html):
                     "desconto": desconto,
                     "url_prod": url_prod,
                     "imagem": imagem,
+                    "mais_vendido": mais_vendido,
+                    "rank_vendas": rank_vendas,
                 })
             except Exception:
                 continue
@@ -1025,7 +1037,11 @@ def _processar_item_html(item_raw):
             link_curto = gerar_link_afiliado_ml(url_prod) or encurtar_link(gerar_link_afiliado(url_prod))
         except Exception:
             link_curto = encurtar_link(gerar_link_afiliado(url_prod))
-        log(f"  ✅ {nome[:45]} | R${preco} | {desconto}% | 🔗 {link_curto[:60]}")
+        # EM ALTA — best-seller do ML tem prioridade (score 3) e carrega o selo
+        mais_vendido = bool(item_raw.get("mais_vendido", False))
+        rank_vendas  = int(item_raw.get("rank_vendas", 0) or 0)
+        selo = "🔥 MAIS VENDIDO" if mais_vendido else ""
+        log(f"  ✅ {nome[:45]} | R${preco} | {desconto}% {selo} | 🔗 {link_curto[:50]}")
         return {
             "nome":           nome,
             "preco":          round(preco, 2),
@@ -1035,7 +1051,9 @@ def _processar_item_html(item_raw):
             "frete":          "🚚 Frete a calcular",
             "link_afiliado":  link_curto,
             "imagem_url":     imagem,
-            "score":          1,
+            "score":          3 if mais_vendido else 1,
+            "mais_vendido":   mais_vendido,
+            "rank_vendas":    rank_vendas,
             "fontes":         ["mercadolivre"],
         }
     except Exception as e:
@@ -1139,20 +1157,41 @@ def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50)
     return produtos
 
 
-def buscar_todos_produtos():
+def buscar_todos_produtos(completo=False):
+    """
+    completo=False (padrão): comportamento original — Games + 3 categorias sorteadas.
+                             Usado pelos ciclos agendados (NÃO mudar).
+    completo=True: varre TODAS as categorias de URLS_BUSCA e tenta 1 retry quando
+                   uma categoria falha (timeout/CAPTCHA). Usado pelo ciclo manual,
+                   para maximizar o pool de produtos.
+    """
     if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY and not BRIGHTDATA_KEY:
         log("ML: nenhuma chave de scraping configurada")
         return []
 
-    log("ML ScrapingAnt: iniciando busca...")
+    log(f"ML ScrapingAnt: iniciando busca... {'(COMPLETO)' if completo else ''}")
     todos   = []
     vistos  = set()
     total_bruto = 0
 
-    # Garante que Games sempre entram — resto sorteia
-    url_games  = [(u, n) for u, n in URLS_BUSCA if any(g in n.lower() for g in ["games", "consoles", "jogos", "controles"])]
-    url_outros = [(u, n) for u, n in URLS_BUSCA if (u, n) not in url_games]
-    urls = url_games + random.sample(url_outros, min(3, len(url_outros)))
+    if completo:
+        # Modo manual: TODAS as categorias — URLS_BUSCA + URLS_BUSCA_EXTRA
+        # (inclui ELETRO: geladeira, air fryer, liquidificador, micro-ondas,
+        #  máquina de lavar, ar-condicionado, aspirador, cafeteira etc.)
+        combinadas = list(URLS_BUSCA) + list(URLS_BUSCA_EXTRA)
+        # Remove URLs duplicadas (Notebooks aparece nas duas listas), mantendo ordem
+        vis_url = set()
+        urls = []
+        for u, n in combinadas:
+            if u not in vis_url:
+                vis_url.add(u)
+                urls.append((u, n))
+        log(f"ML completo: {len(urls)} categorias (tech + eletro)")
+    else:
+        # Garante que Games sempre entram — resto sorteia
+        url_games  = [(u, n) for u, n in URLS_BUSCA if any(g in n.lower() for g in ["games", "consoles", "jogos", "controles"])]
+        url_outros = [(u, n) for u, n in URLS_BUSCA if (u, n) not in url_games]
+        urls = url_games + random.sample(url_outros, min(3, len(url_outros)))
 
     ml_bloqueado = False  # flag: se CAPTCHA em todas configs na 1ª URL, para tudo
 
@@ -1163,6 +1202,11 @@ def buscar_todos_produtos():
         try:
             log(f"ML buscando: {nome}")
             html  = scraper_fetch(url)
+            # Modo completo: 1 retry se a categoria falhou (timeout/CAPTCHA intermitente)
+            if html is None and completo:
+                log(f"ML: {nome} falhou — tentando 1x mais (modo completo)...")
+                time.sleep(2)
+                html = scraper_fetch(url)
             if html is None:
                 log(f"ML: {nome} falhou (sem HTML) — continuando próxima categoria")
                 continue
