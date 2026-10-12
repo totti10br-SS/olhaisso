@@ -120,6 +120,25 @@ PALAVRAS_TECH = [
     "power bank", "nobreak", "estabilizador",
     "ar condicionado", "ventilador tower", "purificador de ar",
     "fritadeira air fryer", "cafeteira", "liquidificador",
+    # Eletrodomésticos — linha branca e pequenos
+    "geladeira", "refrigerador", "freezer",
+    "maquina de lavar", "lavadora", "lava-roupa", "lava roupa",
+    "lava-loucas", "lava loucas", "lava-louças", "lava louças",
+    "micro-ondas", "micro ondas",
+    "batedeira", "processador de alimentos", "liquidificador",
+    "forno eletrico", "forno elétrico", "forno de embutir",
+    "aspirador", "aspirador de po", "robô aspirador", "robo aspirador",
+    "panela eletrica", "panela elétrica", "multicooker", "air fryer",
+    "ferro de passar", "chapinha", "secador de cabelo", "escova alisadora",
+    "espremedor", "sanduicheira", "waffle", "torradeira",
+    "purificador", "filtro de agua", "filtro de água",
+    "aquecedor", "ventilador", "climatizador",
+    "chuveiro eletrico", "chuveiro elétrico", "boiler",
+    "maquina de costura", "máquina de costura",
+    "depilador", "barbeador eletrico", "barbeador elétrico",
+    "coifas", "depurador", "exaustor",
+    "split", "ar split", "inverter",
+    "nespresso", "dolce gusto", "capsulas",
 ]
 
 def produto_valido(nome):
@@ -373,7 +392,8 @@ def scraper_fetch(url):
     log("  → Bright Data Web Unlocker...")
 
     # NOTA: ScrapingAnt e ZenRows desabilitados para ML (todos retornam CAPTCHA com IPs de datacenter)
-    # Chain atual: Playwright → Bright Data Web Unlocker → ScraperAPI (rotação de keys)
+    # ScraperAPI REMOVIDO do ML (quota esgotada/erro 500 — só atrapalhava e queimava tempo)
+    # Chain atual: Bright Data Web Unlocker (único)
 
     # Bright Data Web Unlocker — resolve CAPTCHA automaticamente
     if BRIGHTDATA_KEY:
@@ -399,27 +419,7 @@ def scraper_fetch(url):
         except Exception as e:
             log(f"  BrightData erro: {e}")
 
-    # Fallback ScraperAPI — tenta múltiplas keys em sequência (SCRAPERAPI_KEY, SCRAPERAPI_KEY2, ...)
-    scraperapi_keys = _get_scraperapi_keys()
-    for idx, skey in enumerate(scraperapi_keys, 1):
-        try:
-            payload = {
-                "api_key":      skey,
-                "url":          url,
-                "country_code": "br",
-                "render":       "false",
-            }
-            r = requests.get("https://api.scraperapi.com", params=payload, timeout=60)
-            log(f"  ScraperAPI key{idx} {r.status_code} → {url[:60]}")
-            if r.status_code == 200:
-                return r.text
-            if r.status_code in (402, 403):
-                log(f"  ScraperAPI key{idx} quota esgotada — tentando próxima key...")
-                continue  # tenta próxima key
-            log(f"  ScraperAPI key{idx} erro: {r.text[:100]}")
-        except Exception as e:
-            log(f"  ScraperAPI key{idx} erro: {e}")
-
+    # Sem fallback — ScraperAPI removido do ML a pedido (instável, quota esgotada)
     return None
 
 

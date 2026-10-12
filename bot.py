@@ -1418,8 +1418,11 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
 
     todos_raw = []
 
-    # IMPORTANTE: timeout generoso (300s). A busca ML normal leva ~3-4min via
-    # BrightData e retorna ~50 produtos válidos. Timeout curto descartava tudo.
+    # IMPORTANTE: timeout MUITO generoso (900s = 15min). A busca ML via BrightData
+    # pode levar 7-8min quando o BrightData dá read-timeout de 60s e cai pro
+    # ScraperAPI (às vezes com quota esgotada). Timeout curto descartava ~27-50
+    # produtos válidos que a busca ACHAVA, mas 2min depois do timeout disparar.
+    # Roda em thread de fundo (daemon), então bloquear por minutos é seguro.
     # NÃO usamos busca profunda aqui — ela leva 15+ min e retorna ~0 válidos.
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futuros = {}
@@ -1434,11 +1437,11 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
 
         for nome_fut, fut in futuros.items():
             try:
-                resultado_fut = fut.result(timeout=300)
+                resultado_fut = fut.result(timeout=900)
                 log.info(f"🎮 {nome_fut}: {len(resultado_fut)} produtos")
                 todos_raw.extend(resultado_fut)
             except concurrent.futures.TimeoutError:
-                log.warning(f"🎮 {nome_fut}: timeout de 300s — busca muito lenta")
+                log.warning(f"🎮 {nome_fut}: timeout de 900s — busca travou (anormal)")
             except Exception as e:
                 log.warning(f"🎮 {nome_fut} erro: {e}")
 
