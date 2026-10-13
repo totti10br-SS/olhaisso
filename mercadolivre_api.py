@@ -1169,7 +1169,7 @@ def buscar_todos_produtos(completo=False):
         log("ML: nenhuma chave de scraping configurada")
         return []
 
-    log(f"ML ScrapingAnt: iniciando busca... {'(COMPLETO)' if completo else ''}")
+    log(f"ML BrightData: iniciando busca... {'(COMPLETO)' if completo else ''}")
     todos   = []
     vistos  = set()
     total_bruto = 0
@@ -1202,13 +1202,14 @@ def buscar_todos_produtos(completo=False):
         try:
             log(f"ML buscando: {nome}")
             html  = scraper_fetch(url)
-            # Modo completo: 1 retry se a categoria falhou (timeout/CAPTCHA intermitente)
-            if html is None and completo:
-                log(f"ML: {nome} falhou — tentando 1x mais (modo completo)...")
-                time.sleep(2)
+            # 1 retry em TODOS os ciclos se a categoria falhou (CAPTCHA/timeout do
+            # BrightData é intermitente — a 2ª tentativa costuma passar).
+            if html is None:
+                log(f"ML: {nome} falhou — tentando 1x mais...")
+                time.sleep(3)
                 html = scraper_fetch(url)
             if html is None:
-                log(f"ML: {nome} falhou (sem HTML) — continuando próxima categoria")
+                log(f"ML: {nome} falhou 2x (sem HTML) — continuando próxima categoria")
                 continue
             items = extrair_produtos_html(html)
             total_bruto += len(items)
