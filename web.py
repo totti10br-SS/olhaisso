@@ -928,6 +928,8 @@ HTML = """<!DOCTYPE html>
       <div class="loader" id="loader_ciclo">⏳ Iniciando ciclo...</div>
       <button id="btn_ciclo_tb" style="width:100%;margin-top:4px;background:#1a3a1a;border:2px solid #00cc44;color:#00cc44;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;display:block;" onclick="dispararCicloTicketBaixo()">🤑 Disparar Ticket Baixo</button>
       <div class="loader" id="loader_ciclo_tb">⏳ Iniciando ciclo ticket baixo...</div>
+      <button id="btn_ciclo_games" style="width:100%;margin-top:4px;background:#1a1333;border:2px solid #8B5CF6;color:#A78BFA;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;display:block;" onclick="dispararCicloGames()">🎮 Disparar Games (ignora desconto/preço)</button>
+      <div class="loader" id="loader_ciclo_games">⏳ Iniciando ciclo games...</div>
 
       <!-- PAINEL DE LOG DOS BOTÕES -->
       <div id="ciclo_log_wrap" style="margin-top:14px;display:none;">
@@ -1535,6 +1537,50 @@ async function dispararCicloTicketBaixo() {
   } finally {
     btn.disabled = false;
     document.getElementById('loader_ciclo_tb').style.display = 'none';
+  }
+}
+
+async function dispararCicloGames() {
+  // Ciclo 🎮 Games — só Amazon + ML, ignora desconto/preço, janela de repetição reduzida
+  const telegram     = document.getElementById('ciclo_telegram').checked;
+  const wa_principal = document.getElementById('ciclo_wa_principal').checked;
+  const wa_teste     = document.getElementById('ciclo_wa_teste').checked;
+  const qtde         = parseInt(document.getElementById('ciclo_qtde').value) || 8;
+
+  _logCiclo('INFO', '🎮 Botão GAMES clicado');
+  _logCiclo('PAYLOAD', 'Payload para /disparar_ciclo_games', { telegram, wa_principal, wa_teste, qtde });
+
+  if (!telegram && !wa_principal && !wa_teste) {
+    _logCiclo('ERRO', 'Nenhum canal selecionado — abortando');
+    return alert("Selecione ao menos um canal!");
+  }
+
+  const btn = document.getElementById('btn_ciclo_games');
+  btn.disabled = true;
+  document.getElementById('loader_ciclo_games').style.display = 'block';
+
+  try {
+    _logCiclo('HTTP', 'POST /disparar_ciclo_games → aguardando resposta...');
+    const resp = await fetch('/disparar_ciclo_games', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ telegram, wa_principal, wa_teste, qtde })
+    });
+    const data = await resp.json();
+    _logCiclo('HTTP', 'Body da resposta', data);
+    if (data.ok) {
+      _logCiclo('OK', '✅ Ciclo games iniciado: ' + (data.msg || ''));
+      mostrarMsg('<div class="msg msg-ok">🎮 ' + data.msg + '</div>');
+    } else {
+      _logCiclo('ERRO', '❌ Retorno de erro do bot: ' + (data.erro || 'desconhecido'));
+      mostrarMsg('<div class="msg msg-err">❌ ' + data.erro + '</div>');
+    }
+  } catch(e) {
+    _logCiclo('ERRO', '❌ Exceção JS ao chamar /disparar_ciclo_games: ' + e.message);
+    mostrarMsg('<div class="msg msg-err">❌ Erro: ' + e.message + '</div>');
+  } finally {
+    btn.disabled = false;
+    document.getElementById('loader_ciclo_games').style.display = 'none';
   }
 }
 
@@ -2438,6 +2484,32 @@ def disparar_ciclo_tb():
                 "wa_principal": data.get("wa_principal", True),
                 "wa_teste":     data.get("wa_teste", False),
                 "qtde":         data.get("qtde", 4),
+            },
+            headers={"X-API-Key": WEB_SECRET_KEY},
+            timeout=180
+        )
+        if r.status_code == 200:
+            return jsonify(r.json())
+        return jsonify({"ok": False, "erro": "Bot retornou " + str(r.status_code)})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/disparar_ciclo_games", methods=["POST"])
+def disparar_ciclo_games():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Nao autorizado"}), 401
+    try:
+        BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+        WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        data = request.json or {}
+        r = requests.post(
+            BOT_API_URL + "/ciclo_games",
+            json={
+                "telegram":     data.get("telegram", True),
+                "wa_principal": data.get("wa_principal", True),
+                "wa_teste":     data.get("wa_teste", False),
+                "qtde":         data.get("qtde", 8),
             },
             headers={"X-API-Key": WEB_SECRET_KEY},
             timeout=180

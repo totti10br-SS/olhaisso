@@ -36,6 +36,8 @@ from amazon_api import buscar_profundo as buscar_amazon_profundo
 from amazon_api import buscar_imagem_amazon
 from mercadolivre_api import buscar_todos_produtos as buscar_ml
 from mercadolivre_api import buscar_profundo as buscar_ml_profundo
+from mercadolivre_api import buscar_games as buscar_ml_games
+from amazon_api import buscar_games as buscar_amazon_games
 
 logging.basicConfig(
     level=logging.INFO,
@@ -143,12 +145,14 @@ def init_db():
     log.info(f"SQLite iniciado: {DB_PATH}")
 
 
-def ja_postado(hash_produto):
-    """Verifica se produto foi postado nas últimas HORAS_SEM_REPETIR horas."""
+def ja_postado(hash_produto, horas=None):
+    """Verifica se produto foi postado nas últimas `horas` horas.
+    horas=None usa o padrão HORAS_SEM_REPETIR (comportamento original intacto)."""
     try:
+        janela = HORAS_SEM_REPETIR if horas is None else horas
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        limite = (datetime.now() - timedelta(hours=HORAS_SEM_REPETIR)).strftime("%Y-%m-%d %H:%M:%S")
+        limite = (datetime.now() - timedelta(hours=janela)).strftime("%Y-%m-%d %H:%M:%S")
         c.execute("SELECT id FROM postados WHERE hash = ? AND postado_em > ?", (hash_produto, limite))
         resultado = c.fetchone()
         conn.close()
@@ -443,6 +447,8 @@ def montar_caption(produto):
         badge = "🤑 <b>Momento BOM e BARATO</b>"
     if produto.get("tv_games", False):
         badge = "📺🎮 <b>MOMENTO TVS & GAMES!</b>"
+    if produto.get("hora_gamer", False):
+        badge = "🎮🕹️👾 <b>A HORA GAMER!!!</b> 🎮🕹️👾"
 
     # Badge de loja
     loja_badge = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
@@ -1543,6 +1549,84 @@ def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_
 
 
 # ============================================================
+# PIPELINE GAMES — ciclo manual dedicado (Amazon + ML)
+# Ignora desconto e preço. Janela de repetição = HORAS_SEM_REPETIR / 3.
+# Nunca duplica no mesmo lote.
+# ============================================================
+
+def montar_pipeline_games():
+    """
+    Ciclo manual 🎮 GAMES — consoles, controles, jogos (só Amazon + ML).
+    - Ignora desconto e preço (min/max)
+    - Janela de repetição reduzida: HORAS_SEM_REPETIR ÷ 3 (ex: 36h → 12h)
+    - Nunca duplica o mesmo anúncio dentro do mesmo lote
+    - Prioriza EM ALTA (mais vendido)
+    """
+    log.info("🎮 PIPELINE GAMES — consoles, controles e jogos (Amazon + ML)...")
+
+    todos_raw = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        fut_ml = executor.submit(buscar_ml_games)
+        fut_az = executor.submit(buscar_amazon_games)
+        try:
+            r = fut_ml.result(timeout=1200)
+            log.info(f"🎮 ML games: {len(r)} produtos")
+            todos_raw.extend(r)
+        except Exception as e:
+            log.warning(f"🎮 ML games erro: {e}")
+        try:
+            r = fut_az.result(timeout=600)
+            log.info(f"🎮 Amazon games: {len(r)} produtos")
+            todos_raw.extend(r)
+        except Exception as e:
+            log.warning(f"🎮 Amazon games erro: {e}")
+
+    if not todos_raw:
+        log.warning("🎮 Games: nenhum produto encontrado")
+        return []
+
+    # Janela de repetição reduzida (36h ÷ 3 = 12h por padrão)
+    horas_games = max(1, HORAS_SEM_REPETIR // 3)
+    antes = len(todos_raw)
+    todos_raw = [p for p in todos_raw
+                 if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest(), horas=horas_games)]
+    log.info(f"🎮 {antes} → {len(todos_raw)} após dedup de {horas_games}h")
+
+    # NUNCA duplicar no mesmo lote
+    vistos = set()
+    sem_dup = []
+    for p in todos_raw:
+        chave = hashlib.md5(p["nome"].encode()).hexdigest()
+        if chave not in vistos:
+            vistos.add(chave)
+            p["hora_gamer"] = True   # cabeçalho especial "A HORA GAMER!!!"
+            sem_dup.append(p)
+
+    # Prioriza EM ALTA (mais vendido) primeiro
+    sem_dup.sort(key=lambda x: (1 if x.get("mais_vendido") else 0, x.get("score", 0)), reverse=True)
+
+    # Intercala ML e Amazon pra garantir variedade (ordem de cada pool preservada)
+    pool_ml = [p for p in sem_dup if p.get("loja") == "MERCADOLIVRE"]
+    pool_az = [p for p in sem_dup if p.get("loja") == "AMAZON"]
+    fila = []
+    i = j = 0
+    while i < len(pool_ml) or j < len(pool_az):
+        if i < len(pool_ml):
+            fila.append(pool_ml[i]); i += 1
+        if j < len(pool_az):
+            fila.append(pool_az[j]); j += 1
+
+    lojas_log = {}
+    for p in fila[:POSTS_POR_CICLO * 2]:
+        lojas_log[p.get("loja", "")] = lojas_log.get(p.get("loja", ""), 0) + 1
+    log.info(f"🎮 Pipeline games: {len(fila)} produto(s) prontos | Lojas: {lojas_log}")
+    for p in fila[:10]:
+        alta = "🔥EM ALTA" if p.get("mais_vendido") else ""
+        log.info(f"  [{p.get('loja','')}] {p.get('nome','')[:45]} | R$ {p.get('preco',0):.0f} {alta}")
+    return fila
+
+
+# ============================================================
 # PIPELINE TOP OFERTAS — 18:00 — sem filtros restritivos
 # ============================================================
 
@@ -1974,7 +2058,7 @@ def iniciar_api_historico():
             pass  # silencia logs do servidor
 
         def do_POST(self):
-            if self.path.startswith("/ciclo") and not self.path.startswith("/ciclo_tb"):
+            if self.path.startswith("/ciclo") and not self.path.startswith("/ciclo_tb") and not self.path.startswith("/ciclo_games"):
                 api_key = self.headers.get("X-API-Key", "")
                 if api_key != WEB_API_KEY:
                     self.send_response(401)
@@ -2054,6 +2138,83 @@ def iniciar_api_historico():
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write((_json.dumps({"ok": True, "msg": f"Ciclo iniciado — {qtde} post(s) agendados!"})).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
+            elif self.path.startswith("/ciclo_games"):
+                # Ciclo manual 🎮 GAMES — só Amazon + ML, ignora desconto/preço,
+                # janela de repetição reduzida (HORAS_SEM_REPETIR/3), sem duplicar no lote.
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    qtde        = int(body.get("qtde", POSTS_POR_CICLO))
+                    usar_tg     = body.get("telegram", True)
+                    usar_wa_pri = body.get("wa_principal", True)
+                    usar_wa_tst = body.get("wa_teste", False)
+                    horas_games = max(1, HORAS_SEM_REPETIR // 3)
+                    import threading as _th
+                    def _rodar_games():
+                        try:
+                            import time as _t
+                            log.info(f"🎮 Ciclo GAMES via Web — {qtde} post(s)")
+                            produtos = montar_pipeline_games()
+                            log.info(f"🎮 Pipeline games retornou {len(produtos)} produto(s)")
+                            if not produtos:
+                                log.warning("🎮 Nenhum produto de games disponível")
+                                return
+                            postou = 0
+                            postados_lote = set()  # trava anti-duplicata no mesmo lote
+                            for produto in produtos:
+                                if postou >= qtde:
+                                    break
+                                hash_p = hashlib.md5(produto["nome"].encode()).hexdigest()
+                                if hash_p in postados_lote:
+                                    continue
+                                # janela reduzida (12h) em vez das 36h
+                                if ja_postado(hash_p, horas=horas_games):
+                                    log.info(f"🎮 Pulado (postado nas últimas {horas_games}h): {produto['nome'][:40]}")
+                                    continue
+                                log.info(f"🎮 Postando: {produto['nome'][:50]}")
+                                try:
+                                    imagem = gerar_imagem(produto)
+                                    publicou = False
+                                    if usar_tg:
+                                        produto_tg = {**produto, "imagem_url": ""}
+                                        if postar_telegram(produto_tg, imagem):
+                                            publicou = True
+                                            log.info("🎮 ✅ Telegram OK")
+                                    if usar_wa_pri:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_GROUP_ID)
+                                        publicou = True
+                                        log.info("🎮 ✅ WhatsApp Principal OK")
+                                    if usar_wa_tst:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_TEST_GROUP_ID)
+                                        publicou = True
+                                        log.info("🎮 ✅ WhatsApp Teste OK")
+                                    if publicou:
+                                        registrar_post(produto, "WEB_GAMES")
+                                        postados_lote.add(hash_p)
+                                        postou += 1
+                                    _t.sleep(8)
+                                except Exception as ep:
+                                    log.error(f"🎮 Erro ao postar games: {ep}")
+                                    continue
+                            log.info(f"🎮 Ciclo games concluído — {postou} post(s)")
+                        except Exception as e:
+                            log.error(f"🎮 Ciclo games erro: {e}")
+                    _th.Thread(target=_rodar_games, daemon=True).start()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write((_json.dumps({"ok": True, "msg": f"Ciclo GAMES iniciado — {qtde} post(s)!"})).encode())
                 except Exception as e:
                     self.send_response(500)
                     self.send_header("Content-Type", "application/json")

@@ -512,3 +512,82 @@ def buscar_profundo():
 
     log.info(f"Amazon BUSCA PROFUNDA: {len(produtos)} produtos encontrados")
     return produtos
+
+
+# ============================================================
+# GAMES — ciclo manual dedicado (consoles, controles, jogos)
+# Ignora preço (sem teto). Mantém o bloqueio de usado/brinquedo.
+# ============================================================
+CATEGORIAS_GAMES = [
+    ("Games p1",   "https://www.amazon.com.br/gp/bestsellers/videogames/ref=zg_bs_pg_1?ie=UTF8&pg=1"),
+    ("Games p2",   "https://www.amazon.com.br/gp/bestsellers/videogames/ref=zg_bs_pg_2?ie=UTF8&pg=2"),
+    ("Consoles",   "https://www.amazon.com.br/gp/bestsellers/videogames/119698011"),
+    ("Controles",  "https://www.amazon.com.br/gp/bestsellers/videogames/119700011"),
+    ("Jogos PS5",  "https://www.amazon.com.br/gp/bestsellers/videogames/7481728011"),
+    ("Jogos Xbox", "https://www.amazon.com.br/gp/bestsellers/videogames/7481730011"),
+    ("Em Alta Games", "https://www.amazon.com.br/gp/movers-and-shakers/videogames"),
+]
+
+
+def buscar_games():
+    """
+    Bestsellers de GAMES da Amazon (consoles, controles, jogos).
+    Igual ao buscar_todos_produtos, mas SEM teto de preço (ignora PRECO_MAXIMO).
+    Mantém o bloqueio de usado/recondicionado/brinquedo (_is_bloqueado).
+    """
+    log.info("Amazon GAMES: iniciando busca...")
+    produtos = []
+    for nome_cat, url in CATEGORIAS_GAMES:
+        log.info(f"Amazon GAMES [{nome_cat}]: buscando...")
+        try:
+            html = _fetch_url(url)
+            if not html:
+                continue
+            parser = AmazonParser()
+            parser.feed(html)
+            raw_items = parser.items[:20]
+            if not raw_items and html:
+                raw_items = _extrair_amazon_regex(html)
+            for item in raw_items:
+                try:
+                    preco = float(
+                        item["preco_txt"]
+                        .replace("R$", "").replace(".", "").replace(",", ".").strip()
+                    )
+                except Exception:
+                    continue
+                if preco <= 0:        # ignora preço inválido; SEM teto
+                    continue
+                nome = item["nome"]
+                if _is_bloqueado(nome):
+                    continue
+                asin = item.get("asin", "")
+                if not asin and html:
+                    idx = html.find(nome[:25])
+                    if idx > 0:
+                        m = re.search(r"/dp/([A-Z0-9]{10})", html[max(0, idx-500):idx+500])
+                        if m:
+                            asin = m.group(1)
+                if not asin:
+                    asin = hashlib.md5(nome.encode()).hexdigest()[:10].upper()
+                produtos.append({
+                    "nome":           nome,
+                    "preco":          preco,
+                    "preco_original": round(preco * 1.3, 2),
+                    "desconto":       23,
+                    "loja":           "AMAZON",
+                    "frete":          "✅ Frete grátis Prime",
+                    "link_afiliado":  _encurtar_link(f"https://www.amazon.com.br/dp/{asin}?tag={AMAZON_TAG}"),
+                    "imagem_url":     "",
+                    "asin":           asin,
+                    "score":          1,
+                    "fontes":         ["amazon"],
+                    "categoria":      nome_cat,
+                    "categoria_games": True,
+                })
+            time.sleep(2)
+        except Exception as e:
+            log.error(f"Amazon GAMES [{nome_cat}] erro: {e}")
+            continue
+    log.info(f"Amazon GAMES: {len(produtos)} produto(s)")
+    return produtos

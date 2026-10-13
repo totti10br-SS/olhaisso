@@ -1327,3 +1327,110 @@ def buscar_profundo():
 
     log(f"ML BUSCA PROFUNDA: {total_bruto} brutos → {len(todos)} válidos")
     return todos
+
+
+# ============================================================
+# GAMES — ciclo manual dedicado (consoles, controles, jogos)
+# Ignora desconto e preço (min/max). Usado só pelo botão manual 🎮 Games.
+# ============================================================
+URLS_GAMES = [
+    ("https://lista.mercadolivre.com.br/video-games-consoles", "Consoles"),
+    ("https://lista.mercadolivre.com.br/video-games-controles", "Controles"),
+    ("https://lista.mercadolivre.com.br/video-games-jogos", "Jogos"),
+    ("https://lista.mercadolivre.com.br/video-games-acessorios", "Acessórios Games"),
+    ("https://lista.mercadolivre.com.br/console-playstation-5", "PlayStation 5"),
+    ("https://lista.mercadolivre.com.br/console-xbox-series", "Xbox Series"),
+    ("https://lista.mercadolivre.com.br/nintendo-switch", "Nintendo Switch"),
+]
+
+
+def _processar_item_games(item_raw):
+    """
+    Processa item de games. Reaproveita o parser HTML, mas:
+    - IGNORA desconto mínimo e preço (sem teto/piso) — só exige preço > 0
+    - NÃO exige produto_e_tech (a categoria já é de games; evita derrubar
+      jogos como 'Zelda' que não têm palavra-chave tech no nome)
+    - MANTÉM produto_valido (continua bloqueando usado/recondicionado/brinquedo)
+    """
+    try:
+        nome = item_raw.get("nome", "").strip()
+        if not nome:
+            return None
+        if not produto_valido(nome):
+            return None
+        preco = item_raw.get("preco", 0)
+        if preco <= 0:
+            return None
+        desconto   = item_raw.get("desconto", 0)      # sem filtro de desconto
+        preco_orig = item_raw.get("preco_original", 0)
+        url_prod   = item_raw.get("url_prod", "")
+        imagem     = item_raw.get("imagem", "")
+        if not url_prod:
+            return None
+        try:
+            from mercadolivre_link import gerar_link_afiliado_ml
+            link_curto = gerar_link_afiliado_ml(url_prod) or encurtar_link(gerar_link_afiliado(url_prod))
+        except Exception:
+            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
+        mais_vendido = bool(item_raw.get("mais_vendido", False))
+        rank_vendas  = int(item_raw.get("rank_vendas", 0) or 0)
+        selo = "🔥 MAIS VENDIDO" if mais_vendido else ""
+        log(f"  🎮 {nome[:45]} | R${preco} | {desconto}% {selo}")
+        return {
+            "nome":           nome,
+            "preco":          round(preco, 2),
+            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
+            "desconto":       desconto,
+            "loja":           "MERCADOLIVRE",
+            "frete":          "🚚 Frete a calcular",
+            "link_afiliado":  link_curto,
+            "imagem_url":     imagem,
+            "score":          3 if mais_vendido else 1,
+            "mais_vendido":   mais_vendido,
+            "rank_vendas":    rank_vendas,
+            "categoria_games": True,
+            "fontes":         ["mercadolivre"],
+        }
+    except Exception as e:
+        log(f"  ML games item erro: {e}")
+        return None
+
+
+def buscar_games():
+    """Busca games no ML (consoles, controles, jogos) via BrightData, com 1 retry."""
+    if not BRIGHTDATA_KEY:
+        log("ML games: BrightData não configurado")
+        return []
+    log("ML GAMES: iniciando busca...")
+    todos   = []
+    vistos  = set()
+    total_bruto = 0
+    for url, nome in URLS_GAMES:
+        try:
+            log(f"ML games buscando: {nome}")
+            html = scraper_fetch(url)
+            if html is None:
+                log(f"ML games: {nome} falhou — tentando 1x mais...")
+                time.sleep(3)
+                html = scraper_fetch(url)
+            if html is None:
+                log(f"ML games: {nome} falhou 2x — próxima categoria")
+                continue
+            items = extrair_produtos_html(html)
+            total_bruto += len(items)
+            validos_cat = 0
+            for item in items:
+                p = _processar_item_games(item)
+                if p:
+                    chave = hashlib.md5(p["nome"].encode()).hexdigest()
+                    if chave not in vistos:
+                        vistos.add(chave)
+                        todos.append(p)
+                        validos_cat += 1
+            log(f"  -> {validos_cat} válidos em {nome}")
+            time.sleep(1)
+        except Exception as e:
+            log(f"ML games erro {nome}: {e}")
+            continue
+    log(f"ML GAMES: {total_bruto} brutos → {len(todos)} válidos")
+    return todos
