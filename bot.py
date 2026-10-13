@@ -37,6 +37,7 @@ from amazon_api import buscar_imagem_amazon
 from mercadolivre_api import buscar_todos_produtos as buscar_ml
 from mercadolivre_api import buscar_profundo as buscar_ml_profundo
 from mercadolivre_api import buscar_games as buscar_ml_games
+from mercadolivre_api import buscar_menor_preco_catalogo
 from amazon_api import buscar_games as buscar_amazon_games
 
 logging.basicConfig(
@@ -1643,6 +1644,27 @@ def montar_pipeline_games():
             fila.append(pool_ml[i]); i += 1
         if j < len(pool_az):
             fila.append(pool_az[j]); j += 1
+
+    # ─── MENOR PREÇO DO CATÁLOGO ───
+    # Para os itens ML que vão ser postados (têm link de catálogo /p/MLB), consulta
+    # a página de catálogo e usa o menor preço do buy box. Só ACEITA se for MENOR
+    # que o preço do card e dentro de faixa sã (>=40%) — nunca posta preço errado.
+    for p in fila[:POSTS_POR_CICLO]:
+        url_cat = p.get("url_catalogo", "")
+        if url_cat and p.get("loja") == "MERCADOLIVRE":
+            try:
+                res = buscar_menor_preco_catalogo(url_cat)
+                if res:
+                    novo_preco, novo_orig = res
+                    atual = p.get("preco", 0)
+                    if 0 < novo_preco < atual and novo_preco >= atual * 0.4:
+                        log.info(f"🎮 Catálogo: {p['nome'][:30]} R${atual:.0f} → R${novo_preco:.0f} (menor preço)")
+                        p["preco"] = round(novo_preco, 2)
+                        if novo_orig and novo_orig > novo_preco:
+                            p["preco_original"] = round(novo_orig, 2)
+                            p["desconto"] = int((1 - novo_preco / novo_orig) * 100)
+            except Exception as e:
+                log.warning(f"🎮 Catálogo erro ({p.get('nome','')[:25]}): {e}")
 
     lojas_log = {}
     for p in fila[:POSTS_POR_CICLO * 2]:

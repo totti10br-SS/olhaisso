@@ -1437,3 +1437,64 @@ def buscar_games():
             continue
     log(f"ML GAMES: {total_bruto} brutos → {len(todos)} válidos")
     return todos
+
+
+def buscar_menor_preco_catalogo(url_prod):
+    """
+    Dado um link de catálogo do ML (/p/MLB...), consulta a página de catálogo e
+    retorna (preco, preco_original) do MENOR preço (buy box). Retorna None se não
+    for catálogo ou se não conseguir parsear com confiança.
+    Usa BrightData (mesmo scraper). Chamado só para itens que serão postados.
+    """
+    if not url_prod or "/p/MLB" not in url_prod:
+        return None
+    try:
+        html = scraper_fetch(url_prod)
+        if not html or len(html) < 5000:
+            log(f"  catálogo: HTML insuficiente p/ {url_prod[:50]}")
+            return None
+
+        preco = 0.0
+        preco_orig = 0.0
+
+        # Estratégia 1 (mais confiável): meta schema.org itemprop="price"
+        m = re.search(r'itemprop="price"[^>]*content="([\d]+(?:\.[\d]{1,2})?)"', html)
+        if not m:
+            m = re.search(r'"price"\s*:\s*([\d]+(?:\.[\d]{1,2})?)\s*[,}]', html)
+        if m:
+            try:
+                preco = float(m.group(1))
+            except Exception:
+                preco = 0.0
+
+        # Estratégia 2: bloco de preço da PDP (ui-pdp-price__second-line)
+        if preco <= 0:
+            m2 = re.search(
+                r'ui-pdp-price__second-line.*?andes-money-amount__fraction[^>]*>([\d\.]+)<',
+                html, re.DOTALL
+            )
+            if m2:
+                try:
+                    preco = float(m2.group(1).replace(".", ""))
+                except Exception:
+                    preco = 0.0
+
+        # Preço original riscado (se houver)
+        mo = re.search(
+            r'(?:andes-money-amount--previous|ui-pdp-price__original-value).*?andes-money-amount__fraction[^>]*>([\d\.]+)<',
+            html, re.DOTALL
+        )
+        if mo:
+            try:
+                preco_orig = float(mo.group(1).replace(".", ""))
+            except Exception:
+                preco_orig = 0.0
+
+        if preco <= 0:
+            log(f"  catálogo: não achei preço em {url_prod[:50]}")
+            return None
+        log(f"  catálogo ✅ menor preço={preco} orig={preco_orig} ({url_prod[:45]})")
+        return (preco, preco_orig)
+    except Exception as e:
+        log(f"  catálogo menor preço erro: {e}")
+        return None
