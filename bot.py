@@ -2336,6 +2336,59 @@ def iniciar_api_historico():
                     self.end_headers()
                     self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
 
+            elif self.path.startswith("/excluir_historico"):
+                # Exclusão seletiva: por ids, por loja, ou os N últimos postados
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    ids     = body.get("ids", []) or []
+                    loja    = (body.get("loja", "") or "").strip()
+                    ultimos = int(body.get("ultimos", 0) or 0)
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    total = 0
+                    if ids:
+                        ids_int = [int(x) for x in ids]
+                        placeholders = ",".join("?" * len(ids_int))
+                        c.execute(f"DELETE FROM postados WHERE id IN ({placeholders})", ids_int)
+                        total = c.rowcount
+                        log.info(f"🗑️ {total} registro(s) excluído(s) por seleção")
+                    elif ultimos > 0:
+                        c.execute(
+                            "DELETE FROM postados WHERE id IN "
+                            "(SELECT id FROM postados ORDER BY postado_em DESC LIMIT ?)",
+                            (ultimos,)
+                        )
+                        total = c.rowcount
+                        log.info(f"🗑️ {total} último(s) registro(s) excluído(s)")
+                    elif loja:
+                        c.execute("DELETE FROM postados WHERE loja = ?", (loja,))
+                        total = c.rowcount
+                        log.info(f"🗑️ {total} registro(s) da loja {loja} excluído(s)")
+                    else:
+                        conn.close()
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(_json.dumps({"ok": False, "erro": "Nada a excluir (informe ids, loja ou ultimos)"}).encode())
+                        return
+                    conn.commit()
+                    conn.close()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": True, "msg": f"{total} registro(s) removido(s)"}).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
             elif self.path.startswith("/registrar"):
                 api_key = self.headers.get("X-API-Key", "")
                 if api_key != WEB_API_KEY:

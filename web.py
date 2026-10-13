@@ -954,7 +954,14 @@ HTML = """<!DOCTYPE html>
         <option value="AMAZON">📦 Amazon</option>
       </select>
       <button onclick="carregarHistorico()" style="background:#333;border:1px solid #555;color:#fff;border-radius:10px;padding:0 16px;cursor:pointer;font-size:14px;">🔄 Atualizar</button>
-      <button onclick="limparHistorico()" style="background:#5a1a1a;border:1px solid #c0392b;color:#ff6b6b;border-radius:10px;padding:0 16px;cursor:pointer;font-size:14px;">🗑️ Limpar Histórico</button>
+      <button onclick="limparHistorico()" style="background:#5a1a1a;border:1px solid #c0392b;color:#ff6b6b;border-radius:10px;padding:0 16px;cursor:pointer;font-size:14px;">🗑️ Limpar Tudo</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+      <button onclick="excluirSelecionados()" style="background:#3a1a1a;border:1px solid #c0392b;color:#ff8888;border-radius:10px;padding:8px 14px;cursor:pointer;font-size:13px;">☑️ Excluir selecionados</button>
+      <button onclick="excluirPorLoja()" style="background:#3a2a1a;border:1px solid #d68910;color:#ffc14d;border-radius:10px;padding:8px 14px;cursor:pointer;font-size:13px;">🏪 Excluir loja filtrada</button>
+      <span style="color:#666;font-size:13px;">|</span>
+      <input type="number" id="hist_ultimos" min="1" max="100" placeholder="N" style="width:70px;background:#2a2a2a;border:1px solid #444;border-radius:10px;color:#fff;padding:8px 10px;font-size:13px;margin-bottom:0;">
+      <button onclick="excluirUltimos()" style="background:#2a1a33;border:1px solid #8B5CF6;color:#A78BFA;border-radius:10px;padding:8px 14px;cursor:pointer;font-size:13px;">⏮️ Excluir N últimos</button>
     </div>
     <div style="position:relative;margin-bottom:14px;">
       <input type="text" id="hist_busca" placeholder="🔍 Filtrar por nome do produto..."
@@ -1438,6 +1445,7 @@ function renderHistorico(rows) {
   html += '<div style="overflow-x:auto;border-radius:10px;border:1px solid #2a2a2a;">';
   html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
   html += '<thead><tr style="background:#222;color:#FF6B1A;border-bottom:2px solid #333;">';
+  html += '<th style="text-align:center;padding:10px 6px;"><input type="checkbox" onclick="toggleTodosHist(this)" title="Selecionar todos" style="width:16px;height:16px;cursor:pointer;"></th>';
   html += thSort('Produto', 'nome', 'left');
   html += thSort('Loja', 'loja', 'center');
   html += thSort('Preço', 'preco', 'right');
@@ -1456,6 +1464,7 @@ function renderHistorico(rows) {
       ? '<a href="' + r.link + '" target="_blank" style="background:#2a2a2a;border:1px solid #444;color:#FF6B1A;padding:4px 10px;border-radius:6px;font-size:12px;text-decoration:none;white-space:nowrap;">🔗 Abrir</a>'
       : '<span style="color:#555;font-size:12px;">—</span>';
     html += '<tr style="background:' + bg + ';border-bottom:1px solid #222;">';
+    html += '<td style="padding:10px 6px;text-align:center;"><input type="checkbox" class="hist-check" value="' + r.id + '" style="width:16px;height:16px;cursor:pointer;"></td>';
     html += '<td style="padding:10px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;" title="' + r.nome + '">' + r.nome + '</td>';
     html += '<td style="padding:10px 8px;text-align:center;white-space:nowrap;">' + emoji + ' ' + (r.loja || '-') + '</td>';
     html += '<td style="padding:10px 8px;text-align:right;color:#FF6B1A;font-weight:700;white-space:nowrap;">' + fmtPreco(r.preco) + '</td>';
@@ -1650,6 +1659,48 @@ async function limparHistorico() {
   } catch (e) {
     alert('❌ Erro ao limpar: ' + e.message);
   }
+}
+
+function toggleTodosHist(master) {
+  document.querySelectorAll('.hist-check').forEach(cb => { cb.checked = master.checked; });
+}
+
+async function _excluirHistorico(payload, msgConfirm) {
+  if (msgConfirm && !confirm(msgConfirm)) return;
+  try {
+    const resp = await fetch('/excluir_historico', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      alert('✅ ' + data.msg);
+      carregarHistorico();
+    } else {
+      alert('❌ Erro: ' + (data.erro || 'desconhecido'));
+    }
+  } catch (e) {
+    alert('❌ Erro ao excluir: ' + e.message);
+  }
+}
+
+async function excluirSelecionados() {
+  const ids = Array.from(document.querySelectorAll('.hist-check:checked')).map(cb => parseInt(cb.value));
+  if (ids.length === 0) return alert('Selecione ao menos um item.');
+  _excluirHistorico({ ids }, 'Excluir ' + ids.length + ' item(ns) selecionado(s) do histórico?');
+}
+
+async function excluirPorLoja() {
+  const loja = document.getElementById('hist_loja')?.value || '';
+  if (!loja) return alert('Selecione uma loja no filtro acima (não funciona com "Todas as lojas").');
+  _excluirHistorico({ loja }, 'Excluir TODOS os registros da loja ' + loja + ' do histórico?');
+}
+
+async function excluirUltimos() {
+  const n = parseInt(document.getElementById('hist_ultimos')?.value) || 0;
+  if (n < 1) return alert('Informe quantos últimos registros excluir.');
+  _excluirHistorico({ ultimos: n }, 'Excluir os ' + n + ' último(s) registro(s) postado(s)?');
 }
 
 async function carregarHistorico() {
@@ -2438,6 +2489,31 @@ def limpar_historico():
         WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
         r = requests.post(
             BOT_API_URL + "/limpar_historico",
+            headers={"X-API-Key": WEB_SECRET_KEY},
+            timeout=15
+        )
+        if r.status_code == 200:
+            return jsonify(r.json())
+        return jsonify({"ok": False, "erro": f"Bot retornou {r.status_code}"})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+@app.route("/excluir_historico", methods=["POST"])
+def excluir_historico():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Nao autorizado"}), 401
+    try:
+        BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+        WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        data = request.json or {}
+        r = requests.post(
+            BOT_API_URL + "/excluir_historico",
+            json={
+                "ids":     data.get("ids", []),
+                "loja":    data.get("loja", ""),
+                "ultimos": data.get("ultimos", 0),
+            },
             headers={"X-API-Key": WEB_SECRET_KEY},
             timeout=15
         )
