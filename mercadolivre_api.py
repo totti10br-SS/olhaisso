@@ -1375,7 +1375,9 @@ def _processar_item_games(item_raw):
         mais_vendido = bool(item_raw.get("mais_vendido", False))
         rank_vendas  = int(item_raw.get("rank_vendas", 0) or 0)
         selo = "🔥 MAIS VENDIDO" if mais_vendido else ""
-        log(f"  🎮 {nome[:45]} | R${preco} | {desconto}% {selo}")
+        # DIAGNÓSTICO p/ feature "menor preço": mostra se o link é de catálogo (/p/MLB)
+        eh_catalogo = "/p/MLB" in url_prod
+        log(f"  🎮 {nome[:45]} | R${preco} | {desconto}% {selo} | catálogo={eh_catalogo} | url={url_prod[:70]}")
         return {
             "nome":           nome,
             "preco":          round(preco, 2),
@@ -1384,6 +1386,7 @@ def _processar_item_games(item_raw):
             "loja":           "MERCADOLIVRE",
             "frete":          "🚚 Frete a calcular",
             "link_afiliado":  link_curto,
+            "url_catalogo":   url_prod if eh_catalogo else "",
             "imagem_url":     imagem,
             "score":          3 if mais_vendido else 1,
             "mais_vendido":   mais_vendido,

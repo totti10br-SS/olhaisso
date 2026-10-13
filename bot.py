@@ -957,6 +957,27 @@ def _is_eletro(nome):
 def _is_tv(nome):
     return any(kw in nome.lower() for kw in KEYWORDS_TV)
 
+# Lixo do ciclo de games — bugigangas genéricas que inundam as categorias de games
+_JUNK_GAMES_TERMS = [
+    "mini game", "minigame", "brick game", "game stick", "gamestick",
+    "video game portátil", "video game portatil", "videogame portátil", "videogame portatil",
+    "retrô portátil", "retro portatil", "portátil retrô", "portatil retro",
+    "portátil clássico", "portatil classico",
+    "adaptador videogame", "adaptador video game", "adaptador game stick",
+    "sup video game", "sup vídeo game", "console portátil genérico", "console portatil generico",
+    "x7 color", "stick jogos", "retro clássico arcade", "retro classico arcade",
+    "console antigo", "sega master system evolution",
+]
+def _is_junk_games(nome):
+    """Detecta bugiganga genérica de games (mini game/stick/9999 jogos etc.)."""
+    nl = (nome or "").lower()
+    if any(t in nl for t in _JUNK_GAMES_TERMS):
+        return True
+    # padrão "NNN jogos" / "N mil jogos" — knockoffs com milhares de jogos embutidos
+    if re.search(r'\d{3,}\s*(mil\s*)?jogos', nl) or "mil jogos" in nl:
+        return True
+    return False
+
 def _is_games(nome, produto=None):
     """Detecta produto de games por keyword no nome OU pela categoria marcada na Amazon."""
     if produto and produto.get("categoria_games", False):
@@ -1584,6 +1605,13 @@ def montar_pipeline_games():
     if not todos_raw:
         log.warning("🎮 Games: nenhum produto encontrado")
         return []
+
+    # Remove bugigangas genéricas (mini game / stick / 9999 jogos / adaptador...)
+    antes_junk = len(todos_raw)
+    todos_raw = [p for p in todos_raw if not _is_junk_games(p.get("nome", ""))]
+    removidos_junk = antes_junk - len(todos_raw)
+    if removidos_junk:
+        log.info(f"🎮 {removidos_junk} bugiganga(s) de games removida(s) (mini game/stick/retrô)")
 
     # Janela de repetição reduzida (36h ÷ 3 = 12h por padrão)
     horas_games = max(1, HORAS_SEM_REPETIR // 3)
