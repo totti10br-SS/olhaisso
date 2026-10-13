@@ -32,6 +32,24 @@ PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
 PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
 DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
 
+# BLACKLIST — termos (vendedor/loja/nome/ID de catálogo) separados por vírgula.
+# Se qualquer termo aparecer no nome, na URL ou no vendedor do produto, ele é
+# IGNORADO em todos os ciclos. Configurável via env var BLACKLIST_TERMOS no Railway.
+# Lê a cada chamada (função) para permitir atualizar sem redeploy quando possível.
+def _get_blacklist():
+    raw = os.getenv("BLACKLIST_TERMOS", "")
+    return [t.strip().lower() for t in raw.split(",") if t.strip()]
+
+def na_blacklist(nome="", url="", vendedor=""):
+    termos = _get_blacklist()
+    if not termos:
+        return False
+    alvo = f"{nome} {url} {vendedor}".lower()
+    for t in termos:
+        if t in alvo:
+            return t  # retorna o termo que bateu (para log)
+    return False
+
 URLS_BUSCA = [
     ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
     ("https://lista.mercadolivre.com.br/celulares-smartphones", "Smartphones"),
@@ -559,6 +577,8 @@ def extrair_produtos_html_lista(html):
         # "EM ALTA" — selo MAIS VENDIDO do ML + ranking ("2º em Mais vendidos em ...")
         mv_re      = re.compile(r'(mais vendido|más vendido|best\s*seller)', re.IGNORECASE)
         rank_re    = re.compile(r'(\d+)\s*º?\s*(?:em|no|lugar)[^<]{0,30}mais vendid', re.IGNORECASE)
+        # Vendedor/loja (quando o card expõe) — p/ blacklist por vendedor
+        vend_re    = re.compile(r'(?:poly-component__seller|ui-search-official-store-label|Vendido por)[^>]*>\s*(?:Por\s*)?([^<]{2,60})<', re.IGNORECASE)
 
         for bloco in blocos[1:]:  # pula primeiro bloco (cabeçalho)
             try:
@@ -676,6 +696,10 @@ def extrair_produtos_html_lista(html):
                 if rank_vendas:
                     mais_vendido = True
 
+                # Vendedor/loja (best-effort — nem todo card expõe)
+                m_vend = vend_re.search(bloco)
+                vendedor = (m_vend.group(1).strip() if m_vend else "")
+
                 produtos.append({
                     "_raw_html": True,
                     "nome": nome,
@@ -686,6 +710,7 @@ def extrair_produtos_html_lista(html):
                     "imagem": imagem,
                     "mais_vendido": mais_vendido,
                     "rank_vendas": rank_vendas,
+                    "vendedor": vendedor,
                 })
             except Exception:
                 continue
@@ -812,6 +837,10 @@ def _processar_item_next_data(item):
             return None
         if not url_prod.startswith("http"):
             url_prod = "https://www.mercadolivre.com.br" + url_prod
+        _bl = na_blacklist(nome, url_prod)
+        if _bl:
+            log(f"  ⛔ Blacklist ({_bl}): {nome[:45]}")
+            return None
 
         # Imagem
         imagem = ""
@@ -968,6 +997,10 @@ def processar_item(item):
             return None
         if not produto_valido(nome):
             return None
+        _bl = na_blacklist(nome, url_prod)
+        if _bl:
+            log(f"  ⛔ Blacklist ({_bl}): {nome[:45]}")
+            return None
         if not produto_e_tech(nome):
             log(f"  🚫 Não-tech: {nome[:50]}")
             return None
@@ -1030,6 +1063,10 @@ def _processar_item_html(item_raw):
         url_prod = item_raw.get("url_prod", "")
         imagem = item_raw.get("imagem", "")
         if not url_prod:
+            return None
+        _bl = na_blacklist(nome, url_prod, item_raw.get("vendedor", ""))
+        if _bl:
+            log(f"  ⛔ Blacklist ({_bl}): {nome[:45]}")
             return None
         # Tenta link oficial meli.la primeiro (curto + afiliado), depois TinyURL, depois URL longa com matt_tool
         try:
@@ -1367,6 +1404,10 @@ def _processar_item_games(item_raw):
         imagem     = item_raw.get("imagem", "")
         if not url_prod:
             return None
+        _bl = na_blacklist(nome, url_prod, item_raw.get("vendedor", ""))
+        if _bl:
+            log(f"  ⛔ Blacklist ({_bl}): {nome[:45]}")
+            return None
         try:
             from mercadolivre_link import gerar_link_afiliado_ml
             link_curto = gerar_link_afiliado_ml(url_prod) or encurtar_link(gerar_link_afiliado(url_prod))
@@ -1453,6 +1494,18 @@ def buscar_menor_preco_catalogo(url_prod):
         if not html or len(html) < 5000:
             log(f"  catálogo: HTML insuficiente p/ {url_prod[:50]}")
             return None
+
+        # ── DIAGNÓSTICO (temporário): despeja trechos reais do HTML p/ construir
+        # o parser de vendedores+preços certo. Ativa com DEBUG_CATALOGO=1 no Railway.
+        if os.getenv("DEBUG_CATALOGO", "") == "1":
+            log(f"  🔎 CATÁLOGO DEBUG — HTML {len(html)} chars — {url_prod[:60]}")
+            for marcador in ['itemprop="price"', 'andes-money-amount__fraction',
+                             'Vendido por', 'pdp_seller', 'ui-pdp-seller',
+                             'Outras opções', 'otras opciones', 'buy_box', 'offers']:
+                idx = html.lower().find(marcador.lower())
+                if idx >= 0:
+                    trecho = html[max(0, idx-80):idx+280]
+                    log(f"  🔎 [{marcador}] …{trecho}…")
 
         preco = 0.0
         preco_orig = 0.0
