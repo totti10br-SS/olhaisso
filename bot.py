@@ -1209,6 +1209,23 @@ def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_out
     if removidos > 0:
         log.info(f"🔒 {removidos} produto(s) reservados para ciclos especiais (TV/Games/Smartphone/Monitor)")
 
+    # GARANTE PRESENÇA DE ML NO CICLO NORMAL.
+    # O ML quase sempre só acha smartphones/games (categorias reservadas), então
+    # filtrar_normal zera o ML e o ciclo sai 100% Amazon/Shopee. Se sobrou pouco
+    # ML, recupera os melhores ML reservados (por desconto) para o Mercado Livre
+    # não sumir do ciclo normal. Amazon/Shopee seguem reservando normalmente.
+    MIN_ML_NORMAL = int(os.getenv("MIN_ML_NORMAL", "4"))
+    if len(ml_n) < MIN_ML_NORMAL:
+        nomes_norm = {p["nome"] for p in ml_n}
+        ml_reserva = sorted(
+            [p for p in pool_ml if p["nome"] not in nomes_norm],
+            key=lambda x: x.get("desconto", 0), reverse=True,
+        )
+        recuperados = ml_reserva[:(MIN_ML_NORMAL - len(ml_n))]
+        if recuperados:
+            log.info(f"🛒 ML no ciclo normal estava baixo ({len(ml_n)}) — recuperados {len(recuperados)} ML reservados p/ garantir Mercado Livre no ciclo")
+            ml_n = ml_n + recuperados
+
     # Ciclo normal: garante 2 tickets baixos na fila
     todos_normal = distribuir_por_loja(ml_n, ali_n, sh_n, az_n, pool_outros, POSTS_POR_CICLO * 3)
     tickets_baixos = [p for p in todos_normal if eh_ticket_baixo(p)][:POSTS_TICKET_BAIXO_NO_CICLO]
