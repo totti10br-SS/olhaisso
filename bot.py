@@ -955,6 +955,17 @@ def _is_monitor(nome):
 def _is_eletro(nome):
     return any(kw in nome.lower() for kw in KEYWORDS_ELETRO)
 
+# Gadgets de baixa relevância que não queremos postar (ex: aquecedor de xícara/caneca)
+_GADGET_LIXO = [
+    "aquecedor de xicara", "aquecedor de xícara", "aquecedor de caneca",
+    "aquecedor de copo", "aquecedor de bebida", "esquentador de caneca",
+    "caneca aquecedora", "base aquecedora", "mug warmer", "cup warmer",
+    "aquecedor usb", "aquecedor de café", "aquecedor de cafe",
+]
+def _is_gadget_lixo(nome):
+    nl = (nome or "").lower()
+    return any(t in nl for t in _GADGET_LIXO)
+
 def _is_tv(nome):
     return any(kw in nome.lower() for kw in KEYWORDS_TV)
 
@@ -995,8 +1006,8 @@ def permitir_top_ofertas():
 def montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros):
     """Ciclo 16:00 — apenas eletrodomésticos de ML e Amazon, sem Ali/Shopee."""
     log.info("🏠 CICLO ELETRO — apenas Eletrodomésticos (ML + Amazon)")
-    ml_el  = [p for p in pool_ml     if _is_eletro(p.get("nome", ""))]
-    az_el  = [p for p in pool_amazon if _is_eletro(p.get("nome", ""))]
+    ml_el  = [p for p in pool_ml     if _is_eletro(p.get("nome", "")) and not _is_gadget_lixo(p.get("nome", ""))]
+    az_el  = [p for p in pool_amazon if _is_eletro(p.get("nome", "")) and not _is_gadget_lixo(p.get("nome", ""))]
     total  = len(ml_el) + len(az_el)
     log.info(f"🏠 {total} eletrodoméstico(s) disponíveis (ML:{len(ml_el)} Amazon:{len(az_el)})")
     # Distribuição 50/50 entre ML e Amazon
@@ -1316,7 +1327,7 @@ def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=False, usar_amazon=
         todos_raw = produtos_mock()
 
     # Filtra por preço e desconto
-    todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
+    todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO and not _is_gadget_lixo(p.get("nome", ""))]
 
     # Remove já postados (ML incluído no SQLite)
     antes = len(todos_raw)
@@ -1417,7 +1428,7 @@ def montar_pipeline_profundo(usar_ml=True, usar_shopee=True, usar_ali=False, usa
         return produtos_mock()
 
     # Mesmos filtros do pipeline normal
-    todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO]
+    todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO and not _is_gadget_lixo(p.get("nome", ""))]
     todos_raw = [p for p in todos_raw if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
 
     def filtrar_fonte(lista, loja):
@@ -1706,18 +1717,23 @@ def montar_pipeline_top_ofertas():
     log.info("🔥 TOP OFERTAS — iniciando pipeline sem filtros restritivos...")
 
     # Busca ML + Amazon em paralelo
+    # Timeout generoso no ML (900s): a busca profunda varre ~34 URLs e, quando o
+    # BrightData fica lento/CAPTCHA, passa de 120s — timeout curto descartava TODO
+    # o ML (foi o que zerou o ciclo). Roda agendado em background, então esperar é ok.
     produtos_ml = []
     produtos_amazon = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         fut_ml     = executor.submit(buscar_ml_profundo)
         fut_amazon = executor.submit(buscar_amazon_profundo)
         try:
-            produtos_ml = fut_ml.result(timeout=120)
+            produtos_ml = fut_ml.result(timeout=900)
             log.info(f"🔥 ML: {len(produtos_ml)} produtos")
+        except concurrent.futures.TimeoutError:
+            log.warning("🔥 ML: timeout de 900s — busca muito lenta")
         except Exception as e:
             log.warning(f"🔥 ML erro: {e}")
         try:
-            produtos_amazon = fut_amazon.result(timeout=120)
+            produtos_amazon = fut_amazon.result(timeout=300)
             log.info(f"🔥 Amazon: {len(produtos_amazon)} produtos")
         except Exception as e:
             log.warning(f"🔥 Amazon erro: {e}")
@@ -1729,7 +1745,10 @@ def montar_pipeline_top_ofertas():
         return []
 
     # Filtro mínimo: só preço positivo e desconto >= 15% (mais flexível que o normal)
-    todos = [p for p in todos if p.get("preco", 0) > 0 and p.get("desconto", 0) >= 15]
+    # + remove gadgets de baixa relevância (aquecedor de xícara/caneca etc.)
+    todos = [p for p in todos
+             if p.get("preco", 0) > 0 and p.get("desconto", 0) >= 15
+             and not _is_gadget_lixo(p.get("nome", ""))]
 
     # Remove já postados
     antes = len(todos)
@@ -1770,12 +1789,14 @@ def montar_pipeline_eletro():
         fut_ml     = executor.submit(buscar_ml_profundo)
         fut_amazon = executor.submit(buscar_amazon_profundo)
         try:
-            produtos_ml = fut_ml.result(timeout=120)
+            produtos_ml = fut_ml.result(timeout=900)   # generoso: busca profunda é lenta
             log.info(f"🏠 ML bruto: {len(produtos_ml)} produtos")
+        except concurrent.futures.TimeoutError:
+            log.warning("🏠 ML: timeout de 900s — busca muito lenta")
         except Exception as e:
             log.warning(f"🏠 ML erro: {e}")
         try:
-            produtos_amazon = fut_amazon.result(timeout=120)
+            produtos_amazon = fut_amazon.result(timeout=300)
             log.info(f"🏠 Amazon bruto: {len(produtos_amazon)} produtos")
         except Exception as e:
             log.warning(f"🏠 Amazon erro: {e}")
@@ -1787,9 +1808,11 @@ def montar_pipeline_eletro():
         return []
 
     # Filtro específico para eletro: preço até R$5000, desconto mínimo 10%
+    # + remove gadgets de baixa relevância (aquecedor de xícara/caneca etc.)
     todos = [
         p for p in todos
         if _is_eletro(p.get("nome", ""))
+        and not _is_gadget_lixo(p.get("nome", ""))
         and p.get("preco", 0) > 0
         and p.get("preco", 9999) <= PRECO_MAXIMO_ELETRO
         and p.get("desconto", 0) >= DESCONTO_MINIMO_ELETRO
