@@ -1371,6 +1371,8 @@ def buscar_profundo():
 # Ignora desconto e preço (min/max). Usado só pelo botão manual 🎮 Games.
 # ============================================================
 URLS_GAMES = [
+    # MAIS VENDIDOS de games (curadoria de vendas do ML) — fonte de qualidade
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1144", "Mais Vendidos Games"),
     # Jogos MODERNOS dedicados (PS5, Xbox Series, Switch) — mais jogos de verdade
     ("https://lista.mercadolivre.com.br/jogos-playstation-5", "Jogos PS5"),
     ("https://lista.mercadolivre.com.br/jogos-ps5-midia-fisica", "Jogos PS5 Mídia Física"),
