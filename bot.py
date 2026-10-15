@@ -1,1565 +1,2621 @@
 """
-Mercado Livre — via Playwright (primário) + ScrapingAnt (fallback)
-Publisher ID: ot20260326074822
+OlhaissoTech Bot v6.0
+- AliExpress API oficial (AppKey: 530504)
+- Shopee API oficial (AppID: 18307831002)
+- Mercado Livre API pública (Publisher: ot20260326074822)
+- Amazon Best Sellers
+- Google Trends BR
+- TikTok Creative Center
+- Reddit gadgets
+- Score inteligente por cruzamento de fontes
+- Imagem 1080x1080 com logo
+- SQLite para evitar repetição de produtos
 """
 
 import os
-import re
-import sys
-import json
-import random
-import hashlib
 import time
+import hashlib
+import logging
+import sqlite3
+import schedule
+import re
 import requests
+import textwrap
+import concurrent.futures
+from io import BytesIO
+from datetime import datetime, timedelta
+from PIL import Image, ImageDraw, ImageFont
+from aliexpress_api import buscar_todos_produtos as buscar_aliexpress
+from aliexpress_api import buscar_ticket_baixo as buscar_aliexpress_tb
+from aliexpress_api import buscar_profundo as buscar_aliexpress_profundo
+from shopee_api import buscar_todos_produtos as buscar_shopee
+from shopee_api import buscar_ticket_baixo as buscar_shopee_tb
+from shopee_api import buscar_profundo as buscar_shopee_profundo
+from amazon_api import buscar_todos_produtos as buscar_amazon
+from amazon_api import buscar_profundo as buscar_amazon_profundo
+from amazon_api import buscar_imagem_amazon
+from mercadolivre_api import buscar_todos_produtos as buscar_ml
+from mercadolivre_api import buscar_profundo as buscar_ml_profundo
+from mercadolivre_api import buscar_games as buscar_ml_games
+from mercadolivre_api import buscar_menor_preco_catalogo
+from amazon_api import buscar_games as buscar_amazon_games
 
-ML_PUBLISHER_ID = os.getenv("ML_PUBLISHER_ID", "ot20260326074822")
-SCRAPINGANT_KEY  = os.getenv("SCRAPINGANT_KEY", "")
-ZENROWS_KEY      = os.getenv("ZENROWS_KEY", "")       # fallback
-BRIGHTDATA_KEY   = os.getenv("BRIGHTDATA_API_KEY", "") # Web Unlocker — resolve CAPTCHA
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)s — %(message)s",
+    datefmt="%H:%M:%S"
+)
+log = logging.getLogger("OlhaissoTech")
 
-# ScraperAPI — suporta múltiplas keys: SCRAPERAPI_KEY, SCRAPERAPI_KEY2, SCRAPERAPI_KEY3...
-# Se a key 1 estiver esgotada (402/403), tenta automaticamente a próxima.
-def _get_scraperapi_keys():
-    keys = []
-    for i in range(1, 6):
-        k = os.getenv(f"SCRAPERAPI_KEY{i}", "") if i > 1 else os.getenv("SCRAPERAPI_KEY", "")
-        if k:
-            keys.append(k)
-    return keys
+# ============================================================
+# CONFIGURAÇÕES
+# ============================================================
+TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "8258862380:AAGCr--OpycbKXp6KeqJCU1_piyu4kRl4bk")
+TELEGRAM_CHANNEL = os.getenv("TELEGRAM_CHANNEL", "@olhaissotech")
+ADMIN_CHAT_ID    = os.getenv("ADMIN_CHAT_ID", "")  # Seu chat ID pessoal para alertas
 
-SCRAPERAPI_KEY  = os.getenv("SCRAPERAPI_KEY", "")   # mantido para compatibilidade
-PRECO_MINIMO    = float(os.getenv("PRECO_MINIMO", "50.00"))
-PRECO_MAXIMO    = float(os.getenv("PRECO_MAXIMO", "3000.00"))
-DESCONTO_MINIMO = int(os.getenv("DESCONTO_MINIMO", "20"))
+# Contador de falhas consecutivas do WhatsApp
+_wa_falhas_consecutivas = 0
+_WA_FALHAS_ALERTA = 3  # Alerta após 3 falhas seguidas
+AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
+PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
+DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
+POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
+HORARIOS            = ["07:30", "10:00", "12:30", "15:00", "19:00", "22:30"]  # 16:00 removido — gerenciado por ciclo_eletro()
+HORARIOS_MISTO      = ["12:30"]  # Ciclo misto: metade smartphones + metade monitores
+HORARIOS_MONITOR    = ["15:00"]           # Ciclo dedicado apenas monitores
+HORARIOS_ELETRO     = ["16:00"]           # Ciclo dedicado eletrodomésticos (ML + Amazon)
+HORARIO_TICKET_BAIXO = ["19:00"]          # Ciclo dedicado produtos até R$200
+HORARIO_TV_GAMES     = ["14:10", "17:30"]  # 📺🎮 Momento TVs & Games
+HORARIO_TOP_OFERTAS  = ["18:00"]           # 🔥 TOP Ofertas em Alta (ML + Amazon, sem filtros restritivos)
+PRECO_TICKET_BAIXO   = float(os.getenv("PRECO_TICKET_BAIXO", "200.0"))  # Teto para ticket baixo
+PRECO_MAXIMO_ELETRO  = float(os.getenv("PRECO_MAXIMO_ELETRO", "5000.0"))  # Eletro pode ser caro — geladeiras, ACs etc.
+DESCONTO_MINIMO_ELETRO = int(os.getenv("DESCONTO_MINIMO_ELETRO", "10"))   # Eletro raramente tem 20%+ de desconto
+POSTS_TICKET_BAIXO_NO_CICLO = 2          # Qtde de tickets baixos nos ciclos normais
+DB_PATH          = os.getenv("DB_PATH", "/data/olhaissotech.db")
 
-# BLACKLIST — termos (vendedor/loja/nome/ID de catálogo) separados por vírgula.
-# Se qualquer termo aparecer no nome, na URL ou no vendedor do produto, ele é
-# IGNORADO em todos os ciclos. Configurável via env var BLACKLIST_TERMOS no Railway.
-# Lê a cada chamada (função) para permitir atualizar sem redeploy quando possível.
-def _get_blacklist():
-    raw = os.getenv("BLACKLIST_TERMOS", "")
-    return [t.strip().lower() for t in raw.split(",") if t.strip()]
+# Evolution API — WhatsApp
+EVOLUTION_URL      = os.getenv("EVOLUTION_URL", "https://evolution-api-production-b1df.up.railway.app")
+EVOLUTION_APIKEY   = os.getenv("EVOLUTION_APIKEY", "A05E4CD20532-4B74-BA78-7FC09B26F2B0")
+EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE", "OlhaissOTech")
+WHATSAPP_GROUP_ID      = os.getenv("WHATSAPP_GROUP_ID", "120363409953330235@g.us")
+WHATSAPP_TEST_GROUP_ID = os.getenv("WHATSAPP_TEST_GROUP_ID", "120363426249897089@g.us")  # Grupo de testes — não usado ainda
 
-def na_blacklist(nome="", url="", vendedor=""):
-    termos = _get_blacklist()
-    if not termos:
-        return False
-    alvo = f"{nome} {url} {vendedor}".lower()
-    for t in termos:
-        if t in alvo:
-            return t  # retorna o termo que bateu (para log)
-    return False
+# Quantos dias manter um produto no histórico antes de poder repetir
+DIAS_SEM_REPETIR = int(os.getenv("DIAS_SEM_REPETIR", "2"))  # mantido por compatibilidade
+HORAS_SEM_REPETIR = int(os.getenv("HORAS_SEM_REPETIR", str(DIAS_SEM_REPETIR * 24)))
 
-URLS_BUSCA = [
-    ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
-    ("https://lista.mercadolivre.com.br/celulares-smartphones", "Smartphones"),
-    ("https://lista.mercadolivre.com.br/smart-tv", "TVs"),
-    ("https://lista.mercadolivre.com.br/video-games-controles", "Controles"),
-    ("https://lista.mercadolivre.com.br/video-games-consoles", "Consoles"),
-    ("https://lista.mercadolivre.com.br/video-games-jogos", "Jogos"),
-    ("https://lista.mercadolivre.com.br/fones-ouvido-headsets", "Fones"),
-    ("https://lista.mercadolivre.com.br/monitores-telas", "Monitores"),
+KEYWORDS_NICHO = [
+    "gadget", "fone", "carregador", "teclado", "mouse", "câmera",
+    "smartwatch", "speaker", "bluetooth", "usb", "led", "robô",
+    "aspirador", "fritadeira", "airfryer", "projetor", "drone",
+    "cabo", "hub", "power bank", "earphone", "headset", "webcam",
+    "luminária", "lâmpada", "tomada inteligente", "smart home",
+    "impressora", "tablet", "celular", "notebook", "monitor",
+    "suporte", "cooler", "rgb", "gamer", "pen drive", "ssd"
 ]
 
-PALAVRAS_BLOQUEADAS = [
-    # Condição do produto — bloqueia usados e recondicionados
-    "recondicionado", "recondicionada", "remanufaturado", "remanufaturada",
-    "usado", "usada", "seminovo", "seminova", "semi novo", "semi nova",
-    "segunda mao", "segunda mão", "2a mao", "2ª mão", "refurbished",
-    "vitrine", "de vitrine", "outlet", "com defeito", "para pecas",
-    # Ferramentas e equipamentos industriais
-    "guincho", "girafa", "talha", "macaco hidraulico", "compressor",
-    "furadeira", "parafusadeira", "martelo", "serra", "esmerilhadeira",
-    "retifica", "lixadeira", "soldador", "solda", "torno",
-    "andaime", "escada", "carrinho de mao", "empilhadeira",
-    # Iluminação não-tech / cenografia
-    "lente de projecao", "lente spot", "filtro efeito", "gobo",
-    "refletor par", "moving head", "beam", "follow spot",
-    "canhao de luz", "strobo", "maquina de fumaca",
-    # Automotivo
-    "pneu", "rodas", "amortecedor", "escapamento", "farol",
-    "retrovisor", "para-choque", "capota", "banco de carro",
-    # Casa e jardim (eletrodomésticos REMOVIDOS — têm ciclo próprio no bot)
-    "cortador de grama", "vaso de planta", "mangueira",
-    "sofa", "colchao", "cama", "guarda-roupa", "estante",
-    "tapete", "cortina", "persiana", "luminaria de teto",
-    # Vestuário e moda
-    "roupa", "roupas", "vestido", "camisa", "camiseta", "blusa",
-    "calca", "bermuda", "short", "saia", "jaqueta", "casaco",
-    "sapato", "tenis", "sandalia", "chinelo", "bota",
-    "bolsa", "mochila", "mala", "carteira", "cinto",
-    # Brinquedos e esportes
-    "bola de futebol", "bola gigante", "brinquedo", "brinquedos",
-    "boneca", "carrinho de brinquedo", "lego",
-    "bicicleta", "patins", "skate", "patinete infantil",
-    # Saúde e beleza
-    "suplemento", "creatina", "whey protein", "vitamina",
-    "remedio", "medicamento", "termometro clinico",
-    "perfume", "fragrancia", "eau de parfum", "colonia",
-    "shampoo", "condicionador", "creme", "hidratante",
-    "maquiagem", "batom", "base", "sombra", "rimel",
-    # Optica / astronomia não-tech
-    "telescopio", "telescópio", "luneta", "microscopio",
-    # Animais
-    "racao", "casinha de cachorro", "aquario", "gaiola",
-    # Livros e papelaria
-    "livro", "album de figurinha", "figurinha",
-    "caderno", "agenda", "caneta", "lapis",
-]
+# ============================================================
+# CORES
+# ============================================================
+COR_FUNDO         = (17, 17, 17)
+COR_CARD          = (26, 26, 26)
+COR_LARANJA       = (255, 107, 26)
+COR_LARANJA_CLARO = (255, 154, 74)
+COR_VERDE         = (0, 187, 68)
+COR_BRANCO        = (255, 255, 255)
+COR_CINZA         = (136, 136, 136)
+COR_CINZA_ESCURO  = (45, 45, 45)
 
+# ============================================================
+# BANCO DE DADOS SQLite
+# ============================================================
 
-def log(msg):
-    print(msg, flush=True)
-    sys.stdout.flush()
-
-
-# Palavras que DEVEM aparecer em produtos tech (se não tiver nenhuma, bloqueia)
-PALAVRAS_TECH = [
-    "notebook", "laptop", "pc", "computador", "desktop",
-    "celular", "smartphone", "iphone", "samsung", "xiaomi", "motorola",
-    "tv", "smart tv", "televisao", "televisão",
-    "monitor", "tela", "display",
-    "tablet", "ipad",
-    "fone", "headset", "headphone", "earphone", "auricular", "caixa de som",
-    "soundbar", "speaker",
-    "teclado", "mouse", "mousepad",
-    "ssd", "hd externo", "pendrive", "memoria ram", "processador",
-    "placa de video", "placa mae", "gabinete", "fonte atx",
-    "roteador", "repetidor wifi", "modem", "switch",
-    "camera", "webcam", "impressora",
-    "carregador", "cabo usb", "hub usb", "adaptador",
-    "controle", "joystick", "videogame", "playstation", "xbox", "nintendo",
-    "ps5", "ps4", "dualsense", "dual sense", "switch 2", "switch2",
-    "jogo ps5", "jogo xbox", "jogo nintendo", "game ps5", "game xbox",
-    "headset gamer", "fone gamer", "console gamer",
-    "console", "video game", "vídeo game", "sega", "atari", "retro game",
-    "smartwatch", "relogio inteligente",
-    "drone", "gopro", "action cam",
-    "power bank", "nobreak", "estabilizador",
-    "ar condicionado", "ventilador tower", "purificador de ar",
-    "fritadeira air fryer", "cafeteira", "liquidificador",
-    # Eletrodomésticos — linha branca e pequenos
-    "geladeira", "refrigerador", "freezer",
-    "maquina de lavar", "lavadora", "lava-roupa", "lava roupa",
-    "lava-loucas", "lava loucas", "lava-louças", "lava louças",
-    "micro-ondas", "micro ondas",
-    "batedeira", "processador de alimentos", "liquidificador",
-    "forno eletrico", "forno elétrico", "forno de embutir",
-    "aspirador", "aspirador de po", "robô aspirador", "robo aspirador",
-    "panela eletrica", "panela elétrica", "multicooker", "air fryer",
-    "ferro de passar", "chapinha", "secador de cabelo", "escova alisadora",
-    "espremedor", "sanduicheira", "waffle", "torradeira",
-    "purificador", "filtro de agua", "filtro de água",
-    "aquecedor", "ventilador", "climatizador",
-    "chuveiro eletrico", "chuveiro elétrico", "boiler",
-    "maquina de costura", "máquina de costura",
-    "depilador", "barbeador eletrico", "barbeador elétrico",
-    "coifas", "depurador", "exaustor",
-    "split", "ar split", "inverter",
-    "nespresso", "dolce gusto", "capsulas",
-]
-
-def produto_valido(nome):
-    nome_lower = nome.lower()
-    # Verifica palavras bloqueadas
-    for p in PALAVRAS_BLOQUEADAS:
-        if p in nome_lower:
-            log(f"  🚫 Bloqueado ({p}): {nome[:50]}")
-            return False
-    return True
-
-def produto_e_tech(nome):
-    """Verifica se o produto tem ao menos uma palavra-chave tech."""
-    nome_lower = nome.lower()
-    for p in PALAVRAS_TECH:
-        if p in nome_lower:
-            return True
-    return False
-
-
-def gerar_link_afiliado(url):
-    separador = "&" if "?" in url else "?"
-    return f"{url}{separador}matt_tool={ML_PUBLISHER_ID}"
-
-
-TINYURL_API_TOKEN = os.getenv("TINYURL_API_TOKEN", "5E6O0b6FW8c5FDRCSjjo1TBl4VO0JtmUwgDgtVr7opF1vCMzdu5NCD1f7T5k")
-
-def encurtar_link(url_longa):
-    # Tenta TinyURL com token (API autenticada)
-    if TINYURL_API_TOKEN:
-        try:
-            r = requests.post(
-                "https://api.tinyurl.com/create",
-                headers={
-                    "Authorization": f"Bearer {TINYURL_API_TOKEN}",
-                    "Content-Type": "application/json",
-                },
-                json={"url": url_longa, "domain": "tinyurl.com"},
-                timeout=8,
-            )
-            if r.status_code == 200:
-                short = r.json().get("data", {}).get("tiny_url", "")
-                if short.startswith("http"):
-                    log(f"  🔗 TinyURL OK: {short}")
-                    return short
-            else:
-                log(f"  ⚠️ TinyURL status {r.status_code}")
-        except Exception as e:
-            log(f"  ⚠️ TinyURL erro: {e}")
-    # Fallback: TinyURL sem autenticação (endpoint legado)
-    try:
-        r2 = requests.get(
-            f"https://tinyurl.com/api-create.php?url={requests.utils.quote(url_longa, safe='')}",
-            timeout=8,
+def init_db():
+    """Cria o banco de dados e tabelas se não existirem."""
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS postados (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            hash      TEXT UNIQUE NOT NULL,
+            nome      TEXT,
+            preco     REAL,
+            loja      TEXT,
+            postado_em TEXT NOT NULL,
+            origem    TEXT DEFAULT 'BOT'
         )
-        if r2.status_code == 200 and r2.text.startswith("http"):
-            log(f"  🔗 TinyURL (legado) OK: {r2.text.strip()}")
-            return r2.text.strip()
+    """)
+    # Migration: adiciona coluna origem se nao existir
+    try:
+        c.execute("ALTER TABLE postados ADD COLUMN origem TEXT DEFAULT 'BOT'")
+        conn.commit()
+        log.info("SQLite: coluna 'origem' adicionada")
+    except Exception:
+        pass  # coluna ja existe
+    # Migration: adiciona coluna link se nao existir
+    try:
+        c.execute("ALTER TABLE postados ADD COLUMN link TEXT DEFAULT ''")
+        conn.commit()
+        log.info("SQLite: coluna 'link' adicionada")
+    except Exception:
+        pass  # coluna ja existe
+    conn.commit()
+    conn.close()
+    log.info(f"SQLite iniciado: {DB_PATH}")
+
+
+def ja_postado(hash_produto, horas=None):
+    """Verifica se produto foi postado nas últimas `horas` horas.
+    horas=None usa o padrão HORAS_SEM_REPETIR (comportamento original intacto)."""
+    try:
+        janela = HORAS_SEM_REPETIR if horas is None else horas
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        limite = (datetime.now() - timedelta(hours=janela)).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("SELECT id FROM postados WHERE hash = ? AND postado_em > ?", (hash_produto, limite))
+        resultado = c.fetchone()
+        conn.close()
+        return resultado is not None
     except Exception as e:
-        log(f"  ⚠️ TinyURL legado erro: {e}")
-    return url_longa
-
-
-def _is_captcha_html(html):
-    """Detecta se o HTML retornado é página de CAPTCHA do ML."""
-    if not html:
-        return True
-
-    # HTML grande (>200KB) quase certamente é página real — CAPTCHA é sempre pequeno
-    # Evita falso positivo: "robot" / "Reintentar" aparecem no HTML normal do ML
-    if len(html) > 200_000:
-        # Ainda verifica sinais específicos de CAPTCHA que não ocorrem em página normal
-        if "distil_r_captcha" in html or "cf-challenge" in html:
-            return True
+        log.error(f"SQLite erro ao verificar: {e}")
         return False
 
-    # Para HTMLs pequenos: verifica sinais de CAPTCHA
-    captcha_signs = ["REINTENTAR", "Reintentar", "captcha", "distil_r_captcha", "cf-challenge"]
-    lower = html.lower()
-    for sign in captcha_signs:
-        if sign.lower() in lower:
-            return True
 
-    # HTML pequeno sem nenhuma chave de produto = página de erro/bloqueio
-    if len(html) < 60000:
-        tem_produto = any(f'"{k}"' in html for k in ["results", "items", "elements", "offers", "products", "deals", "card", "title", "ui-search"])
-        if not tem_produto:
-            return True
+def registrar_post(produto, origem="BOT"):
+    """Registra produto postado no banco."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        hash_p = hashlib.md5(produto["nome"].encode()).hexdigest()
+        agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        link = produto.get("link_afiliado", "")
+        c.execute("""
+            INSERT OR REPLACE INTO postados (hash, nome, preco, loja, postado_em, origem, link)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (hash_p, produto["nome"][:200], produto.get("preco", 0),
+              produto.get("loja", ""), agora, origem, link))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.error(f"SQLite erro ao registrar: {e}")
 
+
+def limpar_historico_antigo():
+    """Remove registros mais antigos que HORAS_SEM_REPETIR * 2 horas."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        limite = (datetime.now() - timedelta(hours=HORAS_SEM_REPETIR * 2)).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("DELETE FROM postados WHERE postado_em < ?", (limite,))
+        removidos = c.rowcount
+        conn.commit()
+        conn.close()
+        if removidos > 0:
+            log.info(f"SQLite: {removidos} registros antigos removidos")
+    except Exception as e:
+        log.error(f"SQLite erro ao limpar: {e}")
+
+
+def contar_postados():
+    """Retorna total de produtos no histórico."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM postados")
+        total = c.fetchone()[0]
+        conn.close()
+        return total
+    except:
+        return 0
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def fmt_preco(valor):
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def fmt_economia(orig, atual):
+    eco = round(orig - atual, 2)
+    return fmt_preco(eco) if eco > 0 else None
+
+
+def carregar_fonte(tamanho, negrito=False):
+    nomes = [
+        f"/usr/share/fonts/truetype/dejavu/DejaVuSans{'-Bold' if negrito else ''}.ttf",
+        f"/usr/share/fonts/truetype/liberation/LiberationSans{'-Bold' if negrito else '-Regular'}.ttf",
+    ]
+    for nome in nomes:
+        try:
+            return ImageFont.truetype(nome, tamanho)
+        except:
+            continue
+    return ImageFont.load_default()
+
+
+def badge_score(score, ticket_baixo=False, tv_games=False):
+    if ticket_baixo:
+        return ("🤑 BOM e BARATO", COR_VERDE)
+    if tv_games:
+        return ("📺🎮 TVS & GAMES", (20, 90, 180))
+    if score >= 3:
+        return ("🔥 VIRAL AGORA", COR_LARANJA)
+    elif score == 2:
+        return ("📈 TENDÊNCIA", (0, 150, 200))
+    else:
+        return ("💰 OFERTA", COR_VERDE)
+
+
+def desenhar_logo(draw, x, y, tamanho=34):
+    r = tamanho // 2
+    esp = tamanho + 6
+    for i in range(2):
+        cx = x + i * esp + r
+        cy = y + r
+        draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline=COR_LARANJA, width=3)
+        ri = int(r * 0.55)
+        draw.ellipse([cx-ri, cy-ri, cx+ri, cy+ri], fill=COR_LARANJA_CLARO)
+        rp = int(r * 0.25)
+        draw.ellipse([cx-rp, cy-rp, cx+rp, cy+rp], fill=COR_FUNDO)
+        rb = int(r * 0.14)
+        draw.ellipse([cx+int(r*0.12)-rb, cy-int(r*0.2)-rb,
+                      cx+int(r*0.12)+rb, cy-int(r*0.2)+rb], fill=COR_BRANCO)
+
+# ============================================================
+# GERADOR DE IMAGEM
+# ============================================================
+
+def gerar_imagem(produto):
+    W, H = 1080, 1080
+    img = Image.new("RGB", (W, H), COR_FUNDO)
+    draw = ImageDraw.Draw(img)
+
+    # ── TOPO: badge único grande centralizado ──────────────────
+    label_score, cor_score = badge_score(produto.get("score", 0), produto.get("ticket_baixo", False), produto.get("tv_games", False))
+    f_badge = carregar_fonte(54, negrito=True)
+    bw, bh = 580, 90
+    bx = (W - bw) // 2
+    draw.rounded_rectangle([bx, 24, bx+bw, 24+bh], radius=45, fill=cor_score)
+    bb = draw.textbbox((0,0), label_score, font=f_badge)
+    draw.text((bx+(bw-(bb[2]-bb[0]))//2, 24+(bh-(bb[3]-bb[1]))//2), label_score, font=f_badge, fill=COR_BRANCO)
+
+    # ── BADGES LOJA + DESCONTO lado a lado ────────────────────
+    f_sub_badge = carregar_fonte(44, negrito=True)
+    loja = produto.get("loja", "ALIEXPRESS")
+    desc = produto.get("desconto", 0)
+
+    # Badge loja (esquerda)
+    draw.rounded_rectangle([50, 130, 50+300, 130+72], radius=36, fill=(40,40,40))
+    bb2 = draw.textbbox((0,0), loja, font=f_sub_badge)
+    draw.text((50+(300-(bb2[2]-bb2[0]))//2, 130+(72-(bb2[3]-bb2[1]))//2), loja, font=f_sub_badge, fill=COR_LARANJA)
+
+    # Badge desconto (direita)
+    if desc > 0:
+        desc_txt = f"-{desc}% OFF"
+        draw.rounded_rectangle([W-50-300, 130, W-50, 130+72], radius=36, fill=COR_VERDE)
+        bb3 = draw.textbbox((0,0), desc_txt, font=f_sub_badge)
+        draw.text((W-50-300+(300-(bb3[2]-bb3[0]))//2, 130+(72-(bb3[3]-bb3[1]))//2), desc_txt, font=f_sub_badge, fill=COR_BRANCO)
+
+    # ── FOTO DO PRODUTO ────────────────────────────────────────
+    img_url = produto.get("imagem_url", "")
+
+    # Para Amazon: busca imagem agora (só para produtos que vão ser postados)
+    if not img_url and produto.get("loja") == "AMAZON":
+        try:
+            img_url = buscar_imagem_amazon(produto)
+            if img_url:
+                produto["imagem_url"] = img_url  # salva no produto para uso posterior
+        except Exception as e:
+            log.warning(f"Amazon imagem on-demand erro: {e}")
+
+    prod_img = None
+    if img_url:
+        try:
+            r = requests.get(img_url, timeout=8)
+            prod_img = Image.open(BytesIO(r.content)).convert("RGBA")
+            prod_img = prod_img.resize((600, 460), Image.LANCZOS)
+        except:
+            prod_img = None
+
+    if prod_img:
+        img.paste(prod_img, ((W-600)//2, 215), prod_img)
+    else:
+        draw.rounded_rectangle([240, 215, 840, 675], radius=20, fill=COR_CINZA_ESCURO)
+        f_ico = carregar_fonte(100)
+        draw.text((540, 445), "📦", font=f_ico, fill=(70,70,70), anchor="mm")
+
+    # ── ÁREA DE TEXTO: fundo escuro arredondado ────────────────
+    draw.rounded_rectangle([32, 690, W-32, H-120], radius=28, fill=(22,22,22))
+
+    y = 706
+
+    # 👀 OlhaissO
+    f_marca = carregar_fonte(50, negrito=True)
+    marca_txt = "👀 OlhaissO"
+    bb_m = draw.textbbox((0,0), marca_txt, font=f_marca)
+    draw.text(((W-(bb_m[2]-bb_m[0]))//2, y), marca_txt, font=f_marca, fill=COR_LARANJA)
+    y += 66
+
+    # Nome do produto
+    f_nome = carregar_fonte(48, negrito=True)
+    nome = produto.get("nome", "")
+
+    # Detecta se é Oferta Premium do Canal — banner especial
+    PREFIXO_PREMIUM = "🏆 OFERTA PREMIUM DO CANAL"
+    if nome.startswith(PREFIXO_PREMIUM):
+        # Banner vermelho com texto azul negrito
+        COR_VERMELHO    = (200, 20, 20)
+        COR_AZUL_BRIGHT = (30, 120, 255)
+        f_premium = carregar_fonte(46, negrito=True)
+        banner_txt = "🏆 OFERTA PREMIUM DO CANAL"
+        bb_p = draw.textbbox((0, 0), banner_txt, font=f_premium)
+        bw_p = bb_p[2] - bb_p[0]
+        bh_p = bb_p[3] - bb_p[1]
+        pad_x, pad_y = 30, 12
+        rx1 = (W - bw_p) // 2 - pad_x
+        rx2 = (W + bw_p) // 2 + pad_x
+        draw.rounded_rectangle([rx1, y, rx2, y + bh_p + pad_y * 2], radius=16, fill=COR_VERMELHO)
+        draw.text(((W - bw_p) // 2, y + pad_y), banner_txt, font=f_premium, fill=COR_AZUL_BRIGHT)
+        y += bh_p + pad_y * 2 + 10
+        # Resto do nome sem o prefixo
+        nome_real = nome[len(PREFIXO_PREMIUM):].strip().lstrip("\n").strip()
+        linhas = textwrap.wrap(nome_real, width=32)[:2]
+    else:
+        linhas = textwrap.wrap(nome, width=32)[:2]
+
+    for linha in linhas:
+        bb = draw.textbbox((0,0), linha, font=f_nome)
+        draw.text(((W-(bb[2]-bb[0]))//2, y), linha, font=f_nome, fill=COR_BRANCO)
+        y += 60
+
+    y += 8
+
+    # Preço original riscado
+    preco_orig = produto.get("preco_original", 0)
+    preco = produto.get("preco", 0)
+    if preco_orig > preco:
+        f_old = carregar_fonte(40)
+        txt_old = f"De {fmt_preco(preco_orig)}"
+        bb = draw.textbbox((0,0), txt_old, font=f_old)
+        tw = bb[2]-bb[0]
+        x_old = (W-tw)//2
+        draw.text((x_old, y), txt_old, font=f_old, fill=COR_CINZA)
+        meio_y = y + (bb[3]-bb[1])//2
+        draw.line([(x_old, meio_y), (x_old+tw, meio_y)], fill=COR_CINZA, width=2)
+        y += 54
+
+    # Preço atual — destaque máximo
+    f_preco = carregar_fonte(88, negrito=True)
+    txt_preco = fmt_preco(preco)
+    bb = draw.textbbox((0,0), txt_preco, font=f_preco)
+    draw.text(((W-(bb[2]-bb[0]))//2, y), txt_preco, font=f_preco, fill=COR_LARANJA)
+    y += 96
+
+    # Frete
+    frete = produto.get("frete", "")
+    if frete:
+        f_frete = carregar_fonte(40)
+        bb = draw.textbbox((0,0), frete, font=f_frete)
+        draw.text(((W-(bb[2]-bb[0]))//2, y), frete, font=f_frete, fill=COR_VERDE)
+
+    # ── RODAPÉ LARANJA ─────────────────────────────────────────
+    draw.rounded_rectangle([32, H-108, W-32, H-28], radius=30, fill=COR_LARANJA)
+    desenhar_logo(draw, 58, H-96, tamanho=32)
+    f_cta = carregar_fonte(38, negrito=True)
+    cta = "OlhaissoTech — Link na bio e no Telegram!"
+    bb = draw.textbbox((0,0), cta, font=f_cta)
+    draw.text(((W-(bb[2]-bb[0]))//2 + 20, H-84), cta, font=f_cta, fill=COR_BRANCO)
+
+    path = f"/tmp/oferta_{hashlib.md5(nome.encode()).hexdigest()[:8]}.jpg"
+    img.save(path, "JPEG", quality=93)
+    return path
+
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
+
+def escapar_html(texto):
+    """Escapa caracteres especiais do HTML do Telegram."""
+    return texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def montar_caption(produto):
+    nome   = escapar_html(produto.get("nome", ""))
+    preco  = produto.get("preco", 0)
+    orig   = produto.get("preco_original", 0)
+    desc   = produto.get("desconto", 0)
+    link   = produto.get("link_afiliado", "")
+    loja   = produto.get("loja", "")
+    frete  = produto.get("frete", "")
+    score  = produto.get("score", 0)
+    fontes = produto.get("fontes", [])
+
+    eco = fmt_economia(orig, preco) if orig > preco else None
+
+    # Badge de urgência por score
+    if score >= 3:
+        badge = "🔥 <b>VIRAL AGORA</b>"
+    elif score == 2:
+        badge = "📈 <b>TENDÊNCIA</b>"
+    else:
+        badge = "💰 <b>OFERTA DO DIA</b>"
+    if produto.get("ticket_baixo", False):
+        badge = "🤑 <b>Momento BOM e BARATO</b>"
+    if produto.get("tv_games", False):
+        badge = "📺🎮 <b>MOMENTO TVS & GAMES!</b>"
+    if produto.get("hora_gamer", False):
+        badge = "🎮🕹️👾 <b>A HORA GAMER!!!</b> 🎮🕹️👾"
+
+    # Badge de loja
+    loja_badge = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
+
+    txt  = f"👀 <b>OlhaissO</b> — {badge}\n"
+    txt += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+    txt += f"<b>{nome}</b>\n\n"
+
+    if desc > 0:
+        txt += f"🏷️ <b>{desc}% OFF</b>"
+        if eco:
+            txt += f"  |  Economia de <b>{eco}</b>"
+        txt += "\n"
+
+    if orig > preco:
+        txt += f"\n💵 De <s>{fmt_preco(orig)}</s> por apenas\n"
+    txt += f"💰 <b>{fmt_preco(preco)}</b>\n\n"
+
+    txt += f"{loja_badge}"
+    if frete:
+        txt += f"  •  {frete}"
+    txt += "\n"
+
+    if fontes:
+        labels = {"google": "Google Trends", "tiktok": "TikTok", "reddit": "Reddit", "amazon": "Amazon", "aliexpress": "AliExpress", "shopee": "Shopee"}
+        txt += f"📊 Em alta: {' · '.join([labels.get(f,f) for f in fontes])}\n"
+
+    txt += f"\n🛒 <a href=\"{link}\"><b>COMPRAR AGORA — CLIQUE AQUI</b></a>\n"
+    txt += f"\n━━━━━━━━━━━━━━━━━━━━\n"
+    txt += f"<i>👀 OlhaissoTech | Gadgets com o melhor preço</i>"
+    return txt
+
+
+def enviar_alerta_admin(mensagem):
+    """Envia mensagem de alerta para o chat pessoal do admin via Telegram."""
+    if not ADMIN_CHAT_ID or not TELEGRAM_TOKEN:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": ADMIN_CHAT_ID, "text": mensagem, "parse_mode": "HTML"},
+            timeout=10
+        )
+    except Exception as e:
+        log.warning(f"Alerta admin falhou: {e}")
+
+
+def checar_evolution():
+    """Verifica se a Evolution API está respondendo antes de tentar postar."""
+    if not EVOLUTION_URL:
+        return False
+    try:
+        r = requests.get(
+            f"{EVOLUTION_URL}/instance/fetchInstances",
+            headers={"apikey": EVOLUTION_APIKEY},
+            timeout=10
+        )
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
+
+
+def postar_telegram(produto, imagem_path):
+    caption = montar_caption(produto)
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    img_url = produto.get("imagem_url", "")
+
+    # Tenta 1: foto real do produto via URL
+    if img_url:
+        try:
+            r = requests.post(url, data={
+                "chat_id": TELEGRAM_CHANNEL,
+                "photo": img_url,
+                "caption": caption,
+                "parse_mode": "HTML",
+            }, timeout=30)
+            if r.status_code == 200:
+                return True
+            log.warning(f"Imagem URL falhou ({r.status_code}), tentando imagem gerada...")
+        except Exception as e:
+            log.warning(f"Imagem URL exceção: {e}, tentando imagem gerada...")
+
+    # Tenta 2: imagem gerada localmente (PIL)
+    try:
+        with open(imagem_path, "rb") as f:
+            r = requests.post(url, data={
+                "chat_id": TELEGRAM_CHANNEL,
+                "caption": caption,
+                "parse_mode": "HTML",
+            }, files={"photo": f}, timeout=30)
+        if r.status_code == 200:
+            return True
+        log.error(f"Telegram erro imagem gerada: {r.text[:200]}")
+    except Exception as e:
+        log.error(f"Telegram exceção imagem gerada: {e}")
+
+    # Sem imagem = não publica, produto será registrado no banco e pulado
+    log.warning(f"Produto pulado por falha de imagem: {produto.get('nome','')[:50]}")
     return False
 
 
-def _scrapingant_get(url, browser, proxy_country, timeout=90):
-    """Faz uma requisição ao ScrapingAnt e retorna (status_code, html) ou (None, None) em erro."""
-    params = {
-        "url":       url,
-        "x-api-key": SCRAPINGANT_KEY,
-        "browser":   browser,
-    }
-    if proxy_country:
-        params["proxy_country"] = proxy_country
-    try:
-        r = requests.get("https://api.scrapingant.com/v2/general", params=params, timeout=timeout)
-        return r.status_code, r.text
-    except Exception as e:
-        log(f"  ScrapingAnt erro: {e}")
-        return None, None
-
-
-def _url_sem_filtros(url):
-    """Retorna versão da URL sem os filtros _NoIndex_ e _Discount_ (menos suspeita para o ML)."""
-    # Remove tudo a partir de _OrderId_ ou _Discount_ ou _NoIndex_
-    import re as _re
-    url_limpa = _re.sub(r'/_Order[^"]*', '', url)
-    url_limpa = _re.sub(r'/_Discount[^"]*', '', url_limpa)
-    url_limpa = _re.sub(r'/_NoIndex[^"]*', '', url_limpa)
-    return url_limpa.rstrip('/')
-
-
-def _playwright_fetch(url, timeout_ms=45000):
-    """
-    Busca URL usando Playwright + Chromium headless real.
-    Railway tem Chromium pré-instalado em /opt/pw-browsers/chromium
-    Retorna HTML ou None se falhar.
-    """
-    try:
-        from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
-    except ImportError:
-        log("  Playwright: não instalado — pulando")
+def fazer_upload_imagem(imagem_path):
+    """Faz upload da imagem gerada para imgbb e retorna URL pública."""
+    IMGBB_KEY = os.getenv("IMGBB_KEY", "")
+    if not IMGBB_KEY:
+        log.warning("imgbb: IMGBB_KEY não configurada!")
         return None
-
-    chromium_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", os.path.expanduser("~/.cache/ms-playwright"))
-    # Playwright procura o executável dentro da pasta; tenta localizar o binário
-    exec_path = None
-    for candidate in [
-        os.path.expanduser("~/.cache/ms-playwright/chromium-headless-shell/chrome-linux/headless_shell"),
-        "/opt/ms-playwright/chromium/chrome",
-        "/opt/ms-playwright/chromium-headless-shell/headless_shell",
-        "/opt/pw-browsers/chromium",
-        "/opt/pw-browsers/chromium-headless-shell",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/usr/bin/google-chrome",
-    ]:
-        if os.path.isfile(candidate):
-            exec_path = candidate
-            break
-    # Se não achou caminho direto, faz glob recursivo nas pastas conhecidas
-    if not exec_path:
-        import glob
-        search_paths = [os.path.expanduser("~/.cache/ms-playwright"), chromium_path,
-                        "/opt/ms-playwright", "/opt/pw-browsers"]
-        for base in search_paths:
-            matches = (glob.glob(f"{base}/**/headless_shell", recursive=True) +
-                       glob.glob(f"{base}/**/chrome", recursive=True) +
-                       glob.glob(f"{base}/**/chromium", recursive=True) +
-                       glob.glob(f"{base}/**/chromium-headless-shell", recursive=True))
-            if matches:
-                exec_path = matches[0]
-                break
-
-    log(f"  Playwright: executável → {exec_path or 'auto'}")
-
     try:
-        with sync_playwright() as pw:
-            launch_opts = {
-                "headless": True,
-                "args": [
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--window-size=1920,1080",
-                    "--lang=pt-BR",
-                ],
-            }
-            if exec_path:
-                launch_opts["executable_path"] = exec_path
-
-            browser = pw.chromium.launch(**launch_opts)
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-                locale="pt-BR",
-                timezone_id="America/Sao_Paulo",
-                viewport={"width": 1920, "height": 1080},
-                extra_http_headers={
-                    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                },
-            )
-            # Remove webdriver flag — evita detecção por JS
-            context.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            )
-
-            page = context.new_page()
-            try:
-                # Bloqueia imagens/fontes para carregar mais rápido
-                page.route("**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,eot}", lambda r: r.abort())
-
-                log(f"  Playwright: abrindo {url[:70]}")
-                page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-
-                # Aguarda conteúdo principal aparecer (busca lista de produtos)
-                try:
-                    page.wait_for_selector(
-                        ".ui-search-layout__item, .ui-search-results, #root-app",
-                        timeout=15000,
-                    )
-                except PlaywrightTimeout:
-                    log("  Playwright: seletor não encontrado — usando HTML parcial")
-
-                html = page.content()
-                log(f"  Playwright: HTML {len(html)} chars")
-
-                if _is_captcha_html(html):
-                    log("  Playwright: CAPTCHA detectado — tentando scroll")
-                    # Scroll suave para simular humano
-                    page.evaluate("window.scrollBy(0, 300)")
-                    time.sleep(2)
-                    page.evaluate("window.scrollBy(0, 600)")
-                    time.sleep(2)
-                    html = page.content()
-                    if _is_captcha_html(html):
-                        log("  Playwright: CAPTCHA persistente — falhou")
-                        return None
-
-                return html if len(html) > 10000 else None
-
-            finally:
-                try:
-                    page.close()
-                    context.close()
-                    browser.close()
-                except Exception:
-                    pass
-
+        import base64
+        with open(imagem_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+        r = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": IMGBB_KEY, "image": img_b64},
+            timeout=20
+        )
+        log.info(f"imgbb status: {r.status_code}")
+        if r.status_code == 200:
+            url = r.json()["data"]["url"]
+            log.info(f"imgbb URL: {url}")
+            return url
+        log.warning(f"imgbb erro: {r.text[:200]}")
     except Exception as e:
-        log(f"  Playwright erro: {e}")
-        return None
-
-
-def scraper_fetch(url):
-    # Playwright desabilitado para ML — Railway IP blacklistado, sempre retorna CAPTCHA
-    # Indo direto para Bright Data Web Unlocker
-    log("  → Bright Data Web Unlocker...")
-
-    # NOTA: ScrapingAnt e ZenRows desabilitados para ML (todos retornam CAPTCHA com IPs de datacenter)
-    # ScraperAPI REMOVIDO do ML (quota esgotada/erro 500 — só atrapalhava e queimava tempo)
-    # Chain atual: Bright Data Web Unlocker (único)
-
-    # Bright Data Web Unlocker — resolve CAPTCHA automaticamente
-    if BRIGHTDATA_KEY:
-        try:
-            payload = {
-                "zone":   "web_unlocker1",
-                "url":    url,
-                "format": "raw",
-            }
-            headers = {
-                "Content-Type":  "application/json",
-                "Authorization": f"Bearer {BRIGHTDATA_KEY}",
-            }
-            r = requests.post("https://api.brightdata.com/request", json=payload, headers=headers, timeout=60)
-            log(f"  BrightData WebUnlocker {r.status_code} → {url[:60]}")
-            if r.status_code == 200:
-                if not _is_captcha_html(r.text):
-                    log(f"  BrightData ✅ {len(r.text)} chars")
-                    return r.text
-                log(f"  BrightData: CAPTCHA ainda presente ({len(r.text)} chars)")
-            else:
-                log(f"  BrightData erro: {r.text[:300]}")
-        except Exception as e:
-            log(f"  BrightData erro: {e}")
-
-    # Sem fallback — ScraperAPI removido do ML a pedido (instável, quota esgotada)
+        log.warning(f"imgbb upload falhou: {e}")
     return None
 
 
-def _extrair_lista_json(html, chave):
-    """Tenta extrair lista JSON pela chave dentro do HTML."""
-    idx = html.find(f'"{chave}":[{{')
-    if idx == -1:
-        idx = html.find(f'"{chave}": [{{')
-    if idx == -1:
-        return []
-    start = html.find('[', idx)
-    if start == -1:
-        return []
-    depth = 0
-    end = start
-    for i, c in enumerate(html[start:], start):
-        if c == '[': depth += 1
-        elif c == ']':
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-        if i - start > 500000:
-            break
+def postar_whatsapp(produto, imagem_path):
+    """Posta no grupo WhatsApp via Evolution API. Com retry, timeout 60s e alerta ao admin."""
+    global _wa_falhas_consecutivas
+    if not EVOLUTION_URL or not WHATSAPP_GROUP_ID:
+        return False
+
     try:
-        data = json.loads(html[start:end])
-        if isinstance(data, list) and len(data) > 0:
-            return data
-    except Exception:
+        nome    = produto.get("nome", "")
+        preco   = produto.get("preco", 0)
+        orig    = produto.get("preco_original", 0)
+        desc    = produto.get("desconto", 0)
+        link    = produto.get("link_afiliado", "")
+        loja    = produto.get("loja", "")
+        img_url = produto.get("imagem_url", "")
+
+        # Para Amazon: busca imagem on-demand (igual ao Telegram)
+        if not img_url and loja == "AMAZON":
+            try:
+                img_url = buscar_imagem_amazon(produto)
+                if img_url:
+                    produto["imagem_url"] = img_url
+            except Exception as e:
+                log.warning(f"WhatsApp Amazon imagem on-demand erro: {e}")
+
+        loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
+        _sc = produto.get("score", 0)
+        if produto.get("tv_games", False):
+            badge = "📺🎮 MOMENTO TVS & GAMES!"
+        elif produto.get("ticket_baixo", False):
+            badge = "🤑 Momento BOM e BARATO"
+        elif _sc >= 3:
+            badge = "🔥 VIRAL AGORA"
+        elif _sc == 2:
+            badge = "📈 TENDÊNCIA"
+        else:
+            badge = "💰 OFERTA DO DIA"
+
+        def fmt(v):
+            return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        # Caption limpo para WhatsApp — sem HTML
+        texto  = f"👀 *OlhaissO* — {badge}\n"
+        texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        texto += f"*{nome}*\n\n"
+        if desc > 0:
+            eco = round(orig - preco, 2) if orig > preco else 0
+            txt_desc = f"🏷️ *{desc}% OFF*"
+            if eco > 0:
+                txt_desc += f"  |  Economia de *{fmt(eco)}*"
+            texto += txt_desc + "\n"
+        if orig > preco:
+            texto += f"\n💵 De {fmt(orig)} por apenas\n"
+        texto += f"💰 *{fmt(preco)}*\n\n"
+        texto += f"{loja_label}\n"
+        texto += f"\n🛒 *COMPRAR AGORA:*\n{link}\n"
+        texto += f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        texto += f"👀 OlhaissoTech | Gadgets com o melhor preço"
+
+        headers = {
+            "apikey": EVOLUTION_APIKEY,
+            "Content-Type": "application/json",
+        }
+
+        # Tenta com imagem via URL do produto
+        if img_url:
+            payload = {
+                "number": WHATSAPP_GROUP_ID,
+                "mediatype": "image",
+                "mimetype": "image/jpeg",
+                "caption": texto,
+                "media": img_url,
+            }
+            # Tenta com imagem — até 2 tentativas com timeout 60s
+            for tentativa in range(2):
+                try:
+                    r = requests.post(
+                        f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
+                        json=payload, headers=headers, timeout=60
+                    )
+                    if r.status_code in (200, 201):
+                        log.info("✅ WhatsApp postado com imagem!")
+                        _wa_falhas_consecutivas = 0
+                        return True
+                    log.warning(f"WhatsApp imagem falhou ({r.status_code}) tentativa {tentativa+1}")
+                except Exception as e:
+                    log.warning(f"WhatsApp imagem exceção tentativa {tentativa+1}: {e}")
+                if tentativa == 0:
+                    time.sleep(5)
+
+        # Fallback: posta só o texto sem imagem — até 3 tentativas
+        payload_txt = {
+            "number": WHATSAPP_GROUP_ID,
+            "text": texto,
+        }
+        for tentativa in range(3):
+            try:
+                r = requests.post(
+                    f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}",
+                    json=payload_txt, headers=headers, timeout=60
+                )
+                if r.status_code in (200, 201):
+                    log.info("✅ WhatsApp postado (só texto)!")
+                    _wa_falhas_consecutivas = 0
+                    return True
+                log.warning(f"WhatsApp texto falhou ({r.status_code}) tentativa {tentativa+1}: {r.text[:100]}")
+            except Exception as e:
+                log.warning(f"WhatsApp texto exceção tentativa {tentativa+1}: {e}")
+            if tentativa < 2:
+                time.sleep(10)
+
+        # Todas as tentativas falharam
+        _wa_falhas_consecutivas += 1
+        log.error(f"❌ WhatsApp falhou após todas tentativas ({_wa_falhas_consecutivas} ciclos consecutivos)")
+        if _wa_falhas_consecutivas >= _WA_FALHAS_ALERTA:
+            enviar_alerta_admin(
+                f"⚠️ <b>OlhaissoTech — WhatsApp com problemas!</b>\n\n"
+                f"O WhatsApp falhou em <b>{_wa_falhas_consecutivas}</b> ciclos consecutivos.\n"
+                f"Verifique a Evolution API no Railway.\n\n"
+                f"Último produto: {produto.get('nome','?')[:50]}"
+            )
+        return False
+
+    except Exception as e:
+        log.warning(f"WhatsApp exceção geral: {e}")
+        _wa_falhas_consecutivas += 1
+        return False
+
+def buscar_trends_google():
+    try:
+        from pytrends.request import TrendReq
+        pt = TrendReq(hl="pt-BR", tz=-180, timeout=(10, 25))
+        termos = []
+        for i in range(0, len(KEYWORDS_NICHO), 5):
+            lote = KEYWORDS_NICHO[i:i+5]
+            try:
+                pt.build_payload(lote, geo="BR", timeframe="now 1-d")
+                dados = pt.interest_over_time()
+                if dados.empty:
+                    continue
+                media = dados[lote].mean()
+                for t in lote:
+                    if media.get(t, 0) > 40:
+                        termos.append(t)
+                time.sleep(1.5)
+            except:
+                continue
+        log.info(f"Google Trends: {len(termos)} termos")
+        return termos
+    except:
+        return []
+
+
+def buscar_reddit_gadgets():
+    headers = {"User-Agent": "OlhaissoTechBot/6.0"}
+    termos = []
+    for sub in ["gadgets", "BuyItForLife"]:
+        try:
+            r = requests.get(f"https://www.reddit.com/r/{sub}/hot.json?limit=25", headers=headers, timeout=10)
+            if r.status_code != 200:
+                continue
+            for post in r.json().get("data", {}).get("children", []):
+                titulo = post["data"].get("title", "").lower()
+                if post["data"].get("score", 0) < 500:
+                    continue
+                for kw in KEYWORDS_NICHO:
+                    if kw in titulo:
+                        termos.append(kw)
+            time.sleep(1)
+        except:
+            continue
+    return list(set(termos))
+
+
+def buscar_tiktok_trending():
+    try:
+        url = "https://ads.tiktok.com/creative_radar_api/v1/top_product/list"
+        params = {"period": 7, "page": 1, "limit": 20, "region": "BR", "category_id": 0}
+        headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://ads.tiktok.com/business/creativecenter/"}
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        if r.status_code == 200:
+            termos = []
+            for item in r.json().get("data", {}).get("list", []):
+                nome = item.get("product_name", "").lower()
+                for kw in KEYWORDS_NICHO:
+                    if kw in nome:
+                        termos.append(kw)
+            return list(set(termos))
+    except:
         pass
     return []
 
 
-def _extrair_next_data_produtos(html):
-    """Extrai produtos do JSON __NEXT_DATA__ embutido no HTML (Next.js/React do ML)."""
-    # Tenta <script id="__NEXT_DATA__"> primeiro
-    m = re.search(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE)
-    if not m:
-        # Fallback: window.__PRELOADED_STATE__
-        m = re.search(r'window\.__PRELOADED_STATE__\s*=\s*(\{.*?\});\s*(?:</script>|window\.)', html, re.DOTALL)
-    if not m:
-        return []
-    try:
-        data = json.loads(m.group(1))
-    except Exception:
-        return []
-
-    # Navega pela árvore JSON procurando arrays com produtos
-    # ML estrutura: props.pageProps.initialState.results OU initialData.results
-    def _busca_resultados(obj, depth=0):
-        if depth > 8 or not isinstance(obj, (dict, list)):
-            return None
-        if isinstance(obj, list) and len(obj) >= 3:
-            # Verifica se parece lista de produtos
-            sample = obj[0] if obj else {}
-            if isinstance(sample, dict):
-                keys = set(sample.keys())
-                if keys & {"title", "permalink", "price", "id"} and "price" in keys:
-                    return obj
-                if "card" in keys and isinstance(sample.get("card"), dict):
-                    return obj
-        if isinstance(obj, dict):
-            # Chaves que geralmente contêm produtos no ML
-            for key in ["results", "items", "elements", "listings", "searchResults", "products"]:
-                if key in obj:
-                    r = _busca_resultados(obj[key], depth + 1)
-                    if r:
-                        return r
-            for v in obj.values():
-                r = _busca_resultados(v, depth + 1)
-                if r:
-                    return r
-        return None
-
-    produtos = _busca_resultados(data)
-    if produtos:
-        log(f"  -> __NEXT_DATA__: {len(produtos)} produtos encontrados")
-    return produtos or []
 
 
-def extrair_produtos_html_lista(html):
-    """Parser HTML direto para lista.mercadolivre.com.br — extrai produtos das tags HTML."""
-    if not html or len(html) < 5000:
-        return []
-    produtos = []
-    try:
-        import html as htmllib
-
-        # Tenta primeiro extrair do JSON __NEXT_DATA__ (ML usa Next.js)
-        next_data = _extrair_next_data_produtos(html)
-        if next_data and len(next_data) >= 3:
-            return next_data
-
-        # Divide o HTML em blocos por item de resultado (cada card de produto)
-        # ML usa classes como ui-search-layout__item ou ui-search-result
-        blocos = re.split(r'(?=<li[^>]+class="[^"]*ui-search-layout__item)', html, flags=re.IGNORECASE)
-        if len(blocos) < 2:
-            # Tenta split alternativo
-            blocos = re.split(r'(?=<div[^>]+class="[^"]*ui-search-result[^"]*")', html, flags=re.IGNORECASE)
-
-        if len(blocos) < 2:
-            return []
-
-        log(f"  -> HTML lista: {len(blocos)-1} blocos de produto encontrados")
-
-        # DIAGNÓSTICO: mostra primeiro bloco real para identificar classes CSS
-        if len(blocos) > 1:
-            b0 = blocos[1][:600]
-            log(f"  -> DIAG bloco[0]: {repr(b0)}")
-
-        # Regex para nome — múltiplas estratégias de fallback
-        nome_res = [
-            re.compile(r'class="[^"]*ui-search-item__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE),
-            re.compile(r'class="[^"]*poly-component__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE),
-            re.compile(r'class="[^"]*item__title[^"]*"[^>]*>([^<]+)<', re.IGNORECASE),
-            re.compile(r'<h2[^>]*>([^<]{10,150})</h2>', re.IGNORECASE),
-            re.compile(r'<h3[^>]*>([^<]{10,150})</h3>', re.IGNORECASE),
-            re.compile(r'aria-label="([^"]{10,150})"', re.IGNORECASE),
-        ]
-        preco_re   = re.compile(r'class="[^"]*andes-money-amount__fraction[^"]*"[^>]*>([0-9.,]+)<', re.IGNORECASE)
-        centavos_re = re.compile(r'class="[^"]*andes-money-amount__cents[^"]*"[^>]*>([0-9]+)<', re.IGNORECASE)
-        # Preço riscado (original) — captura fraction dentro de --previous
-        preco_previous_re = re.compile(
-            r'andes-money-amount--previous[^>]*>.*?andes-money-amount__fraction[^>]*>([0-9.,]+)<',
-            re.IGNORECASE | re.DOTALL
-        )
-        # Preço atual com desconto — captura fraction dentro de --discount-price ou poly-price__current
-        preco_current_re = re.compile(
-            r'(?:andes-money-amount--discount-price|poly-price__current|price-tag-fraction)[^>]*>.*?andes-money-amount__fraction[^>]*>([0-9.,]+)<',
-            re.IGNORECASE | re.DOTALL
-        )
-        # Preço fallback — qualquer número grande formatado como preço BR
-        preco_fallback_re = re.compile(r'R\$\s*([0-9]{2,}(?:\.[0-9]{3})*(?:,[0-9]{2})?)', re.IGNORECASE)
-        desc_re    = re.compile(r'(\d+)%\s*OFF', re.IGNORECASE)
-        link_re    = re.compile(r'href="(https://(?:www\.)?mercadolivre\.com\.br/[^"]+)"', re.IGNORECASE)
-        img_re     = re.compile(r'(?:data-src|src)="(https://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', re.IGNORECASE)
-        # "EM ALTA" — selo MAIS VENDIDO do ML + ranking ("2º em Mais vendidos em ...")
-        mv_re      = re.compile(r'(mais vendido|más vendido|best\s*seller)', re.IGNORECASE)
-        rank_re    = re.compile(r'(\d+)\s*º?\s*(?:em|no|lugar)[^<]{0,30}mais vendid', re.IGNORECASE)
-        # Vendedor/loja (quando o card expõe) — p/ blacklist por vendedor
-        vend_re    = re.compile(r'(?:poly-component__seller|ui-search-official-store-label|Vendido por)[^>]*>\s*(?:Por\s*)?([^<]{2,60})<', re.IGNORECASE)
-
-        for bloco in blocos[1:]:  # pula primeiro bloco (cabeçalho)
-            try:
-                # Nome — tenta cada regex em ordem
-                nome = ""
-                for nre in nome_res:
-                    m = nre.search(bloco)
-                    if m:
-                        nome = htmllib.unescape(m.group(1)).strip()
-                        if nome and len(nome) >= 10:
-                            break
-                        nome = ""
-                if not nome:
-                    continue
-
-                # Preço original riscado — captura ANTES do preço atual
-                # ML às vezes coloca o --previous ANTES do preço com desconto no HTML
-                preco_orig = 0.0
-                m_prev = preco_previous_re.search(bloco)
-                if m_prev:
-                    try:
-                        preco_orig = float(m_prev.group(1).replace(".", "").replace(",", "."))
-                    except Exception:
-                        pass
-
-                # Preço atual — tenta pegar direto do elemento de preço com desconto
-                preco = 0.0
-                m_curr = preco_current_re.search(bloco)
-                if m_curr:
-                    try:
-                        preco = float(m_curr.group(1).replace(".", "").replace(",", "."))
-                    except Exception:
-                        pass
-
-                # Fallback: usa todos os preços do bloco
-                if preco <= 0:
-                    precos_bloco = preco_re.findall(bloco)
-                    if not precos_bloco:
-                        precos_bloco = preco_fallback_re.findall(bloco)
-                    if not precos_bloco:
-                        continue
-                    # Se temos preço original, o atual é o menor da lista
-                    if preco_orig > 0:
-                        candidatos = []
-                        for p in precos_bloco:
-                            try:
-                                v = float(p.replace(".", "").replace(",", "."))
-                                if v > 0 and v < preco_orig:
-                                    candidatos.append(v)
-                            except Exception:
-                                pass
-                        preco = min(candidatos) if candidatos else 0.0
-                    # Sem preço original, pega o menor preço encontrado (provavelmente o atual)
-                    if preco <= 0:
-                        candidatos = []
-                        for p in precos_bloco:
-                            try:
-                                v = float(p.replace(".", "").replace(",", "."))
-                                if v > 0:
-                                    candidatos.append(v)
-                            except Exception:
-                                pass
-                        if not candidatos:
-                            continue
-                        # Se há dois preços e um é bem maior, o menor é o atual
-                        if len(candidatos) >= 2:
-                            candidatos_sorted = sorted(candidatos)
-                            if candidatos_sorted[-1] > candidatos_sorted[0] * 1.1:
-                                preco = candidatos_sorted[0]
-                                if preco_orig == 0.0:
-                                    preco_orig = candidatos_sorted[-1]
-                            else:
-                                preco = candidatos_sorted[0]
-                        else:
-                            preco = candidatos[0]
-
-                if preco <= 0:
-                    continue
-
-                # Centavos (adiciona ao preço atual)
-                m_cents = centavos_re.search(bloco)
-                if m_cents and preco_orig == 0.0:
-                    # Centavos só faz sentido se não há preço riscado antes
-                    try:
-                        cents = int(m_cents.group(1))
-                        preco = preco + cents / 100
-                    except Exception:
-                        pass
-
-                # Desconto
-                m_desc = desc_re.search(bloco)
-                desconto = int(m_desc.group(1)) if m_desc else 0
-                if desconto == 0 and preco_orig > preco > 0:
-                    desconto = round((1 - preco / preco_orig) * 100)
-
-                # Se ainda sem preço original mas temos desconto, calcula de trás pra frente
-                if preco_orig == 0.0 and desconto > 0:
-                    try:
-                        preco_orig = round(preco / (1 - desconto / 100), 2)
-                    except Exception:
-                        pass
-
-                # URL
-                m_link = link_re.search(bloco)
-                url_prod = m_link.group(1) if m_link else ""
-
-                # Imagem
-                m_img = img_re.search(bloco)
-                imagem = m_img.group(1) if m_img else ""
-
-                # EM ALTA — selo "MAIS VENDIDO" e posição no ranking de vendas
-                mais_vendido = bool(mv_re.search(bloco))
-                m_rank = rank_re.search(bloco)
-                rank_vendas = int(m_rank.group(1)) if m_rank else 0
-                if rank_vendas:
-                    mais_vendido = True
-
-                # Vendedor/loja (best-effort — nem todo card expõe)
-                m_vend = vend_re.search(bloco)
-                vendedor = (m_vend.group(1).strip() if m_vend else "")
-
-                produtos.append({
-                    "_raw_html": True,
-                    "nome": nome,
-                    "preco": preco,
-                    "preco_original": preco_orig if preco_orig > preco else 0,
-                    "desconto": desconto,
-                    "url_prod": url_prod,
-                    "imagem": imagem,
-                    "mais_vendido": mais_vendido,
-                    "rank_vendas": rank_vendas,
-                    "vendedor": vendedor,
-                })
-            except Exception:
-                continue
-
-    except Exception as e:
-        log(f"  HTML lista parse erro: {e}")
-    return produtos
+def calcular_score(produto, tg, tt, tr):
+    score = produto.get("score", 0)
+    nome = produto.get("nome", "").lower()
+    fontes = produto.get("fontes", [])
+    for kw in KEYWORDS_NICHO:
+        if kw not in nome: continue
+        if kw in tg and "google" not in fontes: score += 1; fontes.append("google")
+        if kw in tt and "tiktok" not in fontes: score += 1; fontes.append("tiktok")
+        if kw in tr and "reddit" not in fontes: score += 1; fontes.append("reddit")
+    produto["score"] = score
+    produto["fontes"] = fontes
+    return produto
 
 
-def _itens_sao_produtos(items):
-    """Verifica se a lista de itens parece conter produtos ML reais (não banners/UI)."""
-    if not items:
-        return False
-    # Chaves que indicam produto real
-    campos_produto = {"card", "title", "price", "prices", "permalink", "preco", "nome", "sale_price"}
-    # Chaves que indicam elemento de UI (não produto)
-    campos_ui = {"subtitle", "blog_id", "tag"}
-    for item in items[:5]:
-        if not isinstance(item, dict):
-            continue
-        chaves = set(item.keys())
-        if chaves & campos_produto:
+def produtos_mock():
+    return [
+        {"nome": "Fone Bluetooth TWS 5.3 com cancelamento de ruído", "preco": 72.90, "preco_original": 189.90, "desconto": 62, "loja": "ALIEXPRESS", "frete": "🚢 Frete grátis", "link_afiliado": "https://s.click.aliexpress.com/e/_exemplo", "imagem_url": "", "score": 3, "fontes": ["aliexpress", "google", "tiktok"]},
+        {"nome": "Carregador GaN 65W turbo 3 portas USB-C", "preco": 89.90, "preco_original": 189.00, "desconto": 52, "loja": "ALIEXPRESS", "frete": "🚢 Frete grátis", "link_afiliado": "https://s.click.aliexpress.com/e/_exemplo2", "imagem_url": "", "score": 2, "fontes": ["aliexpress", "tiktok"]},
+        {"nome": "Aspirador robô Wi-Fi com mapeamento automático", "preco": 249.90, "preco_original": 499.90, "desconto": 50, "loja": "AMAZON", "frete": "✅ Frete grátis Prime", "link_afiliado": "https://amzn.to/exemplo", "imagem_url": "", "score": 3, "fontes": ["amazon", "google", "reddit"]},
+    ]
+
+
+
+KEYWORDS_SMARTPHONE = [
+    "smartphone", "telefone", "celular", "iphone", "samsung galaxy",
+    "redmi", "poco", "motorola moto", "realme", "xiaomi mi",
+]
+
+MAX_POR_TEMA = int(os.getenv("MAX_POR_TEMA", "2"))
+
+TEMAS = [
+    ("smartphone",   ["smartphone", "celular", "iphone", "redmi", "poco", "motorola moto", "realme", "samsung galaxy"]),
+    ("notebook",     ["notebook", "laptop"]),
+    ("fone",         ["fone", "earbuds", "earphone", "headset", "headphone", "auricular", "fone de ouvido"]),
+    ("smartwatch",   ["smartwatch", "smart watch", "relogio inteligente", "band ", "relógio inteligente"]),
+    ("carregador",   ["carregador", "power bank", "powerbank", "gan charger", "carregador rapido"]),
+    ("mouse",        ["mouse gamer", "mouse sem fio", "mouse wireless", "gaming mouse"]),
+    ("teclado",      ["teclado", "keyboard"]),
+    ("caixa de som", ["caixa de som", "bluetooth speaker", "speaker portátil", "speaker portatil",
+                      "caixinha bluetooth", "caixinha de som", "som bluetooth", "speaker bluetooth",
+                      "caixa bluetooth", "jbl speaker", "jbl flip", "jbl charge", "jbl go",
+                      "portable speaker", "alto-falante", "alto falante"]),
+    ("monitor",      ["monitor "]),
+    ("tv",           ["smart tv", "tv 4k", "tv qled", "tv oled", "televisão", "televisao"]),
+    ("videogame",    ["playstation", "xbox", "nintendo switch", "ps5", "ps4", "game console", "video game"]),
+    ("aspirador",    ["aspirador", "robot vacuum", "robo aspirador"]),
+    ("fritadeira",   ["fritadeira", "air fryer", "airfryer"]),
+    ("projetor",     ["projetor", "projector"]),
+    ("hub usb",      ["hub usb", "docking station"]),
+    ("ssd",          ["ssd", "nvme", "m.2", "hd externo", "pendrive", "pen drive", "armazenamento"]),
+    ("webcam",       ["webcam"]),
+    ("led",          ["fita led", "led strip", "luminaria", "lampada"]),
+    ("ram",          ["memoria ram", "ram ddr", "ddr4", "ddr5", "ddr3", "ram 4gb", "ram 8gb",
+                      "ram 16gb", "ram 32gb", "memory ram", "memória ddr"]),
+    ("processador",  ["processador", "processor", "intel core", "amd ryzen", "xeon", "cpu"]),
+    ("placa mae",    ["placa-mae", "placa mae", "motherboard", "placa mãe"]),
+    ("placa video",  ["placa grafica", "placa gráfica", "gpu", "geforce", "radeon", "rx580",
+                      "rtx ", "gtx ", "rx 580", "rx 570", "vga card", "graphics card"]),
+    ("cooler",       ["cooler", "ventoinha", "fan cooler", "cpu cooler", "water cooler"]),
+    ("cabo",         ["cabo usb", "cabo tipo c", "cabo hdmi", "cabo lightning"]),
+    ("microscopio",  ["microscopio", "microscópio", "lupa", "telescopio", "telescópio",
+                      "estetoscopio", "termometro clinico"]),
+    ("movel",        ["sofa", "sofá", "colchao", "colchão", "travesseiro", "edredom",
+                      "cortina", "tapete", "guarda-roupa", "armario"]),
+    ("vestuario",    ["camisa", "camiseta", "calca", "vestido", "sapato", "sandalia",
+                      "tenis", "bota", "chinelo", "bolsa", "carteira", "perfume"]),
+    ("saude",        ["suplemento", "creatina", "whey", "vitamina", "remedio",
+                      "medicamento", "shampoo", "condicionador", "sabonete"]),
+    ("jardim",       ["cortador de grama", "vaso de planta", "mangueira", "regador",
+                      "churrasqueira", "fogao a lenha"]),
+]
+
+def hora_atual_str():
+    return datetime.now().strftime("%H:%M")
+
+def horario_dentro_de(horarios, tolerancia_min=30):
+    """Verifica se a hora atual está dentro da tolerância de algum horário da lista."""
+    agora = datetime.now()
+    for h in horarios:
+        hh, mm = map(int, h.split(":"))
+        alvo = agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        diff = abs((agora - alvo).total_seconds() / 60)
+        if diff <= tolerancia_min:
             return True
-        if chaves & campos_ui and not (chaves & campos_produto):
-            return False
     return False
 
+def permitir_misto():
+    return horario_dentro_de(HORARIOS_MISTO)
 
-def extrair_produtos_html(html):
-    if not html:
-        return []
-    log(f"  -> HTML: {len(html)} chars")
+def permitir_monitor_dedicado():
+    return horario_dentro_de(HORARIOS_MONITOR)
 
-    # Tenta parser HTML direto PRIMEIRO — mais confiável para lista.mercadolivre.com.br
-    itens_html = extrair_produtos_html_lista(html)
-    if itens_html:
-        log(f"  -> {len(itens_html)} itens extraídos (parser HTML direto)")
-        return itens_html
+def permitir_eletro_dedicado():
+    return horario_dentro_de(HORARIOS_ELETRO)
 
-    # Tenta múltiplas chaves candidatas JSON — ML muda o formato com frequência
-    CHAVES_CANDIDATAS = [
-        "results", "items", "elements", "offers", "products",
-        "searchResults", "itemsList", "deals", "promotions",
-    ]
-    for chave in CHAVES_CANDIDATAS:
-        data = _extrair_lista_json(html, chave)
-        if data and _itens_sao_produtos(data):
-            log(f"  -> {len(data)} itens extraídos (chave JSON: '{chave}')")
-            return data
-        elif data:
-            log(f"  -> chave '{chave}' retornou {len(data)} itens mas não são produtos (keys: {list(data[0].keys())[:5]})")
-
-    # Fallback: procura qualquer lista grande de objetos com campo "card" ou "title"
-    for kw in ['"card":{', '"card": {', '"title":{', '"title": {']:
-        idx = html.find(kw)
-        if idx > 0:
-            # Acha o array pai
-            start = html.rfind('[', 0, idx)
-            if start > 0:
-                depth = 0
-                end = start
-                for i, c in enumerate(html[start:], start):
-                    if c == '[': depth += 1
-                    elif c == ']':
-                        depth -= 1
-                        if depth == 0:
-                            end = i + 1
-                            break
-                    if i - start > 500000:
-                        break
-                try:
-                    data = json.loads(html[start:end])
-                    if isinstance(data, list) and len(data) > 0 and _itens_sao_produtos(data):
-                        log(f"  -> {len(data)} itens extraídos (fallback kw: '{kw}')")
-                        return data
-                except Exception:
-                    pass
-
-    # Debug: mostra quais chaves JSON existem no HTML para diagnóstico
-    chaves_encontradas = set(re.findall(r'"(\w+)":\s*\[', html))
-    log(f"  -> Nenhum produto encontrado. Chaves JSON disponíveis: {sorted(chaves_encontradas)[:30]}")
-    return []
-
-
-def _processar_item_next_data(item):
-    """Processa item no formato direto do __NEXT_DATA__ (title/price/permalink)."""
-    try:
-        nome = item.get("title", "")
-        if not nome:
-            return None
-        if not produto_valido(nome):
-            return None
-        if not produto_e_tech(nome):
-            return None
-
-        # Preço pode estar em price (número) ou prices.amount
-        preco = 0.0
-        p = item.get("price")
-        if isinstance(p, (int, float)):
-            preco = float(p)
-        elif isinstance(p, dict):
-            preco = float(p.get("amount", 0) or p.get("value", 0) or 0)
-        if not preco:
-            prices = item.get("prices", {}) or {}
-            preco = float(prices.get("price", {}).get("amount", 0) or 0)
-        if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
-            return None
-
-        # Preço original
-        preco_orig = 0.0
-        orig = item.get("original_price") or item.get("originalPrice")
-        if isinstance(orig, (int, float)):
-            preco_orig = float(orig)
-
-        # Desconto
-        desconto = item.get("discount_percentage") or item.get("discountPercentage") or 0
-        if not desconto and preco_orig > preco > 0:
-            desconto = round((1 - preco / preco_orig) * 100)
-        if desconto < DESCONTO_MINIMO:
-            return None
-
-        url_prod = item.get("permalink", "") or item.get("url", "") or item.get("link", "")
-        if not url_prod:
-            return None
-        if not url_prod.startswith("http"):
-            url_prod = "https://www.mercadolivre.com.br" + url_prod
-        _bl = na_blacklist(nome, url_prod)
-        if _bl:
-            log(f"  ⛔ Blacklist ({_bl}): {nome[:45]}")
-            return None
-
-        # Imagem
-        imagem = ""
-        thumb = item.get("thumbnail") or item.get("picture") or ""
-        if isinstance(thumb, str):
-            imagem = thumb
-        elif isinstance(thumb, dict):
-            imagem = thumb.get("url", "")
-
-        item_id = item.get("id", "")
-        try:
-            from mercadolivre_link import gerar_link_afiliado_ml
-            link_curto = gerar_link_afiliado_ml(url_prod, item_id) or encurtar_link(gerar_link_afiliado(url_prod))
-        except Exception:
-            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
-
-        log(f"  ✅ [next_data] {nome[:45]} | R${preco} | {desconto}%")
-        return {
-            "nome":           nome,
-            "preco":          round(preco, 2),
-            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
-            "desconto":       desconto,
-            "loja":           "MERCADOLIVRE",
-            "frete":          "🚚 Frete a calcular",
-            "link_afiliado":  link_curto,
-            "imagem_url":     imagem,
-            "score":          1,
-            "fontes":         ["mercadolivre"],
-        }
-    except Exception as e:
-        log(f"  ML next_data item erro: {e}")
-        return None
-
-
-def processar_item(item):
-    try:
-        if not isinstance(item, dict):
-            return None
-
-        # Formato direto (title/price/permalink) — vem do __NEXT_DATA__
-        if "title" in item and ("price" in item or "prices" in item) and "card" not in item:
-            return _processar_item_next_data(item)
-
-        card = item.get("card", {})
-        if not card:
-            return None
-
-        metadata   = card.get("metadata", {}) or {}
-        components = card.get("components", []) or []
-        pictures   = card.get("pictures", []) or []
-
-        # Debug primeiro item
-        if not getattr(processar_item, '_logged', False):
-            processar_item._logged = True
-            log(f"  -> metadata: {list(metadata.keys())}")
-            log(f"  -> {len(components)} components")
-            for c in components:
-                ctype = c.get("type","")
-                cdata = c.get(ctype, c)
-                log(f"     [{ctype}] → {str(cdata)[:150]}")
-
-        # ID do item (para link de afiliado oficial)
-        item_id = metadata.get("id", "")
-
-        # URL do produto
-        url_prod = metadata.get("url", "")
-        if url_prod and not url_prod.startswith("http"):
-            url_prod = "https://" + url_prod
-        if not url_prod:
-            return None
-
-        # Extrai dados dos components
-        nome       = ""
-        preco      = 0.0
-        preco_orig = 0.0
-        desconto   = 0
-        imagem     = ""
-        mais_vendido = False
-        frete_ok   = False
-
-        for comp in components:
-            if not isinstance(comp, dict):
-                continue
-            ctype = comp.get("type", "").lower()
-            cdata = comp.get(ctype, {})
-            if not isinstance(cdata, dict):
-                cdata = {}
-
-            if ctype == "title":
-                nome = cdata.get("text", "") or nome
-
-            elif ctype == "price":
-                curr = cdata.get("current_price", {}) or {}
-                prev = cdata.get("previous_price", {}) or {}
-                preco      = float(curr.get("value", 0) or 0)
-                preco_orig = float(prev.get("value", 0) or 0)
-
-                # Novo formato ML: preco original em price_labels -> values -> price -> value
-                if preco_orig == 0:
-                    for lbl in cdata.get("price_labels", []):
-                        if "previous_price" in lbl.get("text", ""):
-                            for v in lbl.get("values", []):
-                                if v.get("key") == "previous_price":
-                                    try:
-                                        preco_orig = float(v.get("price", {}).get("value", 0) or 0)
-                                    except:
-                                        pass
-                                    break
-                            break
-
-                # Fallback: discount_polylabel tem o percentual de desconto
-                if preco_orig == 0 and preco > 0:
-                    import re as _re
-                    dpoly = cdata.get("discount_polylabel", {}) or {}
-                    disc_txt = str(dpoly.get("text", "") or "")
-                    m_disc = _re.search(r"(\d+)", disc_txt)
-                    if m_disc:
-                        disc_pct = int(m_disc.group(1))
-                        if 5 <= disc_pct <= 90:
-                            preco_orig = round(preco / (1 - disc_pct / 100), 2)
-
-                log(f"  -> PRICE: curr={preco} orig={preco_orig}")
-
-            elif ctype == "shipping":
-                frete_txt_comp = cdata.get("text", "")
-                if "grátis" in frete_txt_comp.lower() or "gratis" in frete_txt_comp.lower():
-                    frete_ok = True
-
-            elif ctype in ("image", "picture", "gallery"):
-                imagem = cdata.get("url", "") or cdata.get("src", "") or imagem
-
-            elif ctype == "highlight":
-                txt = cdata.get("text", "").lower()
-                if "mais vendido" in txt or "best seller" in txt:
-                    mais_vendido = True
-
-        # Imagem: vem em card["pictures"]["pictures"][0]["id"]
-        if not imagem and isinstance(pictures, dict):
-            try:
-                pics_list = pictures.get("pictures", [])
-                if pics_list and isinstance(pics_list[0], dict):
-                    pic_id = pics_list[0].get("id", "")
-                    if pic_id:
-                        imagem = f"https://http2.mlstatic.com/D_NQ_NP_{pic_id}-F.jpg"
-            except Exception:
-                imagem = ""
-
-        # Fallback nome
-        if not nome:
-            nome = metadata.get("title", "")
-
-        nome = nome.strip()
-        if not nome:
-            return None
-        if not produto_valido(nome):
-            return None
-        _bl = na_blacklist(nome, url_prod)
-        if _bl:
-            log(f"  ⛔ Blacklist ({_bl}): {nome[:45]}")
-            return None
-        if not produto_e_tech(nome):
-            log(f"  🚫 Não-tech: {nome[:50]}")
-            return None
-
-        if preco <= 0 or preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
-            return None
-
-        if preco_orig > preco and desconto == 0:
-            desconto = int((1 - preco / preco_orig) * 100)
-
-        if desconto < DESCONTO_MINIMO:
-            return None
-
-        frete_txt = "✅ Frete grátis" if frete_ok else "🚚 Frete a calcular"
-        # Gera link meli.la via endpoint oficial; fallback para tinyurl se falhar
-        try:
-            from mercadolivre_link import gerar_link_afiliado_ml
-            link_curto = gerar_link_afiliado_ml(url_prod, item_id) or encurtar_link(gerar_link_afiliado(url_prod))
-        except Exception:
-            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
-
-        log(f"  ✅ {nome[:45]} | R${preco} | {desconto}% {'⭐' if mais_vendido else ''}")
-
-        return {
-            "nome":           nome,
-            "preco":          round(preco, 2),
-            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
-            "desconto":       desconto,
-            "loja":           "MERCADOLIVRE",
-            "frete":          frete_txt,
-            "link_afiliado":  link_curto,
-            "imagem_url":     imagem,
-            "score":          3 if mais_vendido else 1,
-            "fontes":         ["mercadolivre"],
-        }
-    except Exception as e:
-        import traceback
-        log(f"  ML item erro: {e} | {traceback.format_exc()[-300:]}")
-        return None
-
-
-def _processar_item_html(item_raw):
-    """Processa produto já extraído do HTML de lista.mercadolivre.com.br."""
-    try:
-        nome = item_raw.get("nome", "").strip()
-        if not nome:
-            return None
-        if not produto_valido(nome):
-            return None
-        if not produto_e_tech(nome):
-            log(f"  🚫 Não-tech (lista): {nome[:50]}")
-            return None
-        preco = item_raw.get("preco", 0)
-        if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
-            return None
-        desconto = item_raw.get("desconto", 0)
-        if desconto < DESCONTO_MINIMO:
-            return None
-        preco_orig = item_raw.get("preco_original", 0)
-        url_prod = item_raw.get("url_prod", "")
-        imagem = item_raw.get("imagem", "")
-        if not url_prod:
-            return None
-        _bl = na_blacklist(nome, url_prod, item_raw.get("vendedor", ""))
-        if _bl:
-            log(f"  ⛔ Blacklist ({_bl}): {nome[:45]}")
-            return None
-        # Tenta link oficial meli.la primeiro (curto + afiliado), depois TinyURL, depois URL longa com matt_tool
-        try:
-            from mercadolivre_link import gerar_link_afiliado_ml
-            link_curto = gerar_link_afiliado_ml(url_prod) or encurtar_link(gerar_link_afiliado(url_prod))
-        except Exception:
-            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
-        # EM ALTA — best-seller do ML tem prioridade (score 3) e carrega o selo
-        mais_vendido = bool(item_raw.get("mais_vendido", False))
-        rank_vendas  = int(item_raw.get("rank_vendas", 0) or 0)
-        selo = "🔥 MAIS VENDIDO" if mais_vendido else ""
-        log(f"  ✅ {nome[:45]} | R${preco} | {desconto}% {selo} | 🔗 {link_curto[:50]}")
-        return {
-            "nome":           nome,
-            "preco":          round(preco, 2),
-            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
-            "desconto":       desconto,
-            "loja":           "MERCADOLIVRE",
-            "frete":          "🚚 Frete a calcular",
-            "link_afiliado":  link_curto,
-            "imagem_url":     imagem,
-            "score":          3 if mais_vendido else 1,
-            "mais_vendido":   mais_vendido,
-            "rank_vendas":    rank_vendas,
-            "fontes":         ["mercadolivre"],
-        }
-    except Exception as e:
-        log(f"  ML HTML item erro: {e}")
-        return None
-
-
-# Mapeamento categoria MLB → URLs de busca
-_ML_API_CATEGORIAS = [
-    ("MLB1648", "Notebooks"),
-    ("MLB1051", "Smartphones"),
-    ("MLB1066", "TVs"),
-    ("MLB1039", "Controles"),
-    ("MLB1144", "Consoles"),
-    ("MLB1367", "Jogos"),
-    ("MLB1000", "Fones"),
-    ("MLB1648", "Monitores"),
+KEYWORDS_ELETRO = [
+    # Linha branca grande
+    "geladeira", "refrigerador", "frost free", "duplex",
+    "fogão", "fogao", "cooktop", "coifa", "depurador",
+    "máquina de lavar", "maquina de lavar", "lavadora", "lava e seca", "secadora", "lava-louças", "lava louças",
+    "ar condicionado", "ar-condicionado", "split", "inverter ar",
+    # Pequenos eletrodomésticos
+    "ventilador", "climatizador", "umidificador",
+    "liquidificador", "batedeira", "mixer", "processador de alimentos", "espremedor", "centrifuga", "centrífuga",
+    "sanduicheira", "grill", "waffle",
+    "fritadeira", "airfryer", "air fryer",
+    "panela elétrica", "panela eletrica", "panela de pressão elétrica", "multicooker",
+    "cafeteira", "expresso", "nespresso", "dolce gusto", "cafeteira elétrica",
+    "torradeira", "forno elétrico", "forno eletrico", "micro-ondas", "microondas",
+    "churrasqueira elétrica", "churrasqueira eletrica",
+    # Limpeza e cuidados
+    "aspirador", "robô aspirador", "robo aspirador", "vassoura elétrica",
+    "ferro de passar", "vaporizador de roupas", "centrífuga de roupas",
+    "purificador", "purificador de água", "filtro de água",
+    # Aquecimento e banho
+    "aquecedor", "aquecedor elétrico", "chuveiro", "torneira elétrica",
+    "boiler", "aquecedor de água",
 ]
 
-def _buscar_ml_api_categoria(category_id, nome_cat, desconto_min=None, limit=50):
-    """Busca via API JSON do ML diretamente (sem scraping)."""
-    desc_min = desconto_min if desconto_min is not None else DESCONTO_MINIMO
-    api_url = (
-        f"https://api.mercadolibre.com/sites/MLB/search"
-        f"?category={category_id}&sort=price_desc&limit={limit}"
-    )
-    raw_json = None
-
-    # Tenta direto com headers completos de browser
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://www.mercadolivre.com.br/",
-        "Origin": "https://www.mercadolivre.com.br",
-        "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "cross-site",
-        "Connection": "keep-alive",
-    }
-    try:
-        r = requests.get(api_url, headers=headers, timeout=20)
-        log(f"  ML API {nome_cat} direto: {r.status_code}")
-        if r.status_code == 200 and r.text.strip().startswith("{"):
-            raw_json = r.text
-    except Exception as e:
-        log(f"  ML API {nome_cat} direto erro: {e}")
-
-    if raw_json is None:
-        return []
-
-    try:
-        data = json.loads(raw_json)
-    except Exception as e:
-        log(f"  ML API {nome_cat}: JSON parse erro {e}")
-        return []
-
-    results = data.get("results", [])
-    produtos = []
-    for item in results:
-        try:
-            nome = item.get("title", "").strip()
-            preco = float(item.get("price") or 0)
-            preco_orig = float(item.get("original_price") or 0)
-            url_prod = item.get("permalink", "")
-            imagem = item.get("thumbnail", "").replace("I.jpg", "O.jpg")
-            if not nome or not url_prod or preco <= 0:
-                continue
-            if not produto_valido(nome):
-                continue
-            if not produto_e_tech(nome):
-                continue
-            if preco < PRECO_MINIMO or preco > PRECO_MAXIMO:
-                continue
-            if preco_orig <= 0 or preco_orig <= preco:
-                continue
-            desconto = int(round((1 - preco / preco_orig) * 100))
-            if desconto < desc_min:
-                continue
-            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
-            log(f"  ✅ [API] {nome[:45]} | R${preco} | {desconto}%")
-            produtos.append({
-                "nome":           nome,
-                "preco":          round(preco, 2),
-                "preco_original": round(preco_orig, 2),
-                "desconto":       desconto,
-                "loja":           "MERCADOLIVRE",
-                "frete":          "🚚 Frete a calcular",
-                "link_afiliado":  link_curto,
-                "imagem_url":     imagem,
-                "score":          1,
-                "fontes":         ["mercadolivre"],
-            })
-        except Exception:
-            continue
-    log(f"  ML API {nome_cat}: {len(produtos)} produtos com desconto ≥{desc_min}%")
-    return produtos
-
-
-def buscar_todos_produtos(completo=False):
-    """
-    completo=False (padrão): comportamento original — Games + 3 categorias sorteadas.
-                             Usado pelos ciclos agendados (NÃO mudar).
-    completo=True: varre TODAS as categorias de URLS_BUSCA e tenta 1 retry quando
-                   uma categoria falha (timeout/CAPTCHA). Usado pelo ciclo manual,
-                   para maximizar o pool de produtos.
-    """
-    if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY and not BRIGHTDATA_KEY:
-        log("ML: nenhuma chave de scraping configurada")
-        return []
-
-    log(f"ML BrightData: iniciando busca... {'(COMPLETO)' if completo else ''}")
-    todos   = []
-    vistos  = set()
-    total_bruto = 0
-
-    if completo:
-        # Modo manual: TODAS as categorias — URLS_BUSCA + URLS_BUSCA_EXTRA
-        # (inclui ELETRO: geladeira, air fryer, liquidificador, micro-ondas,
-        #  máquina de lavar, ar-condicionado, aspirador, cafeteira etc.)
-        combinadas = list(URLS_BUSCA) + list(URLS_BUSCA_EXTRA)
-        # Remove URLs duplicadas (Notebooks aparece nas duas listas), mantendo ordem
-        vis_url = set()
-        urls = []
-        for u, n in combinadas:
-            if u not in vis_url:
-                vis_url.add(u)
-                urls.append((u, n))
-        log(f"ML completo: {len(urls)} categorias (tech + eletro)")
-    else:
-        # Garante que Games sempre entram — resto sorteia
-        url_games  = [(u, n) for u, n in URLS_BUSCA if any(g in n.lower() for g in ["games", "consoles", "jogos", "controles"])]
-        url_outros = [(u, n) for u, n in URLS_BUSCA if (u, n) not in url_games]
-        urls = url_games + random.sample(url_outros, min(3, len(url_outros)))
-
-    ml_bloqueado = False  # flag: se CAPTCHA em todas configs na 1ª URL, para tudo
-
-    for url, nome in urls:
-        if ml_bloqueado:
-            log(f"ML pulando {nome} (bloqueado por CAPTCHA)")
-            continue
-        try:
-            log(f"ML buscando: {nome}")
-            html  = scraper_fetch(url)
-            # 1 retry em TODOS os ciclos se a categoria falhou (CAPTCHA/timeout do
-            # BrightData é intermitente — a 2ª tentativa costuma passar).
-            if html is None:
-                log(f"ML: {nome} falhou — tentando 1x mais...")
-                time.sleep(3)
-                html = scraper_fetch(url)
-            if html is None:
-                log(f"ML: {nome} falhou 2x (sem HTML) — continuando próxima categoria")
-                continue
-            items = extrair_produtos_html(html)
-            total_bruto += len(items)
-            log(f"  -> {len(items)} itens brutos extraídos para {nome}")
-
-            validos_cat = 0
-            for item in items:
-                if item.get("_raw_html"):
-                    p = _processar_item_html(item)
-                else:
-                    p = processar_item(item)
-                if p:
-                    chave = hashlib.md5(p["nome"].encode()).hexdigest()
-                    if chave not in vistos:
-                        vistos.add(chave)
-                        todos.append(p)
-                        validos_cat += 1
-            if items:
-                # Diagnóstico: mostra estrutura do primeiro item bruto
-                amostra = items[0]
-                chaves = list(amostra.keys())[:20]
-                log(f"  -> {validos_cat} válidos | chaves item: {chaves}")
-                # Mostra valores de campos de preço conhecidos
-                for campo in ["price","prices","sale_price","preco","original_price","preco_original","discount","desconto","discount_percentage"]:
-                    v = amostra.get(campo)
-                    if v is not None:
-                        log(f"     {campo}={str(v)[:80]}")
-
-            # Se JSON não funcionou, tenta parser HTML direto
-            if not items:
-                items_html = extrair_produtos_html_lista(html)
-                if items_html:
-                    log(f"  -> Fallback HTML lista: {len(items_html)} itens")
-                    total_bruto += len(items_html)
-                    for item in items_html:
-                        p = _processar_item_html(item)
-                        if p:
-                            chave = hashlib.md5(p["nome"].encode()).hexdigest()
-                            if chave not in vistos:
-                                vistos.add(chave)
-                                todos.append(p)
-
-            time.sleep(2)
-        except Exception as e:
-            log(f"ML erro {nome}: {e}")
-            continue
-
-    log(f"Mercado Livre (ScrapingAnt): {total_bruto} brutos → {len(todos)} válidos")
-    return todos
-
-
-# URLs extras para busca profunda ML
-URLS_BUSCA_EXTRA = [
-    ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
-    ("https://lista.mercadolivre.com.br/monitores-gamer", "Monitores Gamer"),
-    ("https://lista.mercadolivre.com.br/ssd-nvme", "SSDs"),
-    ("https://lista.mercadolivre.com.br/placas-de-video", "Placas de Vídeo"),
-    ("https://lista.mercadolivre.com.br/samsung-celulares", "Samsung"),
-    ("https://lista.mercadolivre.com.br/motorola-celulares", "Motorola"),
-    ("https://lista.mercadolivre.com.br/xiaomi-celulares", "Xiaomi"),
-    ("https://lista.mercadolivre.com.br/smartwatch", "Smartwatch"),
-    ("https://lista.mercadolivre.com.br/fone-bluetooth", "Fones BT"),
-    ("https://lista.mercadolivre.com.br/caixa-de-som-bluetooth", "Caixas de Som"),
-    ("https://lista.mercadolivre.com.br/smart-tv-55", "Smart TV 55"),
-    ("https://lista.mercadolivre.com.br/smart-tv-65", "Smart TV 65"),
-    ("https://lista.mercadolivre.com.br/controle-gamer", "Controles Gamer"),
-    ("https://lista.mercadolivre.com.br/soundbar", "Soundbar"),
-    # Eletrodomésticos — pequenos e linha branca
-    ("https://lista.mercadolivre.com.br/fritadeira-air-fryer", "Fritadeiras Air Fryer"),
-    ("https://lista.mercadolivre.com.br/liquidificadores", "Liquidificadores"),
-    ("https://lista.mercadolivre.com.br/micro-ondas", "Micro-ondas"),
-    ("https://lista.mercadolivre.com.br/cafeteiras", "Cafeteiras"),
-    ("https://lista.mercadolivre.com.br/batedeiras", "Batedeiras"),
-    ("https://lista.mercadolivre.com.br/fornos-eletricos", "Fornos Elétricos"),
-    ("https://lista.mercadolivre.com.br/aspiradores-de-po", "Aspiradores"),
-    ("https://lista.mercadolivre.com.br/geladeiras-refrigeradores", "Geladeiras"),
-    ("https://lista.mercadolivre.com.br/maquinas-de-lavar", "Máquinas de Lavar"),
-    ("https://lista.mercadolivre.com.br/ar-condicionado", "Ar-Condicionado"),
-    ("https://lista.mercadolivre.com.br/panelas-eletricas", "Panelas Elétricas"),
-    ("https://lista.mercadolivre.com.br/purificadores-de-agua", "Purificadores"),
+KEYWORDS_TV = [
+    "smart tv", "tv 4k", "tv qled", "tv oled", "tv mini led", "tv mini-led",
+    "televisao", "televisao", "televisão",
+    "tv 32", "tv 37", "tv 40", "tv 43", "tv 50", "tv 55", "tv 65", "tv 75", "tv 85",
+    "43 polegadas", "50 polegadas", "55 polegadas", "65 polegadas", "75 polegadas", "85 polegadas",
+    "qled 4k", "oled 4k", "led 4k", "mini led 4k",
+    "tv samsung", "tv lg", "tv sony", "tv tcl", "tv philips", "tv aoc", "tv hisense",
+    "android tv", "google tv", "roku tv", "fire tv",
 ]
 
+DESCONTO_MINIMO_TV = 30   # Desconto mínimo para TVs no ciclo TVs & Games
+DESCONTO_MINIMO_GAMES = 20  # Desconto mínimo para games no ciclo TVs & Games
 
-def buscar_profundo():
-    """Busca profunda ML via ScrapingAnt."""
-    log("ML BUSCA PROFUNDA iniciada...")
+KEYWORDS_GAMES = [
+    "ps5", "playstation 5", "playstation5",
+    "xbox series", "xbox series x", "xbox series s",
+    "nintendo switch 2", "switch 2", "nintendo switch",
+    "controle ps5", "controle xbox", "controle sem fio",
+    "dualsense", "dual sense",
+    "jogo ps5", "jogo xbox", "jogo nintendo", "game ps5", "game xbox",
+    "headset gamer", "headset ps5", "headset xbox",
+    "fone gamer", "fone headset gamer",
+    "ssd ps5", "hd externo xbox",
+    "volante gamer", "joystick gamer",
+]
 
-    if not SCRAPINGANT_KEY and not ZENROWS_KEY and not SCRAPERAPI_KEY and not BRIGHTDATA_KEY:
-        log("ML profundo: nenhuma chave de scraping configurada")
-        return []
-    todos = []
+KEYWORDS_MONITOR = [
+    "monitor ", "monitor gamer", "monitor 4k", "monitor ips",
+    "monitor curvo", "monitor portatil", "monitor led",
+    "monitor 144hz", "monitor 165hz", "monitor 240hz",
+    "tela monitor", "display monitor",
+]
+
+def distribuir_por_loja(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros, total):
+    """Monta fila com distribuição 50% ML, 40% Amazon, 0% Ali, 10% Shopee.
+    AliExpress removido do cálculo — mantido no código para fallback mas com cota zero.
+    """
+    qtd_ml     = max(1, round(total * 0.50))
+    qtd_amazon = max(1, round(total * 0.40))
+    qtd_ali    = 0  # AliExpress desativado da distribuição
+    qtd_shopee = max(1, total - qtd_ml - qtd_amazon - qtd_ali)
+    log.info(f"Distribuição alvo: {qtd_ml} ML | {qtd_amazon} Amazon | {qtd_ali} Ali | {qtd_shopee} Shopee")
+    fila = []
+    fila += pool_ml[:qtd_ml]
+    fila += pool_amazon[:qtd_amazon]
+    # pool_ali ignorado — qtd_ali = 0
+    fila += pool_shopee[:qtd_shopee]
+    # Completa com extras se faltar (Ali entra só como último recurso)
+    extras = pool_ml[qtd_ml:] + pool_amazon[qtd_amazon:] + pool_shopee[qtd_shopee:] + pool_outros + pool_ali
+    for p in extras:
+        if len(fila) >= total * 2:
+            break
+        fila.append(p)
+    return fila
+
+
+def _is_smartphone(nome):
+    return any(kw in nome.lower() for kw in KEYWORDS_SMARTPHONE)
+
+def _is_monitor(nome):
+    return any(kw in nome.lower() for kw in KEYWORDS_MONITOR)
+
+def _is_eletro(nome):
+    return any(kw in nome.lower() for kw in KEYWORDS_ELETRO)
+
+# Gadgets de baixa relevância que não queremos postar (ex: aquecedor de xícara/caneca)
+_GADGET_LIXO = [
+    "aquecedor de xicara", "aquecedor de xícara", "aquecedor de caneca",
+    "aquecedor de copo", "aquecedor de bebida", "esquentador de caneca",
+    "caneca aquecedora", "base aquecedora", "mug warmer", "cup warmer",
+    "aquecedor usb", "aquecedor de café", "aquecedor de cafe",
+]
+def _is_gadget_lixo(nome):
+    nl = (nome or "").lower()
+    return any(t in nl for t in _GADGET_LIXO)
+
+def _is_tv(nome):
+    return any(kw in nome.lower() for kw in KEYWORDS_TV)
+
+# Lixo do ciclo de games — bugigangas genéricas que inundam as categorias de games
+_JUNK_GAMES_TERMS = [
+    # Bugigangas genéricas
+    "mini game", "minigame", "brick game", "game stick", "gamestick",
+    "video game portátil", "video game portatil", "videogame portátil", "videogame portatil",
+    "retrô portátil", "retro portatil", "portátil retrô", "portatil retro",
+    "portátil clássico", "portatil classico",
+    "adaptador videogame", "adaptador video game", "adaptador game stick",
+    "sup video game", "sup vídeo game", "console portátil genérico", "console portatil generico",
+    "x7 color", "stick jogos", "retro clássico arcade", "retro classico arcade",
+    "console antigo", "sega master system evolution",
+    "polystation", "poly station", "dendy", "famicom", "família game", "familia game",
+    # Consoles/jogos de gerações ANTIGAS (queremos só moderno: PS5/Xbox Series/Switch)
+    "video game retro", "vídeo game retro", "console retro", "jogo retro", "games retro",
+    "retro game", "nintendinho", "super nintendo", "nintendo 64", " n64",
+    "mega drive", "megadrive", "master system", "sega genesis", "sega saturn",
+    "atari", "game boy", "gameboy", "game cube", "gamecube",
+    "playstation 1", "playstation 2", "playstation 3", "ps1 ", "ps2 ", "ps3 ",
+    " ps one", "psone", "xbox 360", "xbox classico", "xbox clássico",
+    "nintendo ds", "nintendo 3ds", " wii ", "nintendo wii",
+]
+def _is_junk_games(nome):
+    """Detecta bugiganga genérica de games (mini game/stick/9999 jogos etc.)."""
+    nl = (nome or "").lower()
+    if any(t in nl for t in _JUNK_GAMES_TERMS):
+        return True
+    # padrão "NNN jogos" / "N mil jogos" — knockoffs com milhares de jogos embutidos
+    if re.search(r'\d{3,}\s*(mil\s*)?jogos', nl) or "mil jogos" in nl:
+        return True
+    return False
+
+def _nome_eh_preco(nome):
+    """True se o 'nome' for na verdade uma string de preço (bug de parsing),
+    ex: '389 reales con 90 centavos', '550 reales', 'R$ 100,00'."""
+    nl = (nome or "").strip().lower()
+    if not nl:
+        return True
+    if re.match(r'^\s*r?\$?\s*[\d.,]', nl) and re.search(r'(reais|reales|rea[ií]s|centavos|centavo|d[oó]lar|d[oó]lares|r\$)', nl):
+        return True
+    # nome quase sem letras = lixo (só número/pontuação)
+    if sum(c.isalpha() for c in nl) < 4:
+        return True
+    return False
+
+def _chave_dedup_games(p):
+    """Chave anti-duplicata: ID de catálogo (mesmo produto) se houver, senão nome normalizado."""
+    import unicodedata as _ud
+    url = (p.get("url_catalogo") or "")
+    m = re.search(r'/p/(MLB\d+)', url)
+    if m:
+        return "cat:" + m.group(1)
+    nome = (p.get("nome") or "").lower()
+    try:
+        nome = ''.join(c for c in _ud.normalize('NFKD', nome) if not _ud.combining(c))
+    except Exception:
+        pass
+    nome = re.sub(r'[^a-z0-9]+', '', nome)
+    return "nm:" + nome[:38]
+
+def _is_games(nome, produto=None):
+    """Detecta produto de games por keyword no nome OU pela categoria marcada na Amazon."""
+    if produto and produto.get("categoria_games", False):
+        return True
+    return any(kw in nome.lower() for kw in KEYWORDS_GAMES)
+
+def permitir_tv_games():
+    return horario_dentro_de(HORARIO_TV_GAMES)
+
+def permitir_top_ofertas():
+    return horario_dentro_de(HORARIO_TOP_OFERTAS)
+
+
+def montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros):
+    """Ciclo 16:00 — apenas eletrodomésticos de ML e Amazon, sem Ali/Shopee."""
+    log.info("🏠 CICLO ELETRO — apenas Eletrodomésticos (ML + Amazon)")
+    ml_el  = [p for p in pool_ml     if _is_eletro(p.get("nome", "")) and not _is_gadget_lixo(p.get("nome", ""))]
+    az_el  = [p for p in pool_amazon if _is_eletro(p.get("nome", "")) and not _is_gadget_lixo(p.get("nome", ""))]
+    total  = len(ml_el) + len(az_el)
+    log.info(f"🏠 {total} eletrodoméstico(s) disponíveis (ML:{len(ml_el)} Amazon:{len(az_el)})")
+    # Distribuição 50/50 entre ML e Amazon
+    qtd_cada = max(1, POSTS_POR_CICLO // 2)
+    fila = ml_el[:qtd_cada] + az_el[:qtd_cada]
+    # Completa se faltar
+    extras = ml_el[qtd_cada:] + az_el[qtd_cada:]
+    for p in extras:
+        if len(fila) >= POSTS_POR_CICLO * 2:
+            break
+        fila.append(p)
+    return fila
+
+
+def montar_ciclo_tv_games(pool_ml, pool_amazon):
+    """📺🎮 Ciclo 20:00 — Momento TVs & Games. ~6 TVs (30%+ desc) + ~4 Games (20%+ desc)."""
+    log.info("📺🎮 CICLO TVS & GAMES — Momento TVs e Video Games!")
+
+    def filtrar_tvs(pool):
+        return [
+            p for p in pool
+            if _is_tv(p.get("nome", ""))
+            and p.get("desconto", 0) >= DESCONTO_MINIMO_TV
+        ]
+
+    def filtrar_games(pool):
+        return [
+            p for p in pool
+            if _is_games(p.get("nome", ""), p)
+            and p.get("desconto", 0) >= DESCONTO_MINIMO_GAMES
+        ]
+
+    tvs_ml      = filtrar_tvs(pool_ml)
+    tvs_amazon  = filtrar_tvs(pool_amazon)
+    games_ml    = filtrar_games(pool_ml)
+    games_amazon= filtrar_games(pool_amazon)
+
+    log.info(f"📺 TVs encontradas: ML={len(tvs_ml)} | Amazon={len(tvs_amazon)}")
+    log.info(f"🎮 Games encontrados: ML={len(games_ml)} | Amazon={len(games_amazon)}")
+
+    # Prioridade: ~6 TVs (3 Amazon + 3 ML) + ~4 Games (2 Amazon + 2 ML)
+    fila_tvs   = tvs_amazon[:3] + tvs_ml[:3]
+    fila_games = games_amazon[:2] + games_ml[:2]
+
+    # Completa TVs se tiver menos de 6
+    extras_tvs = tvs_amazon[3:] + tvs_ml[3:]
+    for p in extras_tvs:
+        if len(fila_tvs) >= 6:
+            break
+        fila_tvs.append(p)
+
+    # Completa Games se tiver menos de 4
+    extras_games = games_amazon[2:] + games_ml[2:]
+    for p in extras_games:
+        if len(fila_games) >= 4:
+            break
+        fila_games.append(p)
+
+    fila = fila_tvs + fila_games
+
+    # Completa com mais TVs se games não encontradas
+    if len(fila) < 6:
+        for p in extras_tvs:
+            if len(fila) >= 10:
+                break
+            if p not in fila:
+                fila.append(p)
+
+    for p in fila:
+        p["tv_games"] = True
+
+    log.info(f"📺🎮 {len(fila_tvs)} TV(s) + {len(fila_games)} Game(s) prontos para o ciclo TVs & Games")
+    return fila
+
+
+def permitir_ciclo_ticket_baixo():
+    return horario_dentro_de(HORARIO_TICKET_BAIXO)
+
+def eh_ticket_baixo(produto):
+    return produto.get("preco", 999) <= PRECO_TICKET_BAIXO
+
+
+def montar_pipeline_ticket_baixo():
+    """Pipeline dedicado para ciclo das 19:00 — busca apenas produtos até R$200."""
+    log.info(f"💰 PIPELINE TICKET BAIXO — buscando produtos até R${PRECO_TICKET_BAIXO:.0f}")
+
+    log.info("💰 Buscando AliExpress ticket baixo...")
+    ali_tb = buscar_aliexpress_tb()
+
+    log.info("💰 Buscando Shopee ticket baixo...")
+    sh_tb = buscar_shopee_tb()
+
+    todos = ali_tb + sh_tb
+    log.info(f"💰 Total bruto: {len(todos)} (Ali:{len(ali_tb)} Sh:{len(sh_tb)})")
+
+    # Remove já postados
     vistos = set()
-    total_bruto = 0
+    resultado = []
+    for p in todos:
+        chave = hashlib.md5(p["nome"].encode()).hexdigest()
+        if chave not in vistos and not ja_postado(chave):
+            vistos.add(chave)
+            p["ticket_baixo"] = True
+            resultado.append(p)
 
-    # Usa TODAS as URLs (normais + extras) em vez de amostra de 4
-    todas_urls = URLS_BUSCA + URLS_BUSCA_EXTRA
-
-    for url, nome in todas_urls:
-        try:
-            log(f"ML profundo buscando: {nome}")
-            html = scraper_fetch(url)
-            items = extrair_produtos_html(html)
-            total_bruto += len(items)
-            for item in items:
-                p = processar_item(item)
-                if p:
-                    chave = hashlib.md5(p["nome"].encode()).hexdigest()
-                    if chave not in vistos:
-                        vistos.add(chave)
-                        todos.append(p)
-            time.sleep(1)
-        except Exception as e:
-            log(f"ML profundo erro {nome}: {e}")
-            continue
-
-    log(f"ML BUSCA PROFUNDA: {total_bruto} brutos → {len(todos)} válidos")
-    return todos
+    # Ordena por desconto
+    resultado.sort(key=lambda x: x.get("desconto", 0), reverse=True)
+    log.info(f"💰 Prontos para postar: {len(resultado)} produtos ticket baixo")
+    return resultado
 
 
-# ============================================================
-# GAMES — ciclo manual dedicado (consoles, controles, jogos)
-# Ignora desconto e preço (min/max). Usado só pelo botão manual 🎮 Games.
-# ============================================================
-URLS_GAMES = [
-    # MAIS VENDIDOS de games (curadoria de vendas do ML) — fonte de qualidade
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1144", "Mais Vendidos Games"),
-    # Jogos MODERNOS dedicados (PS5, Xbox Series, Switch) — mais jogos de verdade
-    ("https://lista.mercadolivre.com.br/jogos-playstation-5", "Jogos PS5"),
-    ("https://lista.mercadolivre.com.br/jogos-ps5-midia-fisica", "Jogos PS5 Mídia Física"),
-    ("https://lista.mercadolivre.com.br/jogos-xbox-series-x", "Jogos Xbox Series"),
-    ("https://lista.mercadolivre.com.br/jogos-nintendo-switch-2", "Jogos Switch 2"),
-    ("https://lista.mercadolivre.com.br/jogos-nintendo-switch", "Jogos Switch"),
-    # Consoles e acessórios
-    ("https://lista.mercadolivre.com.br/console-playstation-5", "Console PS5"),
-    ("https://lista.mercadolivre.com.br/console-xbox-series", "Console Xbox Series"),
-    ("https://lista.mercadolivre.com.br/nintendo-switch-2", "Console Switch 2"),
-    ("https://lista.mercadolivre.com.br/nintendo-switch", "Console Switch"),
-    ("https://lista.mercadolivre.com.br/video-games-controles", "Controles"),
-    ("https://lista.mercadolivre.com.br/video-games-acessorios", "Acessórios Games"),
-    # Cartões PSN / gift cards / assinaturas
-    ("https://lista.mercadolivre.com.br/cartao-psn", "Cartão PSN"),
-    ("https://lista.mercadolivre.com.br/gift-card-playstation", "Gift Card PlayStation"),
-    ("https://lista.mercadolivre.com.br/playstation-plus", "PlayStation Plus"),
-]
+def montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros):
+    """Ciclo 19:00 — delega para pipeline dedicado."""
+    return []  # não usado mais, ver ciclo()
 
 
-def _processar_item_games(item_raw):
+def montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon=None):
     """
-    Processa item de games. Reaproveita o parser HTML, mas:
-    - IGNORA desconto mínimo e preço (sem teto/piso) — só exige preço > 0
-    - NÃO exige produto_e_tech (a categoria já é de games; evita derrubar
-      jogos como 'Zelda' que não têm palavra-chave tech no nome)
-    - MANTÉM produto_valido (continua bloqueando usado/recondicionado/brinquedo)
+    Ciclo misto (12:30 e 20:30): metade smartphones + metade monitores.
+    Proporção 40% ML, 40% Amazon, 10% Ali, 10% Shopee por categoria.
     """
-    try:
-        nome = item_raw.get("nome", "").strip()
-        if not nome:
-            return None
-        if not produto_valido(nome):
-            return None
-        preco = item_raw.get("preco", 0)
-        if preco <= 0:
-            return None
-        desconto   = item_raw.get("desconto", 0)      # sem filtro de desconto
-        preco_orig = item_raw.get("preco_original", 0)
-        url_prod   = item_raw.get("url_prod", "")
-        imagem     = item_raw.get("imagem", "")
-        if not url_prod:
-            return None
-        _bl = na_blacklist(nome, url_prod, item_raw.get("vendedor", ""))
-        if _bl:
-            log(f"  ⛔ Blacklist ({_bl}): {nome[:45]}")
-            return None
-        try:
-            from mercadolivre_link import gerar_link_afiliado_ml
-            link_curto = gerar_link_afiliado_ml(url_prod) or encurtar_link(gerar_link_afiliado(url_prod))
-        except Exception:
-            link_curto = encurtar_link(gerar_link_afiliado(url_prod))
-        mais_vendido = bool(item_raw.get("mais_vendido", False))
-        rank_vendas  = int(item_raw.get("rank_vendas", 0) or 0)
-        selo = "🔥 MAIS VENDIDO" if mais_vendido else ""
-        # DIAGNÓSTICO p/ feature "menor preço": mostra se o link é de catálogo (/p/MLB)
-        eh_catalogo = "/p/MLB" in url_prod
-        log(f"  🎮 {nome[:45]} | R${preco} | {desconto}% {selo} | catálogo={eh_catalogo} | url={url_prod[:70]}")
-        return {
-            "nome":           nome,
-            "preco":          round(preco, 2),
-            "preco_original": round(preco_orig, 2) if preco_orig > preco else 0,
-            "desconto":       desconto,
-            "loja":           "MERCADOLIVRE",
-            "frete":          "🚚 Frete a calcular",
-            "link_afiliado":  link_curto,
-            "url_catalogo":   url_prod if eh_catalogo else "",
-            "imagem_url":     imagem,
-            "score":          3 if mais_vendido else 1,
-            "mais_vendido":   mais_vendido,
-            "rank_vendas":    rank_vendas,
-            "categoria_games": True,
-            "fontes":         ["mercadolivre"],
-        }
-    except Exception as e:
-        log(f"  ML games item erro: {e}")
-        return None
+    if pool_amazon is None:
+        pool_amazon = []
+    metade = POSTS_POR_CICLO // 2
+
+    # Separa por categoria
+    def split_cat(pool):
+        phones  = [p for p in pool if _is_smartphone(p.get("nome",""))]
+        monitors= [p for p in pool if _is_monitor(p.get("nome",""))]
+        outros  = [p for p in pool if not _is_smartphone(p.get("nome","")) and not _is_monitor(p.get("nome",""))]
+        return phones, monitors, outros
+
+    ml_ph,  ml_mo,  ml_ot  = split_cat(pool_ml)
+    ali_ph, ali_mo, ali_ot = split_cat(pool_ali)
+    sh_ph,  sh_mo,  sh_ot  = split_cat(pool_shopee)
+    az_ph,  az_mo,  az_ot  = split_cat(pool_amazon)
+
+    log.info(f"🔀 CICLO MISTO — alvo: {metade} smartphone(s) + {metade} monitor(es) | 50/40/0/10 (ML/Az/Ali/Sh)")
+
+    # Smartphones com proporção 50% ML / 40% Amazon / 0% Ali / 10% Shopee
+    qtd_ml_ph  = max(0, round(metade * 0.50))
+    qtd_az_ph  = max(0, round(metade * 0.40))
+    qtd_ali_ph = 0  # AliExpress desativado
+    qtd_sh_ph  = max(0, metade - qtd_ml_ph - qtd_az_ph - qtd_ali_ph)
+    smartphones = ml_ph[:qtd_ml_ph] + az_ph[:qtd_az_ph] + sh_ph[:qtd_sh_ph]
+    # Completa se alguma loja não tiver suficiente (Ali entra só como último recurso)
+    extras_ph = az_ph[qtd_az_ph:] + ml_ph[qtd_ml_ph:] + sh_ph[qtd_sh_ph:] + ali_ph
+    smartphones += extras_ph[:max(0, metade - len(smartphones))]
+
+    # Monitores com proporção 50% ML / 40% Amazon / 0% Ali / 10% Shopee
+    qtd_ml_mo  = max(0, round(metade * 0.50))
+    qtd_az_mo  = max(0, round(metade * 0.40))
+    qtd_ali_mo = 0  # AliExpress desativado
+    qtd_sh_mo  = max(0, metade - qtd_ml_mo - qtd_az_mo - qtd_ali_mo)
+    monitores = ml_mo[:qtd_ml_mo] + az_mo[:qtd_az_mo] + sh_mo[:qtd_sh_mo]
+    extras_mo = az_mo[qtd_az_mo:] + ml_mo[qtd_ml_mo:] + sh_mo[qtd_sh_mo:] + ali_mo
+    monitores += extras_mo[:max(0, metade - len(monitores))]
+
+    resultado = smartphones + monitores
+    faltando = POSTS_POR_CICLO - len(resultado)
+    if faltando > 0:
+        extras = az_ot + ml_ot + sh_ot + pool_outros + ali_ot
+        resultado += extras[:faltando]
+        log.info(f"   Completado com {min(faltando, len(extras))} produto(s) genérico(s)")
+
+    log.info(f"   {len(smartphones)} smartphone(s) | {len(monitores)} monitor(es) (ML:{qtd_ml_ph}/{qtd_ml_mo} Az:{qtd_az_ph}/{qtd_az_mo} Ali:0/0 Sh:{qtd_sh_ph}/{qtd_sh_mo})")
+    return resultado
 
 
-def buscar_games():
-    """Busca games no ML (consoles, controles, jogos) via BrightData, com 1 retry."""
-    if not BRIGHTDATA_KEY:
-        log("ML games: BrightData não configurado")
-        return []
-    log("ML GAMES: iniciando busca...")
-    todos   = []
-    vistos  = set()
-    total_bruto = 0
-    for url, nome in URLS_GAMES:
-        try:
-            log(f"ML games buscando: {nome}")
-            html = scraper_fetch(url)
-            if html is None:
-                log(f"ML games: {nome} falhou — tentando 1x mais...")
-                time.sleep(3)
-                html = scraper_fetch(url)
-            if html is None:
-                log(f"ML games: {nome} falhou 2x — próxima categoria")
-                continue
-            items = extrair_produtos_html(html)
-            total_bruto += len(items)
-            validos_cat = 0
-            for item in items:
-                p = _processar_item_games(item)
-                if p:
-                    chave = hashlib.md5(p["nome"].encode()).hexdigest()
-                    if chave not in vistos:
-                        vistos.add(chave)
-                        todos.append(p)
-                        validos_cat += 1
-            log(f"  -> {validos_cat} válidos em {nome}")
-            time.sleep(1)
-        except Exception as e:
-            log(f"ML games erro {nome}: {e}")
-            continue
-    log(f"ML GAMES: {total_bruto} brutos → {len(todos)} válidos")
-    return todos
-
-
-def buscar_menor_preco_catalogo(url_prod):
+def filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros):
     """
-    Dado um link de catálogo do ML (/p/MLB...), consulta a página de catálogo e
-    retorna (preco, preco_original) do MENOR preço (buy box). Retorna None se não
-    for catálogo ou se não conseguir parsear com confiança.
-    Usa BrightData (mesmo scraper). Chamado só para itens que serão postados.
+    Recebe pools separados por loja e retorna lista filtrada por tipo de ciclo,
+    mantendo proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee em todos os ciclos.
     """
-    if not url_prod or "/p/MLB" not in url_prod:
-        return None
-    try:
-        html = scraper_fetch(url_prod)
-        if not html or len(html) < 5000:
-            log(f"  catálogo: HTML insuficiente p/ {url_prod[:50]}")
-            return None
+    if permitir_tv_games():
+        return montar_ciclo_tv_games(pool_ml, pool_amazon)
 
-        # ── DIAGNÓSTICO (temporário): despeja trechos reais do HTML p/ construir
-        # o parser de vendedores+preços certo. Ativa com DEBUG_CATALOGO=1 no Railway.
-        if os.getenv("DEBUG_CATALOGO", "") == "1":
-            log(f"  🔎 CATÁLOGO DEBUG — HTML {len(html)} chars — {url_prod[:60]}")
-            for marcador in ['itemprop="price"', 'andes-money-amount__fraction',
-                             'Vendido por', 'pdp_seller', 'ui-pdp-seller',
-                             'Outras opções', 'otras opciones', 'buy_box', 'offers']:
-                idx = html.lower().find(marcador.lower())
-                if idx >= 0:
-                    trecho = html[max(0, idx-80):idx+280]
-                    log(f"  🔎 [{marcador}] …{trecho}…")
+    if permitir_misto():
+        return montar_ciclo_misto(pool_ml, pool_ali, pool_shopee, pool_outros, pool_amazon)
 
-        preco = 0.0
-        preco_orig = 0.0
+    if permitir_monitor_dedicado():
+        log.info("🖥️ CICLO DEDICADO — apenas Monitores (50% ML / 40% Amazon / 0% Ali / 10% Shopee)")
+        ml_mo  = [p for p in pool_ml     if _is_monitor(p.get("nome",""))]
+        ali_mo = [p for p in pool_ali    if _is_monitor(p.get("nome",""))]
+        sh_mo  = [p for p in pool_shopee if _is_monitor(p.get("nome",""))]
+        az_mo  = [p for p in pool_amazon if _is_monitor(p.get("nome",""))]
+        total  = len(ml_mo) + len(ali_mo) + len(sh_mo) + len(az_mo)
+        log.info(f"🖥️ {total} monitor(es) disponíveis (ML:{len(ml_mo)} Amazon:{len(az_mo)} Ali:0 Sh:{len(sh_mo)})")
+        return distribuir_por_loja(ml_mo, ali_mo, sh_mo, az_mo, [], POSTS_POR_CICLO)
 
-        # Estratégia 1 (mais confiável): meta schema.org itemprop="price"
-        m = re.search(r'itemprop="price"[^>]*content="([\d]+(?:\.[\d]{1,2})?)"', html)
-        if not m:
-            m = re.search(r'"price"\s*:\s*([\d]+(?:\.[\d]{1,2})?)\s*[,}]', html)
-        if m:
-            try:
-                preco = float(m.group(1))
-            except Exception:
-                preco = 0.0
+    if permitir_eletro_dedicado():
+        return montar_ciclo_eletro(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros)
 
-        # Estratégia 2: bloco de preço da PDP (ui-pdp-price__second-line)
-        if preco <= 0:
-            m2 = re.search(
-                r'ui-pdp-price__second-line.*?andes-money-amount__fraction[^>]*>([\d\.]+)<',
-                html, re.DOTALL
-            )
-            if m2:
-                try:
-                    preco = float(m2.group(1).replace(".", ""))
-                except Exception:
-                    preco = 0.0
+    if permitir_ciclo_ticket_baixo():
+        return montar_ciclo_ticket_baixo(pool_ml, pool_ali, pool_shopee, pool_outros)
 
-        # Preço original riscado (se houver)
-        mo = re.search(
-            r'(?:andes-money-amount--previous|ui-pdp-price__original-value).*?andes-money-amount__fraction[^>]*>([\d\.]+)<',
-            html, re.DOTALL
+    # Ciclo normal — remove smartphones, monitores, TVs e fones (reservados para ciclos dedicados)
+    def filtrar_normal(pool):
+        return [p for p in pool
+                if not _is_smartphone(p.get("nome",""))
+                and not _is_monitor(p.get("nome",""))
+                and not _is_tv(p.get("nome",""))
+                and not _is_games(p.get("nome",""), p)]
+
+    ml_n  = filtrar_normal(pool_ml)
+    ali_n = filtrar_normal(pool_ali)
+    sh_n  = filtrar_normal(pool_shopee)
+    az_n  = filtrar_normal(pool_amazon)
+    removidos = (len(pool_ml) - len(ml_n)) + (len(pool_ali) - len(ali_n)) + (len(pool_shopee) - len(sh_n)) + (len(pool_amazon) - len(az_n))
+    if removidos > 0:
+        log.info(f"🔒 {removidos} produto(s) reservados para ciclos especiais (TV/Games/Smartphone/Monitor)")
+
+    # GARANTE PRESENÇA DE ML NO CICLO NORMAL.
+    # O ML quase sempre só acha smartphones/games (categorias reservadas), então
+    # filtrar_normal zera o ML e o ciclo sai 100% Amazon/Shopee. Se sobrou pouco
+    # ML, recupera os melhores ML reservados (por desconto) para o Mercado Livre
+    # não sumir do ciclo normal. Amazon/Shopee seguem reservando normalmente.
+    MIN_ML_NORMAL = int(os.getenv("MIN_ML_NORMAL", "4"))
+    if len(ml_n) < MIN_ML_NORMAL:
+        nomes_norm = {p["nome"] for p in ml_n}
+        ml_reserva = sorted(
+            [p for p in pool_ml if p["nome"] not in nomes_norm],
+            key=lambda x: x.get("desconto", 0), reverse=True,
         )
-        if mo:
-            try:
-                preco_orig = float(mo.group(1).replace(".", ""))
-            except Exception:
-                preco_orig = 0.0
+        recuperados = ml_reserva[:(MIN_ML_NORMAL - len(ml_n))]
+        if recuperados:
+            log.info(f"🛒 ML no ciclo normal estava baixo ({len(ml_n)}) — recuperados {len(recuperados)} ML reservados p/ garantir Mercado Livre no ciclo")
+            ml_n = ml_n + recuperados
 
-        if preco <= 0:
-            log(f"  catálogo: não achei preço em {url_prod[:50]}")
-            return None
-        log(f"  catálogo ✅ menor preço={preco} orig={preco_orig} ({url_prod[:45]})")
-        return (preco, preco_orig)
+    # Ciclo normal: garante 2 tickets baixos na fila
+    todos_normal = distribuir_por_loja(ml_n, ali_n, sh_n, az_n, pool_outros, POSTS_POR_CICLO * 3)
+    tickets_baixos = [p for p in todos_normal if eh_ticket_baixo(p)][:POSTS_TICKET_BAIXO_NO_CICLO]
+    for p in tickets_baixos:
+        p["ticket_baixo"] = True
+    tickets_altos  = [p for p in todos_normal if not eh_ticket_baixo(p)]
+    resultado = tickets_baixos + tickets_altos
+    if tickets_baixos:
+        log.info(f"💰 {len(tickets_baixos)} produto(s) ticket baixo incluídos no ciclo normal")
+    return resultado[:POSTS_POR_CICLO * 2]
+
+def detectar_tema(nome):
+    nome_lower = nome.lower()
+    for tema, keywords in TEMAS:
+        if any(kw in nome_lower for kw in keywords):
+            return tema
+    return "outros"
+
+def limitar_por_tema(produtos):
+    """Limita MAX_POR_TEMA produtos por tema no ciclo."""
+    contagem = {}
+    resultado = []
+    pulados = []
+    for p in produtos:
+        tema = detectar_tema(p.get("nome", ""))
+        count = contagem.get(tema, 0)
+        if count < MAX_POR_TEMA:
+            contagem[tema] = count + 1
+            resultado.append(p)
+        else:
+            pulados.append(tema)
+    if pulados:
+        log.info(f"🎯 Limite por tema ({MAX_POR_TEMA}/tema): {len(pulados)} removido(s) — {', '.join(set(pulados))}")
+    return resultado
+
+def montar_pipeline(usar_ml=True, usar_shopee=True, usar_ali=False, usar_amazon=True):
+    log.info("=== Pipeline v6.0 iniciado ===")
+    tg = buscar_trends_google()
+    tt = buscar_tiktok_trending()
+    tr = buscar_reddit_gadgets()
+    log.info(f"Tendências — Google: {len(tg)} | TikTok: {len(tt)} | Reddit: {len(tr)}")
+
+    produtos_ali = []
+    if usar_ali:
+        log.info("Buscando AliExpress API...")
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(buscar_aliexpress)
+                produtos_ali = future.result(timeout=90)
+            log.info(f"AliExpress: {len(produtos_ali)} produtos encontrados")
+        except concurrent.futures.TimeoutError:
+            log.warning("AliExpress: timeout de 90s — pulando para próxima fonte")
+            produtos_ali = []
+        except Exception as e:
+            log.warning(f"AliExpress erro: {e} — pulando")
+            produtos_ali = []
+    else:
+        log.info("AliExpress ignorado (não selecionado)")
+
+    produtos_shopee = []
+    if usar_shopee:
+        log.info("Buscando Shopee API...")
+        produtos_shopee = buscar_shopee()
+    else:
+        log.info("Shopee ignorada (não selecionada)")
+
+    produtos_ml = []
+    if usar_ml:
+        log.info("Buscando Mercado Livre...")
+        produtos_ml = buscar_ml()
+    else:
+        log.info("Mercado Livre ignorado (não selecionado)")
+
+    produtos_amazon = []
+    if usar_amazon:
+        log.info("Buscando Amazon Best Sellers...")
+        produtos_amazon = buscar_amazon()
+    else:
+        log.info("Amazon ignorada (não selecionada)")
+
+    # Aplica score em todos
+    todos_raw = produtos_ali + produtos_shopee + produtos_ml + produtos_amazon
+    for p in todos_raw:
+        calcular_score(p, tg, tt, tr)
+
+    if not todos_raw:
+        log.warning("Sem produtos — usando mock")
+        todos_raw = produtos_mock()
+
+    # Filtra por preço e desconto
+    todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO and not _is_gadget_lixo(p.get("nome", ""))]
+
+    # Remove já postados (ML incluído no SQLite)
+    antes = len(todos_raw)
+    todos_raw = [p for p in todos_raw if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+    filtrados = antes - len(todos_raw)
+    if filtrados > 0:
+        log.info(f"SQLite: {filtrados} produtos já postados recentemente removidos")
+
+    # Separa por fonte e ordena por score ANTES do filtro de ciclo
+    def filtrar_fonte(lista, loja):
+        return sorted([p for p in lista if p.get("loja") == loja], key=lambda x: x.get("score", 0), reverse=True)
+
+    pool_ml     = filtrar_fonte(todos_raw, "MERCADOLIVRE")
+    pool_ali    = filtrar_fonte(todos_raw, "ALIEXPRESS")
+    pool_shopee = filtrar_fonte(todos_raw, "SHOPEE")
+    pool_amazon = filtrar_fonte(todos_raw, "AMAZON")
+    pool_outros = [p for p in todos_raw if p.get("loja") not in ("MERCADOLIVRE", "ALIEXPRESS", "SHOPEE", "AMAZON")]
+
+    # Filtra/organiza por ciclo especial mantendo proporção 40% ML / 40% Amazon / 10% Ali / 10% Shopee
+    fila = filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros)
+
+    # Remove duplicatas mantendo ordem
+    vistos = set()
+    resultado = []
+    for p in fila:
+        chave = hashlib.md5(p["nome"].encode()).hexdigest()
+        if chave not in vistos:
+            vistos.add(chave)
+            resultado.append(p)
+
+    # Limita MAX_POR_TEMA produtos por tema no ciclo
+    resultado = limitar_por_tema(resultado)
+
+    lojas_log = {}
+    for p in resultado[:POSTS_POR_CICLO]:
+        lojas_log[p.get("loja","")] = lojas_log.get(p.get("loja",""), 0) + 1
+
+    log.info(f"Pipeline: {len(resultado)} produtos prontos ({contar_postados()} no historico)")
+    log.info(f"Distribuicao: {lojas_log}")
+    for p in resultado[:8]:
+        log.info(f"  [{p['score']}pts][{p['loja']}] {p['nome'][:40]} | {fmt_preco(p['preco'])}")
+    return resultado
+
+
+def montar_pipeline_profundo(usar_ml=True, usar_shopee=True, usar_ali=False, usar_amazon=True):
+    """
+    Pipeline de busca profunda — acionado quando o pipeline normal retornou poucos produtos.
+    Usa mais categorias, mais páginas e keywords alternativas em todas as APIs.
+    """
+    log.info("🔍 BUSCA PROFUNDA iniciada — cavando mais ofertas...")
+    tg = buscar_trends_google()
+    tt = buscar_tiktok_trending()
+    tr = buscar_reddit_gadgets()
+
+    produtos_ali = []
+    if usar_ali:
+        log.info("🔍 AliExpress profundo...")
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(buscar_aliexpress_profundo)
+                produtos_ali = future.result(timeout=90)
+        except concurrent.futures.TimeoutError:
+            log.warning("AliExpress profundo: timeout de 90s — pulando")
+            produtos_ali = []
+        except Exception as e:
+            log.warning(f"AliExpress profundo erro: {e}")
+
+    produtos_shopee = []
+    if usar_shopee:
+        log.info("🔍 Shopee profunda...")
+        try:
+            produtos_shopee = buscar_shopee_profundo()
+        except Exception as e:
+            log.warning(f"Shopee profunda erro: {e}")
+
+    produtos_ml = []
+    if usar_ml:
+        log.info("🔍 Mercado Livre profundo...")
+        try:
+            produtos_ml = buscar_ml_profundo()
+        except Exception as e:
+            log.warning(f"ML profundo erro: {e}")
+
+    produtos_amazon = []
+    if usar_amazon:
+        log.info("🔍 Amazon profunda...")
+        try:
+            produtos_amazon = buscar_amazon_profundo()
+        except Exception as e:
+            log.warning(f"Amazon profunda erro: {e}")
+
+    todos_raw = produtos_ali + produtos_shopee + produtos_ml + produtos_amazon
+    for p in todos_raw:
+        calcular_score(p, tg, tt, tr)
+
+    if not todos_raw:
+        log.warning("🔍 Busca profunda também retornou zero — usando mock")
+        return produtos_mock()
+
+    # Mesmos filtros do pipeline normal
+    todos_raw = [p for p in todos_raw if p.get("preco", 999) <= PRECO_MAXIMO and p.get("desconto", 0) >= DESCONTO_MINIMO and not _is_gadget_lixo(p.get("nome", ""))]
+    todos_raw = [p for p in todos_raw if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+
+    def filtrar_fonte(lista, loja):
+        return sorted([p for p in lista if p.get("loja") == loja], key=lambda x: x.get("score", 0), reverse=True)
+
+    pool_ml     = filtrar_fonte(todos_raw, "MERCADOLIVRE")
+    pool_ali    = filtrar_fonte(todos_raw, "ALIEXPRESS")
+    pool_shopee = filtrar_fonte(todos_raw, "SHOPEE")
+    pool_amazon = filtrar_fonte(todos_raw, "AMAZON")
+    pool_outros = [p for p in todos_raw if p.get("loja") not in ("MERCADOLIVRE", "ALIEXPRESS", "SHOPEE", "AMAZON")]
+
+    fila = filtrar_ciclo_especial(pool_ml, pool_ali, pool_shopee, pool_amazon, pool_outros)
+
+    vistos = set()
+    resultado = []
+    for p in fila:
+        chave = hashlib.md5(p["nome"].encode()).hexdigest()
+        if chave not in vistos:
+            vistos.add(chave)
+            resultado.append(p)
+
+    resultado = limitar_por_tema(resultado)
+    log.info(f"🔍 Busca profunda: {len(resultado)} produtos prontos")
+    return resultado
+
+
+# ============================================================
+# PIPELINE MANUAL — traz o melhor de TODOS os setores sem exceção
+# Ordenado por maior desconto, sem reservas de ciclo especial
+# ============================================================
+
+def montar_pipeline_manual(usar_ml=True, usar_shopee=True, usar_ali=False, usar_amazon=True):
+    """
+    Pipeline exclusivo para ciclo manual acionado pelo painel web.
+    Diferente do pipeline normal:
+    - NÃO aplica filtros de ciclo especial (smartphones, TVs, games, eletros — tudo entra)
+    - NÃO reserva categorias para horários específicos
+    - Ordena por MAIOR DESCONTO (produto mais barato relativo ao original primeiro)
+    - Traz o melhor de todos os setores: tech, eletro, games, tudo
+    - Usa a busca normal (rápida e completa) — a profunda é lenta e redundante aqui
+    """
+    log.info("🎮 PIPELINE MANUAL — buscando o melhor de todos os setores...")
+
+    todos_raw = []
+
+    # IMPORTANTE: timeout MUITO generoso (2400s = 40min). O modo completo varre
+    # ~32 categorias (tech + eletro) e cada uma leva ~45-60s via BrightData, mais
+    # retry quando falha. O timeout é só uma rede de segurança: a busca normalmente
+    # termina em ~20-25min e os produtos são coletados assim que ela retorna.
+    # Roda em thread de fundo (daemon), então bloquear por minutos é seguro.
+    # NÃO usamos busca profunda aqui — ela leva 15+ min e retorna ~0 válidos.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futuros = {}
+        if usar_ml:
+            # completo=True: varre TODAS as categorias (tech + eletro) + retry em falhas
+            futuros["ml"] = executor.submit(buscar_ml, completo=True)
+        if usar_amazon:
+            futuros["amazon"] = executor.submit(buscar_amazon)
+        if usar_shopee:
+            futuros["shopee"] = executor.submit(buscar_shopee)
+        if usar_ali:
+            futuros["ali"] = executor.submit(buscar_aliexpress)
+
+        for nome_fut, fut in futuros.items():
+            try:
+                resultado_fut = fut.result(timeout=2400)
+                log.info(f"🎮 {nome_fut}: {len(resultado_fut)} produtos")
+                todos_raw.extend(resultado_fut)
+            except concurrent.futures.TimeoutError:
+                log.warning(f"🎮 {nome_fut}: timeout de 2400s — busca travou (anormal)")
+            except Exception as e:
+                log.warning(f"🎮 {nome_fut} erro: {e}")
+
+    if not todos_raw:
+        log.warning("🎮 Pipeline manual: nenhum produto encontrado")
+        return []
+
+    # Aplica score de tendências
+    tg = buscar_trends_google()
+    for p in todos_raw:
+        calcular_score(p, tg, [], [])
+
+    # Filtro de preço e desconto mínimo (usa parâmetros globais)
+    # Para manual: aceita desconto a partir de 5% (mais permissivo)
+    DESCONTO_MANUAL = max(5, DESCONTO_MINIMO - 15)
+    todos_raw = [
+        p for p in todos_raw
+        if p.get("preco", 0) > 0
+        and p.get("preco", 9999) <= PRECO_MAXIMO
+        and p.get("desconto", 0) >= DESCONTO_MANUAL
+    ]
+
+    # Remove já postados
+    antes = len(todos_raw)
+    todos_raw = [p for p in todos_raw if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+    log.info(f"🎮 {antes} → {len(todos_raw)} após dedup histórico")
+
+    # Remove duplicatas por nome
+    vistos = set()
+    sem_dup = []
+    for p in todos_raw:
+        chave = hashlib.md5(p["nome"].encode()).hexdigest()
+        if chave not in vistos:
+            vistos.add(chave)
+            sem_dup.append(p)
+
+    # ─── RELEVÂNCIA: desconto (motor) + bônus "EM ALTA" (best-seller do ML) ───
+    # Produto marcado "MAIS VENDIDO" ganha +20 pts; quanto melhor a posição no
+    # ranking de vendas, maior o bônus extra. Desconto continua dominante, mas um
+    # best-seller com desconto médio sobe na frente de um desconto médio comum.
+    def relevancia(p):
+        base = p.get("desconto", 0)
+        if p.get("mais_vendido"):
+            base += 20
+            rank = p.get("rank_vendas", 0) or 0
+            if 1 <= rank <= 10:
+                base += (11 - rank)  # 1º=+10, 10º=+1
+        return base
+    for p in sem_dup:
+        p["_relevancia"] = relevancia(p)
+    sem_dup.sort(key=lambda x: x.get("_relevancia", 0), reverse=True)
+
+    # ─── DISTRIBUIÇÃO: variedade entre setores, relevância (desconto+alta) manda ───
+    # Pega 1 representante de cada setor para garantir diversidade mínima,
+    # depois completa com os de maior relevância — sem limite de categoria
+    grupos = {
+        "eletro":     [p for p in sem_dup if _is_eletro(p.get("nome",""))],
+        "smartphone": [p for p in sem_dup if _is_smartphone(p.get("nome",""))],
+        "tv":         [p for p in sem_dup if _is_tv(p.get("nome",""))],
+        "monitor":    [p for p in sem_dup if _is_monitor(p.get("nome",""))],
+        "games":      [p for p in sem_dup if _is_games(p.get("nome",""), p)],
+        "outros":     [p for p in sem_dup
+                       if not _is_eletro(p.get("nome",""))
+                       and not _is_smartphone(p.get("nome",""))
+                       and not _is_tv(p.get("nome",""))
+                       and not _is_monitor(p.get("nome",""))
+                       and not _is_games(p.get("nome",""), p)],
+    }
+
+    # 1 representante de cada setor que tiver produto (garante diversidade mínima)
+    reservados = set()
+    diversidade = []
+    for grupo, produtos_grupo in grupos.items():
+        if produtos_grupo:
+            melhor = produtos_grupo[0]  # já ordenado por relevância
+            diversidade.append(melhor)
+            reservados.add(hashlib.md5(melhor["nome"].encode()).hexdigest())
+            alta = "🔥" if melhor.get("mais_vendido") else ""
+            log.info(f"🎮 {grupo}: melhor={melhor.get('desconto',0)}% OFF {alta} — {melhor.get('nome','')[:40]}")
+
+    # Restante: todos os produtos não reservados, ordenados por relevância
+    restante = [p for p in sem_dup if hashlib.md5(p["nome"].encode()).hexdigest() not in reservados]
+
+    # Junta: primeiro os representantes (por relevância), depois o restante
+    diversidade.sort(key=lambda x: x.get("_relevancia", 0), reverse=True)
+    fila = diversidade + restante  # restante já está ordenado por relevância
+
+    # Distribuição por loja
+    lojas_log = {}
+    for p in fila[:POSTS_POR_CICLO * 2]:
+        lojas_log[p.get("loja", "")] = lojas_log.get(p.get("loja", ""), 0) + 1
+    log.info(f"🎮 Pipeline manual: {len(fila)} produto(s) prontos | Lojas: {lojas_log}")
+    for p in fila[:10]:
+        alta = "🔥EM ALTA" if p.get("mais_vendido") else ""
+        log.info(f"  [{p.get('desconto',0)}% OFF][{p.get('loja','')}] {p.get('nome','')[:45]} | R$ {p.get('preco',0):.0f} {alta}")
+
+    return fila
+
+
+# ============================================================
+# PIPELINE GAMES — ciclo manual dedicado (Amazon + ML)
+# Ignora desconto e preço. Janela de repetição = HORAS_SEM_REPETIR / 3.
+# Nunca duplica no mesmo lote.
+# ============================================================
+
+def montar_pipeline_games():
+    """
+    Ciclo manual 🎮 GAMES — consoles, controles, jogos (só Amazon + ML).
+    - BASE nos MAIS VENDIDOS: ordena por best-seller + ranking de vendas
+    - COM DESCONTO primeiro; SEM desconto só como reserva (às vezes o mais
+      vendido já tem preço bom sem desconto) — GAMES_DESCONTO_MIN (padrão 10%)
+    - Menor preço do catálogo (buy box) aplicado nos itens ML
+    - Rejeita nome quebrado (string de preço) e dedup forte (mesmo produto)
+    - Janela de repetição reduzida: HORAS_SEM_REPETIR ÷ 3 (ex: 36h → 12h)
+    - 60% Mercado Livre / 40% Amazon
+    """
+    log.info("🎮 PIPELINE GAMES — consoles, controles e jogos (Amazon + ML)...")
+
+    todos_raw = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        fut_ml = executor.submit(buscar_ml_games)
+        fut_az = executor.submit(buscar_amazon_games)
+        try:
+            r = fut_ml.result(timeout=1200)
+            log.info(f"🎮 ML games: {len(r)} produtos")
+            todos_raw.extend(r)
+        except Exception as e:
+            log.warning(f"🎮 ML games erro: {e}")
+        try:
+            r = fut_az.result(timeout=600)
+            log.info(f"🎮 Amazon games: {len(r)} produtos")
+            todos_raw.extend(r)
+        except Exception as e:
+            log.warning(f"🎮 Amazon games erro: {e}")
+
+    if not todos_raw:
+        log.warning("🎮 Games: nenhum produto encontrado")
+        return []
+
+    # Remove bugigangas genéricas (mini game / stick / 9999 jogos / adaptador...)
+    antes_junk = len(todos_raw)
+    todos_raw = [p for p in todos_raw if not _is_junk_games(p.get("nome", ""))]
+    removidos_junk = antes_junk - len(todos_raw)
+    if removidos_junk:
+        log.info(f"🎮 {removidos_junk} bugiganga(s) de games removida(s) (mini game/stick/retrô)")
+
+    # Janela de repetição reduzida (36h ÷ 3 = 12h por padrão)
+    horas_games = max(1, HORAS_SEM_REPETIR // 3)
+    antes = len(todos_raw)
+    todos_raw = [p for p in todos_raw
+                 if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest(), horas=horas_games)]
+    log.info(f"🎮 {antes} → {len(todos_raw)} após dedup de {horas_games}h")
+
+    # Rejeita nome quebrado (string de preço) + dedup FORTE (mesmo produto 2x)
+    antes_lixo = len(todos_raw)
+    todos_raw = [p for p in todos_raw if not _nome_eh_preco(p.get("nome", ""))]
+    if antes_lixo - len(todos_raw):
+        log.info(f"🎮 {antes_lixo - len(todos_raw)} nome(s) quebrado(s)/preço removido(s)")
+
+    vistos = set()
+    sem_dup = []
+    for p in todos_raw:
+        chave = _chave_dedup_games(p)
+        if chave not in vistos:
+            vistos.add(chave)
+            p["hora_gamer"] = True   # cabeçalho especial "A HORA GAMER!!!"
+            sem_dup.append(p)
+
+    # ─── BASE: MAIS VENDIDOS, com DESCONTO primeiro e SEM desconto como reserva ───
+    # Ordena por: best-seller (badge) → melhor posição no ranking → maior desconto.
+    # "Com desconto" = desconto >= GAMES_DESCONTO_MIN (padrão 10%). O resto é reserva,
+    # só entra se faltar oferta (às vezes o mais vendido já tem preço bom sem desconto).
+    GAMES_DESCONTO_MIN = int(os.getenv("GAMES_DESCONTO_MIN", "10"))
+    def _rank_key(x):
+        mv = 1 if x.get("mais_vendido") else 0
+        rank = x.get("rank_vendas", 0) or 0
+        rank_score = (101 - rank) if 1 <= rank <= 100 else 0
+        return (mv, rank_score, x.get("desconto", 0), x.get("score", 0))
+    com_desc = sorted([p for p in sem_dup if p.get("desconto", 0) >= GAMES_DESCONTO_MIN], key=_rank_key, reverse=True)
+    sem_desc = sorted([p for p in sem_dup if p.get("desconto", 0) <  GAMES_DESCONTO_MIN], key=_rank_key, reverse=True)
+    log.info(f"🎮 {len(com_desc)} com desconto (≥{GAMES_DESCONTO_MIN}%) + {len(sem_desc)} sem desconto (reserva)")
+
+    # Distribuição 60% ML / 40% Amazon (3 ML : 2 Amazon), aplicada a cada bloco.
+    def _dist_60_40(pool):
+        ml = [p for p in pool if p.get("loja") == "MERCADOLIVRE"]
+        az = [p for p in pool if p.get("loja") == "AMAZON"]
+        out = []
+        i = j = 0
+        while i < len(ml) or j < len(az):
+            for _ in range(3):
+                if i < len(ml):
+                    out.append(ml[i]); i += 1
+            for _ in range(2):
+                if j < len(az):
+                    out.append(az[j]); j += 1
+        return out
+
+    # Ofertas com desconto primeiro; sem desconto só como reserva
+    fila = _dist_60_40(com_desc) + _dist_60_40(sem_desc)
+
+    # ─── MENOR PREÇO DO CATÁLOGO ───
+    # Para os itens ML que vão ser postados (têm link de catálogo /p/MLB), consulta
+    # a página de catálogo e usa o menor preço do buy box. Só ACEITA se for MENOR
+    # que o preço do card e dentro de faixa sã (>=40%) — nunca posta preço errado.
+    for p in fila[:POSTS_POR_CICLO]:
+        url_cat = p.get("url_catalogo", "")
+        if url_cat and p.get("loja") == "MERCADOLIVRE":
+            try:
+                res = buscar_menor_preco_catalogo(url_cat)
+                if res:
+                    novo_preco, novo_orig = res
+                    atual = p.get("preco", 0)
+                    if 0 < novo_preco < atual and novo_preco >= atual * 0.4:
+                        log.info(f"🎮 Catálogo: {p['nome'][:30]} R${atual:.0f} → R${novo_preco:.0f} (menor preço)")
+                        p["preco"] = round(novo_preco, 2)
+                        if novo_orig and novo_orig > novo_preco:
+                            p["preco_original"] = round(novo_orig, 2)
+                            p["desconto"] = int((1 - novo_preco / novo_orig) * 100)
+            except Exception as e:
+                log.warning(f"🎮 Catálogo erro ({p.get('nome','')[:25]}): {e}")
+
+    lojas_log = {}
+    for p in fila[:POSTS_POR_CICLO * 2]:
+        lojas_log[p.get("loja", "")] = lojas_log.get(p.get("loja", ""), 0) + 1
+    log.info(f"🎮 Pipeline games: {len(fila)} produto(s) prontos | Lojas: {lojas_log}")
+    for p in fila[:10]:
+        alta = "🔥EM ALTA" if p.get("mais_vendido") else ""
+        log.info(f"  [{p.get('loja','')}] {p.get('nome','')[:45]} | R$ {p.get('preco',0):.0f} {alta}")
+    return fila
+
+
+# ============================================================
+# PIPELINE TOP OFERTAS — 18:00 — sem filtros restritivos
+# ============================================================
+
+def montar_pipeline_top_ofertas():
+    """
+    Ciclo 🔥 TOP Ofertas — busca as melhores ofertas em alta do ML e Amazon,
+    sem filtros de categoria, sem restrição de nicho tech.
+    Apenas ML + Amazon, ordenado por maior desconto.
+    """
+    log.info("🔥 TOP OFERTAS — iniciando pipeline sem filtros restritivos...")
+
+    # Busca ML + Amazon em paralelo
+    # Timeout generoso no ML (900s): a busca profunda varre ~34 URLs e, quando o
+    # BrightData fica lento/CAPTCHA, passa de 120s — timeout curto descartava TODO
+    # o ML (foi o que zerou o ciclo). Roda agendado em background, então esperar é ok.
+    produtos_ml = []
+    produtos_amazon = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        fut_ml     = executor.submit(buscar_ml_profundo)
+        fut_amazon = executor.submit(buscar_amazon_profundo)
+        try:
+            produtos_ml = fut_ml.result(timeout=900)
+            log.info(f"🔥 ML: {len(produtos_ml)} produtos")
+        except concurrent.futures.TimeoutError:
+            log.warning("🔥 ML: timeout de 900s — busca muito lenta")
+        except Exception as e:
+            log.warning(f"🔥 ML erro: {e}")
+        try:
+            produtos_amazon = fut_amazon.result(timeout=300)
+            log.info(f"🔥 Amazon: {len(produtos_amazon)} produtos")
+        except Exception as e:
+            log.warning(f"🔥 Amazon erro: {e}")
+
+    todos = produtos_ml + produtos_amazon
+
+    if not todos:
+        log.warning("🔥 TOP Ofertas: sem produtos — abortando ciclo")
+        return []
+
+    # Filtro mínimo: só preço positivo e desconto >= 15% (mais flexível que o normal)
+    # + remove gadgets de baixa relevância (aquecedor de xícara/caneca etc.)
+    todos = [p for p in todos
+             if p.get("preco", 0) > 0 and p.get("desconto", 0) >= 15
+             and not _is_gadget_lixo(p.get("nome", ""))]
+
+    # Remove já postados
+    antes = len(todos)
+    todos = [p for p in todos if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+    log.info(f"🔥 {antes} brutos → {len(todos)} após dedup histórico")
+
+    # Ordena por maior desconto (sem score de tendências — aqui vence quem tem mais OFF)
+    todos.sort(key=lambda x: x.get("desconto", 0), reverse=True)
+
+    # Distribuição: 60% ML / 40% Amazon
+    pool_ml     = [p for p in todos if p.get("loja") == "MERCADOLIVRE"]
+    pool_amazon = [p for p in todos if p.get("loja") == "AMAZON"]
+    qtd_ml     = max(1, round(POSTS_POR_CICLO * 0.60))
+    qtd_amazon = max(1, POSTS_POR_CICLO - qtd_ml)
+    fila = pool_ml[:qtd_ml] + pool_amazon[:qtd_amazon]
+    # Completa se faltar de alguma loja
+    extras = pool_ml[qtd_ml:] + pool_amazon[qtd_amazon:]
+    fila += extras[:max(0, POSTS_POR_CICLO * 2 - len(fila))]
+
+    log.info(f"🔥 TOP Ofertas: {len(fila)} produto(s) prontos (ML:{min(qtd_ml,len(pool_ml))} Az:{min(qtd_amazon,len(pool_amazon))})")
+    for p in fila[:8]:
+        log.info(f"  [{p.get('desconto',0)}% OFF][{p['loja']}] {p['nome'][:45]} | R$ {p.get('preco',0):.0f}")
+    return fila
+
+
+def montar_pipeline_eletro():
+    """
+    Pipeline dedicado para o ciclo das 16:00 — Eletrodomésticos.
+    Usa PRECO_MAXIMO_ELETRO (R$5000) e DESCONTO_MINIMO_ELETRO (10%),
+    totalmente independente do pipeline normal para não perder geladeiras,
+    ACs, lavadoras e outros eletro de ticket alto.
+    """
+    log.info("🏠 PIPELINE ELETRO — buscando eletrodomésticos (ML + Amazon, até R$5000)...")
+
+    produtos_ml = []
+    produtos_amazon = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        fut_ml     = executor.submit(buscar_ml_profundo)
+        fut_amazon = executor.submit(buscar_amazon_profundo)
+        try:
+            produtos_ml = fut_ml.result(timeout=900)   # generoso: busca profunda é lenta
+            log.info(f"🏠 ML bruto: {len(produtos_ml)} produtos")
+        except concurrent.futures.TimeoutError:
+            log.warning("🏠 ML: timeout de 900s — busca muito lenta")
+        except Exception as e:
+            log.warning(f"🏠 ML erro: {e}")
+        try:
+            produtos_amazon = fut_amazon.result(timeout=300)
+            log.info(f"🏠 Amazon bruto: {len(produtos_amazon)} produtos")
+        except Exception as e:
+            log.warning(f"🏠 Amazon erro: {e}")
+
+    todos = produtos_ml + produtos_amazon
+
+    if not todos:
+        log.warning("🏠 Eletro pipeline: nenhum produto encontrado — abortando")
+        return []
+
+    # Filtro específico para eletro: preço até R$5000, desconto mínimo 10%
+    # + remove gadgets de baixa relevância (aquecedor de xícara/caneca etc.)
+    todos = [
+        p for p in todos
+        if _is_eletro(p.get("nome", ""))
+        and not _is_gadget_lixo(p.get("nome", ""))
+        and p.get("preco", 0) > 0
+        and p.get("preco", 9999) <= PRECO_MAXIMO_ELETRO
+        and p.get("desconto", 0) >= DESCONTO_MINIMO_ELETRO
+    ]
+    log.info(f"🏠 Após filtro eletro: {len(todos)} produto(s)")
+
+    # Remove já postados
+    antes = len(todos)
+    todos = [p for p in todos if not ja_postado(hashlib.md5(p["nome"].encode()).hexdigest())]
+    log.info(f"🏠 {antes} → {len(todos)} após dedup histórico")
+
+    # Ordena por maior desconto
+    todos.sort(key=lambda x: x.get("desconto", 0), reverse=True)
+
+    # Distribuição 50% ML / 50% Amazon
+    pool_ml     = [p for p in todos if p.get("loja") == "MERCADOLIVRE"]
+    pool_amazon = [p for p in todos if p.get("loja") == "AMAZON"]
+    qtd_ml     = max(1, round(POSTS_POR_CICLO * 0.50))
+    qtd_amazon = max(1, POSTS_POR_CICLO - qtd_ml)
+    fila = pool_ml[:qtd_ml] + pool_amazon[:qtd_amazon]
+    # Completa se faltar de uma loja
+    extras = pool_ml[qtd_ml:] + pool_amazon[qtd_amazon:]
+    fila += extras[:max(0, POSTS_POR_CICLO * 2 - len(fila))]
+
+    log.info(f"🏠 Eletro pipeline: {len(fila)} produto(s) prontos (ML:{min(qtd_ml,len(pool_ml))} Az:{min(qtd_amazon,len(pool_amazon))})")
+    for p in fila[:8]:
+        log.info(f"  [{p.get('desconto',0)}% OFF][{p['loja']}] {p['nome'][:45]} | R$ {p.get('preco',0):.0f}")
+    return fila
+
+
+def ciclo_eletro():
+    """Ciclo dedicado 🏠 Eletrodomésticos — 16:00."""
+    log.info(f"\n{'='*50}")
+    log.info(f"🏠 CICLO ELETRO — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    limpar_historico_antigo()
+
+    produtos = montar_pipeline_eletro()
+    if not produtos:
+        log.warning("🏠 Eletro: nenhum produto disponível — ciclo encerrado")
+        return
+
+    postou = 0
+    for produto in produtos:
+        if postou >= POSTS_POR_CICLO:
+            break
+        log.info(f"🏠 Postando [{produto.get('desconto',0)}% OFF]: {produto['nome'][:50]}")
+        imagem = gerar_imagem(produto)
+        ok_tg = postar_telegram(produto, imagem)
+        if ok_tg:
+            ok_wa = postar_whatsapp(produto, imagem)
+            registrar_post(produto)
+            postou += 1
+            status = "✅ Telegram + WhatsApp" if ok_wa else "✅ Telegram (WA falhou)"
+            log.info(f"  {status}")
+        else:
+            registrar_post(produto)
+            log.warning("  ⏭️ Telegram falhou — registrado")
+        time.sleep(10)
+
+    log.info(f"🏠 Ciclo Eletro concluído — {postou} post(s)\n")
+
+
+def ciclo_top_ofertas():
+    """Ciclo dedicado 🔥 TOP Ofertas — 18:00."""
+    log.info(f"\n{'='*50}")
+    log.info(f"🔥 CICLO TOP OFERTAS — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    limpar_historico_antigo()
+
+    produtos = montar_pipeline_top_ofertas()
+    if not produtos:
+        log.warning("🔥 TOP Ofertas: nenhum produto disponível — ciclo encerrado")
+        return
+
+    postou = 0
+    for produto in produtos:
+        if postou >= POSTS_POR_CICLO:
+            break
+        log.info(f"🔥 Postando [{produto.get('desconto',0)}% OFF]: {produto['nome'][:50]}")
+        imagem = gerar_imagem(produto)
+        ok_tg = postar_telegram(produto, imagem)
+        if ok_tg:
+            ok_wa = postar_whatsapp(produto, imagem)
+            registrar_post(produto)
+            postou += 1
+            status = "✅ Telegram + WhatsApp" if ok_wa else "✅ Telegram (WA falhou)"
+            log.info(f"  {status}")
+        else:
+            registrar_post(produto)
+            log.warning("  ⏭️ Telegram falhou — registrado")
+        time.sleep(10)
+
+    log.info(f"🔥 Ciclo TOP Ofertas concluído — {postou} post(s)\n")
+
+
+# ============================================================
+# CICLO PRINCIPAL
+# ============================================================
+
+def ciclo():
+    log.info(f"\n{'='*50}")
+    log.info(f"Ciclo — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    limpar_historico_antigo()
+
+    # Health check da Evolution API antes de iniciar
+    if EVOLUTION_URL:
+        evolution_ok = checar_evolution()
+        if not evolution_ok:
+            log.warning("⚠️ Evolution API não responde — WhatsApp pode falhar neste ciclo")
+            enviar_alerta_admin(
+                f"⚠️ <b>OlhaissoTech — Evolution API offline!</b>\n\n"
+                f"A Evolution API não respondeu ao health check antes do ciclo de "
+                f"{datetime.now().strftime('%H:%M')}.\n"
+                f"Posts serão feitos só no Telegram até reconectar."
+            )
+        else:
+            log.info("✅ Evolution API OK")
+    if permitir_ciclo_ticket_baixo():
+        produtos = montar_pipeline_ticket_baixo()
+    else:
+        produtos = montar_pipeline()
+
+    # Busca profunda automática se pipeline normal retornou pouco
+    THRESHOLD_PROFUNDO = max(2, POSTS_POR_CICLO // 2)
+    if len(produtos) < THRESHOLD_PROFUNDO:
+        log.warning(f"⚠️ Pipeline normal retornou apenas {len(produtos)} produto(s) — acionando BUSCA PROFUNDA...")
+        produtos_profundo = montar_pipeline_profundo()
+        # Mescla sem duplicar
+        nomes_vistos = {hashlib.md5(p["nome"].encode()).hexdigest() for p in produtos}
+        for p in produtos_profundo:
+            chave = hashlib.md5(p["nome"].encode()).hexdigest()
+            if chave not in nomes_vistos:
+                nomes_vistos.add(chave)
+                produtos.append(p)
+        log.info(f"🔍 Após busca profunda: {len(produtos)} produto(s) disponíveis")
+
+    postou = 0
+    tentativas = 0
+    max_tentativas = 2
+
+    while postou < POSTS_POR_CICLO and tentativas < max_tentativas:
+        if not produtos:
+            tentativas += 1
+            if tentativas < max_tentativas:
+                log.warning(f"Ainda sem produtos — nova busca profunda (tentativa {tentativas})...")
+                produtos = montar_pipeline_profundo()
+                continue
+            else:
+                log.warning("Sem produtos suficientes após busca profunda. Encerrando ciclo.")
+                break
+
+        produto = produtos.pop(0)
+        log.info(f"Postando [{produto['score']}pts]: {produto['nome'][:50]}")
+        imagem = gerar_imagem(produto)
+        ok_tg = postar_telegram(produto, imagem)
+        if ok_tg:
+            log.info("✅ Telegram OK")
+            ok_wa = postar_whatsapp(produto, imagem)
+            if ok_wa:
+                # WhatsApp OK — registra normalmente
+                registrar_post(produto)
+                postou += 1
+                log.info("✅ Postado! (Telegram + WhatsApp)")
+            else:
+                # WhatsApp falhou — NÃO registra para poder repostar depois
+                log.warning("⚠️ WhatsApp falhou — produto NÃO registrado no banco (será repostado)")
+                postou += 1  # conta como postado para não travar o ciclo
+        else:
+            registrar_post(produto)
+            log.warning("⏭️ Telegram falhou — registrado para evitar retry infinito")
+        time.sleep(10)
+
+    log.info(f"Ciclo concluído — {postou} post(s)\n")
+
+
+def postar_whatsapp_teste(produto, imagem_path):
+    """Posta 1 oferta no grupo de teste via Evolution API."""
+    if not EVOLUTION_URL or not WHATSAPP_TEST_GROUP_ID:
+        log.warning("WhatsApp teste: WHATSAPP_TEST_GROUP_ID não configurado")
+        return
+
+    try:
+        nome    = produto.get("nome", "")
+        preco   = produto.get("preco", 0)
+        orig    = produto.get("preco_original", 0)
+        desc    = produto.get("desconto", 0)
+        link    = produto.get("link_afiliado", "")
+        loja    = produto.get("loja", "")
+        img_url = produto.get("imagem_url", "")
+
+        loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "MERCADOLIVRE": "🟡 Mercado Livre", "AMAZON": "📦 Amazon"}.get(loja, loja)
+
+        def fmt(v):
+            return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        texto  = f"🧪 *[TESTE]* — OlhaissO Tech\n"
+        texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        texto += f"*{nome}*\n\n"
+        if desc > 0:
+            eco = round(orig - preco, 2) if orig > preco else 0
+            txt_desc = f"🏷️ *{desc}% OFF*"
+            if eco > 0:
+                txt_desc += f"  |  Economia de *{fmt(eco)}*"
+            texto += txt_desc + "\n"
+        if orig > preco:
+            texto += f"\n💵 De {fmt(orig)} por apenas\n"
+        texto += f"💰 *{fmt(preco)}*\n\n"
+        texto += f"{loja_label}\n"
+        texto += f"\n🛒 *COMPRAR AGORA:*\n{link}\n"
+        texto += f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        texto += f"🧪 Mensagem de teste — OlhaissoTech"
+
+        headers = {
+            "apikey": EVOLUTION_APIKEY,
+            "Content-Type": "application/json",
+        }
+
+        if img_url:
+            payload = {
+                "number": WHATSAPP_TEST_GROUP_ID,
+                "mediatype": "image",
+                "mimetype": "image/jpeg",
+                "caption": texto,
+                "media": img_url,
+            }
+            r = requests.post(
+                f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
+                json=payload, headers=headers, timeout=30
+            )
+            if r.status_code in (200, 201):
+                log.info("✅ WhatsApp TESTE postado com imagem!")
+                return
+
+        payload_txt = {
+            "number": WHATSAPP_TEST_GROUP_ID,
+            "text": texto,
+        }
+        requests.post(
+            f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}",
+            json=payload_txt, headers=headers, timeout=30
+        )
+        log.info("✅ WhatsApp TESTE postado!")
     except Exception as e:
-        log(f"  catálogo menor preço erro: {e}")
-        return None
+        log.error(f"WhatsApp teste erro: {e}")
+
+
+def postar_whatsapp_custom(produto, imagem_path, group_id):
+    """Posta no WhatsApp em grupo específico."""
+    if not EVOLUTION_URL or not group_id:
+        return
+    try:
+        nome  = produto.get("nome", "")
+        preco = produto.get("preco", 0)
+        orig  = produto.get("preco_original", 0)
+        desc  = produto.get("desconto", 0)
+        link  = produto.get("link_afiliado", "")
+        loja  = produto.get("loja", "")
+        img_url = produto.get("imagem_url", "")
+        loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee",
+                      "AMAZON": "📦 Amazon", "MERCADOLIVRE": "🟡 Mercado Livre"}.get(loja, loja)
+        _sc = produto.get("score", 0)
+        if produto.get("tv_games", False):
+            badge = "📺🎮 MOMENTO TVS & GAMES!"
+        elif produto.get("ticket_baixo", False):
+            badge = "🤑 Momento BOM e BARATO"
+        elif _sc >= 3:
+            badge = "🔥 VIRAL AGORA"
+        elif _sc == 2:
+            badge = "📈 TENDÊNCIA"
+        else:
+            badge = "💰 OFERTA DO DIA"
+        def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        texto  = f"👀 *OlhaissO* — {badge}\n"
+        texto += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        texto += f"*{nome}*\n\n"
+        if desc > 0:
+            eco = round(orig - preco, 2) if orig > preco else 0
+            txt_desc = f"🏷️ *{desc}% OFF*"
+            if eco > 0:
+                txt_desc += f"  |  Economia de *{fmt(eco)}*"
+            texto += txt_desc + "\n"
+        if orig > preco:
+            texto += f"\n💵 De {fmt(orig)} por apenas\n"
+        texto += f"💰 *{fmt(preco)}*\n\n"
+        texto += f"{loja_label}\n"
+        texto += f"\n🛒 *COMPRAR AGORA:*\n{link}\n"
+        texto += f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        texto += f"👀 OlhaissoTech | Gadgets com o melhor preço"
+        headers = {"apikey": EVOLUTION_APIKEY, "Content-Type": "application/json"}
+        if img_url:
+            r = requests.post(
+                f"{EVOLUTION_URL}/message/sendMedia/{EVOLUTION_INSTANCE}",
+                json={"number": group_id, "mediatype": "image", "mimetype": "image/jpeg",
+                      "caption": texto, "media": img_url},
+                headers=headers, timeout=30
+            )
+            if r.status_code in (200, 201):
+                return
+        requests.post(
+            f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}",
+            json={"number": group_id, "text": texto},
+            headers=headers, timeout=30
+        )
+    except Exception as e:
+        log.warning(f"WhatsApp custom erro: {e}")
+
+
+def ciclo_teste():
+    """Busca 1 produto da Shopee e posta no grupo de teste."""
+    log.info("🧪 Ciclo de teste iniciado...")
+    try:
+        from shopee_api import buscar_todos_produtos as buscar_shopee_teste
+        produtos = buscar_shopee_teste()
+        if not produtos:
+            log.warning("🧪 Ciclo teste: nenhum produto Shopee encontrado")
+            return
+        produto = produtos[0]
+        log.info(f"🧪 Testando: {produto.get('nome', '')[:50]}")
+        imagem_path = gerar_imagem(produto)
+        postar_whatsapp_teste(produto, imagem_path)
+    except Exception as e:
+        log.error(f"🧪 Ciclo teste erro: {e}")
+
+
+def iniciar_api_historico():
+    """Sobe mini servidor HTTP para expor historico do banco."""
+    import json as _json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    WEB_API_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass  # silencia logs do servidor
+
+        def do_POST(self):
+            if self.path.startswith("/ciclo") and not self.path.startswith("/ciclo_tb") and not self.path.startswith("/ciclo_games"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    qtde        = int(body.get("qtde", POSTS_POR_CICLO))
+                    usar_tg     = body.get("telegram", True)
+                    usar_wa_pri = body.get("wa_principal", True)
+                    usar_wa_tst = body.get("wa_teste", False)
+                    usar_ml     = body.get("usar_ml", True)
+                    usar_shopee = body.get("usar_shopee", True)
+                    usar_ali    = body.get("usar_ali", True)
+                    usar_amazon = body.get("usar_amazon", True)
+
+                    import threading as _th
+                    def _rodar():
+                        try:
+                            import time as _t
+                            log.info(f"🎮 Ciclo manual via Web — {qtde} post(s)")
+                            produtos = montar_pipeline_manual(usar_ml=usar_ml, usar_shopee=usar_shopee, usar_ali=usar_ali, usar_amazon=usar_amazon)
+                            log.info(f"🎮 Pipeline retornou {len(produtos)} produto(s)")
+                            # Filtra lojas se necessário (garantia dupla)
+                            if not usar_ml:
+                                produtos = [p for p in produtos if p.get("loja") != "MERCADOLIVRE"]
+                            if not usar_shopee:
+                                produtos = [p for p in produtos if p.get("loja") != "SHOPEE"]
+                            if not usar_ali:
+                                produtos = [p for p in produtos if p.get("loja") != "ALIEXPRESS"]
+                            if not usar_amazon:
+                                produtos = [p for p in produtos if p.get("loja") != "AMAZON"]
+                            log.info(f"🎮 Após filtro lojas: {len(produtos)} produto(s)")
+                            if not produtos:
+                                log.warning("🎮 Nenhum produto disponível para ciclo manual")
+                                return
+                            postou = 0
+                            for produto in produtos:
+                                if postou >= qtde:
+                                    break
+                                # Verificar histórico em tempo real (evita repetição em disparos rápidos)
+                                hash_p = hashlib.md5(produto["nome"].encode()).hexdigest()
+                                if ja_postado(hash_p):
+                                    log.info(f"🎮 Pulado (já postado recentemente): {produto['nome'][:40]}")
+                                    continue
+                                log.info(f"🎮 Postando: {produto['nome'][:50]}")
+                                try:
+                                    imagem = gerar_imagem(produto)
+                                    publicou = False
+                                    if usar_tg:
+                                        produto_tg = {**produto, "imagem_url": ""}
+                                        ok_tg = postar_telegram(produto_tg, imagem)
+                                        if ok_tg:
+                                            publicou = True
+                                            log.info("🎮 ✅ Telegram OK")
+                                    if usar_wa_pri:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_GROUP_ID)
+                                        publicou = True
+                                        log.info("🎮 ✅ WhatsApp Principal OK")
+                                    if usar_wa_tst:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_TEST_GROUP_ID)
+                                        publicou = True
+                                        log.info("🎮 ✅ WhatsApp Teste OK")
+                                    if publicou:
+                                        registrar_post(produto, "WEB_MANUAL")
+                                        postou += 1
+                                    _t.sleep(8)
+                                except Exception as ep:
+                                    log.error(f"🎮 Erro ao postar produto: {ep}")
+                                    continue
+                            log.info(f"🎮 Ciclo manual concluído — {postou} post(s)")
+                        except Exception as e:
+                            log.error(f"🎮 Ciclo manual erro: {e}")
+                    _th.Thread(target=_rodar, daemon=True).start()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write((_json.dumps({"ok": True, "msg": f"Ciclo iniciado — {qtde} post(s) agendados!"})).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
+            elif self.path.startswith("/ciclo_games"):
+                # Ciclo manual 🎮 GAMES — só Amazon + ML, ignora desconto/preço,
+                # janela de repetição reduzida (HORAS_SEM_REPETIR/3), sem duplicar no lote.
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    qtde        = int(body.get("qtde", POSTS_POR_CICLO))
+                    usar_tg     = body.get("telegram", True)
+                    usar_wa_pri = body.get("wa_principal", True)
+                    usar_wa_tst = body.get("wa_teste", False)
+                    horas_games = max(1, HORAS_SEM_REPETIR // 3)
+                    import threading as _th
+                    def _rodar_games():
+                        try:
+                            import time as _t
+                            log.info(f"🎮 Ciclo GAMES via Web — {qtde} post(s)")
+                            produtos = montar_pipeline_games()
+                            log.info(f"🎮 Pipeline games retornou {len(produtos)} produto(s)")
+                            if not produtos:
+                                log.warning("🎮 Nenhum produto de games disponível")
+                                return
+                            postou = 0
+                            postados_lote = set()  # trava anti-duplicata no mesmo lote
+                            for produto in produtos:
+                                if postou >= qtde:
+                                    break
+                                hash_p = hashlib.md5(produto["nome"].encode()).hexdigest()
+                                if hash_p in postados_lote:
+                                    continue
+                                # janela reduzida (12h) em vez das 36h
+                                if ja_postado(hash_p, horas=horas_games):
+                                    log.info(f"🎮 Pulado (postado nas últimas {horas_games}h): {produto['nome'][:40]}")
+                                    continue
+                                log.info(f"🎮 Postando: {produto['nome'][:50]}")
+                                try:
+                                    imagem = gerar_imagem(produto)
+                                    publicou = False
+                                    if usar_tg:
+                                        produto_tg = {**produto, "imagem_url": ""}
+                                        if postar_telegram(produto_tg, imagem):
+                                            publicou = True
+                                            log.info("🎮 ✅ Telegram OK")
+                                    if usar_wa_pri:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_GROUP_ID)
+                                        publicou = True
+                                        log.info("🎮 ✅ WhatsApp Principal OK")
+                                    if usar_wa_tst:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_TEST_GROUP_ID)
+                                        publicou = True
+                                        log.info("🎮 ✅ WhatsApp Teste OK")
+                                    if publicou:
+                                        registrar_post(produto, "WEB_GAMES")
+                                        postados_lote.add(hash_p)
+                                        postou += 1
+                                    _t.sleep(8)
+                                except Exception as ep:
+                                    log.error(f"🎮 Erro ao postar games: {ep}")
+                                    continue
+                            log.info(f"🎮 Ciclo games concluído — {postou} post(s)")
+                        except Exception as e:
+                            log.error(f"🎮 Ciclo games erro: {e}")
+                    _th.Thread(target=_rodar_games, daemon=True).start()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write((_json.dumps({"ok": True, "msg": f"Ciclo GAMES iniciado — {qtde} post(s)!"})).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
+            elif self.path.startswith("/ciclo_tb"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    usar_tg     = body.get("telegram", True)
+                    usar_wa_pri = body.get("wa_principal", True)
+                    usar_wa_tst = body.get("wa_teste", False)
+                    qtde        = int(body.get("qtde", POSTS_POR_CICLO))
+                    import threading as _th
+                    def _rodar_tb():
+                        try:
+                            import time as _t
+                            log.info(f"🤑 Ciclo Ticket Baixo manual — {qtde} post(s) | TG={usar_tg} PRI={usar_wa_pri} TST={usar_wa_tst}")
+                            produtos = montar_pipeline_ticket_baixo()
+                            if not produtos:
+                                log.warning("🤑 Nenhum produto ticket baixo disponível")
+                                return
+                            log.info(f"🤑 {len(produtos)} produto(s) disponíveis")
+                            postou = 0
+                            for produto in produtos[:qtde]:
+                                log.info(f"🤑 Postando: {produto['nome'][:50]}")
+                                try:
+                                    imagem = gerar_imagem(produto)
+                                    publicou = False
+                                    if usar_tg:
+                                        produto_tg = {**produto, "imagem_url": ""}
+                                        if postar_telegram(produto_tg, imagem):
+                                            publicou = True
+                                            log.info("🤑 ✅ Telegram OK")
+                                    if usar_wa_pri:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_GROUP_ID)
+                                        publicou = True
+                                        log.info("🤑 ✅ WA Principal OK")
+                                    if usar_wa_tst:
+                                        postar_whatsapp_custom(produto, imagem, WHATSAPP_TEST_GROUP_ID)
+                                        publicou = True
+                                        log.info("🤑 ✅ WA Teste OK")
+                                    if publicou:
+                                        registrar_post(produto, "WEB_MANUAL")
+                                        postou += 1
+                                    _t.sleep(8)
+                                except Exception as ep:
+                                    log.error(f"🤑 Erro produto: {ep}")
+                                    continue
+                            log.info(f"🤑 Ciclo Ticket Baixo concluído — {postou} post(s)")
+                        except Exception as e:
+                            log.error(f"🤑 Ciclo TB erro: {e}")
+                    _th.Thread(target=_rodar_tb, daemon=True).start()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write((_json.dumps({"ok": True, "msg": f"Ciclo Ticket Baixo iniciado — {qtde} post(s)!"})).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
+            elif self.path.startswith("/limpar_historico"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM postados")
+                    total = c.rowcount
+                    conn.commit()
+                    conn.close()
+                    log.info(f"🗑️ Histórico limpo via painel — {total} registro(s) removido(s)")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": True, "msg": f"{total} registro(s) removido(s)"}).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
+            elif self.path.startswith("/excluir_historico"):
+                # Exclusão seletiva: por ids, por loja, ou os N últimos postados
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    ids     = body.get("ids", []) or []
+                    loja    = (body.get("loja", "") or "").strip()
+                    ultimos = int(body.get("ultimos", 0) or 0)
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    total = 0
+                    if ids:
+                        ids_int = [int(x) for x in ids]
+                        placeholders = ",".join("?" * len(ids_int))
+                        c.execute(f"DELETE FROM postados WHERE id IN ({placeholders})", ids_int)
+                        total = c.rowcount
+                        log.info(f"🗑️ {total} registro(s) excluído(s) por seleção")
+                    elif ultimos > 0:
+                        c.execute(
+                            "DELETE FROM postados WHERE id IN "
+                            "(SELECT id FROM postados ORDER BY postado_em DESC LIMIT ?)",
+                            (ultimos,)
+                        )
+                        total = c.rowcount
+                        log.info(f"🗑️ {total} último(s) registro(s) excluído(s)")
+                    elif loja:
+                        c.execute("DELETE FROM postados WHERE loja = ?", (loja,))
+                        total = c.rowcount
+                        log.info(f"🗑️ {total} registro(s) da loja {loja} excluído(s)")
+                    else:
+                        conn.close()
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(_json.dumps({"ok": False, "erro": "Nada a excluir (informe ids, loja ou ultimos)"}).encode())
+                        return
+                    conn.commit()
+                    conn.close()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": True, "msg": f"{total} registro(s) removido(s)"}).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
+            elif self.path.startswith("/registrar"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length))
+                    produto = {
+                        "nome": body.get("nome", ""),
+                        "preco": body.get("preco", 0),
+                        "loja": body.get("loja", ""),
+                        "link_afiliado": body.get("link", ""),
+                    }
+                    origem = body.get("origem", "WEB")
+                    registrar_post(produto, origem)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok": true}')
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_GET(self):
+            if self.path.startswith("/historico"):
+                # Verifica API key
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    self.wfile.write(b'{"erro": "Nao autorizado"}')
+                    return
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    c.execute("""
+                        SELECT id, nome, preco, loja, postado_em, COALESCE(origem, 'BOT'), COALESCE(link, '')
+                        FROM postados
+                        ORDER BY postado_em DESC
+                        LIMIT 100
+                    """)
+                    rows = c.fetchall()
+                    conn.close()
+                    data = [{"id": r[0], "nome": r[1], "preco": r[2], "loja": r[3], "postado_em": r[4], "origem": r[5], "link": r[6]} for r in rows]
+                    body = _json.dumps(data).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(body)
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"erro": str(e)}).encode())
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+    port = int(os.getenv("BOT_API_PORT", "8081"))
+    server = HTTPServer(("0.0.0.0", port), Handler)
+    log.info(f"📊 API histórico rodando na porta {port}")
+    server.serve_forever()
+
+
+def main():
+    init_db()
+    log.info("🤖 OlhaissoTech Bot v6.0 iniciado!")
+    log.info(f"📢 Canal: {TELEGRAM_CHANNEL}")
+    log.info(f"⏰ Horários: {', '.join(HORARIOS)}")
+    log.info(f"📦 Posts por ciclo: {POSTS_POR_CICLO}")
+    log.info(f"🎯 Máx por tema: {MAX_POR_TEMA}")
+    log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
+    for h in HORARIOS:
+        schedule.every().day.at(h).do(ciclo)
+    for h in HORARIO_TV_GAMES:
+        schedule.every().day.at(h).do(ciclo)
+    for h in HORARIO_TOP_OFERTAS:
+        schedule.every().day.at(h).do(ciclo_top_ofertas)
+    for h in HORARIOS_ELETRO:
+        schedule.every().day.at(h).do(ciclo_eletro)
+    log.info(f"📺🎮 Ciclo TVs & Games: {', '.join(HORARIO_TV_GAMES)}")
+    log.info(f"🔥 Ciclo TOP Ofertas: {', '.join(HORARIO_TOP_OFERTAS)}")
+    log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
+    log.info(f"🏠 Ciclo Eletro (ML+Amazon, até R${PRECO_MAXIMO_ELETRO:.0f}, ≥{DESCONTO_MINIMO_ELETRO}% OFF): {', '.join(HORARIOS_ELETRO)}")
+    # Sobe API de histórico em thread separada
+    import threading
+    t = threading.Thread(target=iniciar_api_historico, daemon=True)
+    t.start()
+    # Ciclo de teste a cada deploy — desabilitado para não postar no grupo ao reiniciar
+    # t_teste = threading.Thread(target=ciclo_teste, daemon=True)
+    # t_teste.start()
+    log.info("⏳ Aguardando próximo horário agendado...")
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
+
+
+if __name__ == "__main__":
+    main()
