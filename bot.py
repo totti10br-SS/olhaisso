@@ -971,6 +971,7 @@ def _is_tv(nome):
 
 # Lixo do ciclo de games — bugigangas genéricas que inundam as categorias de games
 _JUNK_GAMES_TERMS = [
+    # Bugigangas genéricas
     "mini game", "minigame", "brick game", "game stick", "gamestick",
     "video game portátil", "video game portatil", "videogame portátil", "videogame portatil",
     "retrô portátil", "retro portatil", "portátil retrô", "portatil retro",
@@ -979,6 +980,15 @@ _JUNK_GAMES_TERMS = [
     "sup video game", "sup vídeo game", "console portátil genérico", "console portatil generico",
     "x7 color", "stick jogos", "retro clássico arcade", "retro classico arcade",
     "console antigo", "sega master system evolution",
+    "polystation", "poly station", "dendy", "famicom", "família game", "familia game",
+    # Consoles/jogos de gerações ANTIGAS (queremos só moderno: PS5/Xbox Series/Switch)
+    "video game retro", "vídeo game retro", "console retro", "jogo retro", "games retro",
+    "retro game", "nintendinho", "super nintendo", "nintendo 64", " n64",
+    "mega drive", "megadrive", "master system", "sega genesis", "sega saturn",
+    "atari", "game boy", "gameboy", "game cube", "gamecube",
+    "playstation 1", "playstation 2", "playstation 3", "ps1 ", "ps2 ", "ps3 ",
+    " ps one", "psone", "xbox 360", "xbox classico", "xbox clássico",
+    "nintendo ds", "nintendo 3ds", " wii ", "nintendo wii",
 ]
 def _is_junk_games(nome):
     """Detecta bugiganga genérica de games (mini game/stick/9999 jogos etc.)."""
@@ -1662,16 +1672,21 @@ def montar_pipeline_games():
     # Prioriza EM ALTA (mais vendido) primeiro
     sem_dup.sort(key=lambda x: (1 if x.get("mais_vendido") else 0, x.get("score", 0)), reverse=True)
 
-    # Intercala ML e Amazon pra garantir variedade (ordem de cada pool preservada)
+    # Distribuição 60% Mercado Livre / 40% Amazon (prioriza ML, mantém variedade).
+    # Cada pool já está ordenado por EM ALTA / score. Intercala no ritmo 3 ML : 2 Amazon.
     pool_ml = [p for p in sem_dup if p.get("loja") == "MERCADOLIVRE"]
     pool_az = [p for p in sem_dup if p.get("loja") == "AMAZON"]
     fila = []
     i = j = 0
     while i < len(pool_ml) or j < len(pool_az):
-        if i < len(pool_ml):
-            fila.append(pool_ml[i]); i += 1
-        if j < len(pool_az):
-            fila.append(pool_az[j]); j += 1
+        # 3 do ML
+        for _ in range(3):
+            if i < len(pool_ml):
+                fila.append(pool_ml[i]); i += 1
+        # 2 da Amazon
+        for _ in range(2):
+            if j < len(pool_az):
+                fila.append(pool_az[j]); j += 1
 
     # ─── MENOR PREÇO DO CATÁLOGO ───
     # Para os itens ML que vão ser postados (têm link de catálogo /p/MLB), consulta

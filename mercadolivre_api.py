@@ -1371,13 +1371,23 @@ def buscar_profundo():
 # Ignora desconto e preço (min/max). Usado só pelo botão manual 🎮 Games.
 # ============================================================
 URLS_GAMES = [
-    ("https://lista.mercadolivre.com.br/video-games-consoles", "Consoles"),
+    # Jogos MODERNOS dedicados (PS5, Xbox Series, Switch) — mais jogos de verdade
+    ("https://lista.mercadolivre.com.br/jogos-playstation-5", "Jogos PS5"),
+    ("https://lista.mercadolivre.com.br/jogos-ps5-midia-fisica", "Jogos PS5 Mídia Física"),
+    ("https://lista.mercadolivre.com.br/jogos-xbox-series-x", "Jogos Xbox Series"),
+    ("https://lista.mercadolivre.com.br/jogos-nintendo-switch-2", "Jogos Switch 2"),
+    ("https://lista.mercadolivre.com.br/jogos-nintendo-switch", "Jogos Switch"),
+    # Consoles e acessórios
+    ("https://lista.mercadolivre.com.br/console-playstation-5", "Console PS5"),
+    ("https://lista.mercadolivre.com.br/console-xbox-series", "Console Xbox Series"),
+    ("https://lista.mercadolivre.com.br/nintendo-switch-2", "Console Switch 2"),
+    ("https://lista.mercadolivre.com.br/nintendo-switch", "Console Switch"),
     ("https://lista.mercadolivre.com.br/video-games-controles", "Controles"),
-    ("https://lista.mercadolivre.com.br/video-games-jogos", "Jogos"),
     ("https://lista.mercadolivre.com.br/video-games-acessorios", "Acessórios Games"),
-    ("https://lista.mercadolivre.com.br/console-playstation-5", "PlayStation 5"),
-    ("https://lista.mercadolivre.com.br/console-xbox-series", "Xbox Series"),
-    ("https://lista.mercadolivre.com.br/nintendo-switch", "Nintendo Switch"),
+    # Cartões PSN / gift cards / assinaturas
+    ("https://lista.mercadolivre.com.br/cartao-psn", "Cartão PSN"),
+    ("https://lista.mercadolivre.com.br/gift-card-playstation", "Gift Card PlayStation"),
+    ("https://lista.mercadolivre.com.br/playstation-plus", "PlayStation Plus"),
 ]
 
 
