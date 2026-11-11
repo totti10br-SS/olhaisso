@@ -1940,6 +1940,7 @@ async function dispararBF() {
   const usar_ml      = document.getElementById('bf_usar_ml').checked;
   const usar_amazon  = document.getElementById('bf_usar_amazon').checked;
   const incluir_moda = document.getElementById('bf_moda').checked;
+  const so_vendidos  = document.getElementById('bf_vendidos').checked;
   const telegram     = document.getElementById('bf_telegram').checked;
   const whatsapp     = document.getElementById('bf_whatsapp').checked;
   const grupos       = getGruposWA('bf');
@@ -1967,7 +1968,7 @@ async function dispararBF() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ preco_min, preco_max, desconto_min, qtde, usar_shopee, usar_ali,
-        usar_ml, usar_amazon, incluir_moda, telegram, whatsapp, ...grupos })
+        usar_ml, usar_amazon, incluir_moda, so_vendidos, telegram, whatsapp, ...grupos })
     });
     const data = await resp.json();
     if (data.ok) {
@@ -2172,6 +2173,14 @@ async function carregarAnalytics() {
         <label>📦 Qtde de ofertas *</label>
         <input type="number" id="bf_qtde" step="1" min="1" max="50" value="10" placeholder="Ex: 10">
       </div>
+    </div>
+
+    <label style="margin-bottom:8px;">🔥 Mais vendidos:</label>
+    <div class="destinos" style="margin-bottom:14px;">
+      <label class="destino on" id="dest_bf_vendidos">
+        <input type="checkbox" id="bf_vendidos" checked onchange="toggleDestino('dest_bf_vendidos', this)">
+        <span>Só os mais vendidos do ML e da Amazon</span>
+      </label>
     </div>
 
     <label style="margin-bottom:8px;">👕 Moda / vestuário:</label>
@@ -3336,7 +3345,9 @@ def _bf_coletar(cands, brutos, item, cfg):
                 continue
             if cfg["preco_max"] > 0 and p["preco"] > cfg["preco_max"]:
                 continue
-            if p.get("desconto", 0) < cfg["desc_min"]:
+            eh_amazon = p.get("loja") == "AMAZON"
+            # Amazon: o scraper nao traz desconto real (vem fixo 23%), entao nao filtra por desconto
+            if not eh_amazon and p.get("desconto", 0) < cfg["desc_min"]:
                 continue
             if _bf_bloqueado(nome, cfg["incluir_moda"]):
                 continue
@@ -3345,6 +3356,12 @@ def _bf_coletar(cands, brutos, item, cfg):
                 continue
             tier = 2 if _bf_eh_black_friday(nome) else (1 if item["bf"] else 0)
             c = dict(p)
+            if eh_amazon:
+                c["desconto"] = 0                   # nao exibe desconto inventado
+                c["preco_original"] = c["preco"]
+                c["_rank_desc"] = cfg["desc_min"]   # entra na disputa no nivel minimo aceito
+            else:
+                c["_rank_desc"] = c.get("desconto", 0)
             c["_tier"] = tier
             c["_seg"] = _bf_segmento(nome, item.get("seg"))
             c["_chave"] = chave
@@ -3352,7 +3369,7 @@ def _bf_coletar(cands, brutos, item, cfg):
             if atual is None:
                 cands[chave] = c
                 entrou += 1
-            elif (c["_tier"], c.get("desconto", 0)) > (atual["_tier"], atual.get("desconto", 0)):
+            elif (c["_tier"], c["_rank_desc"]) > (atual["_tier"], atual["_rank_desc"]):
                 cands[chave] = c
         except Exception:
             continue
@@ -3361,18 +3378,30 @@ def _bf_coletar(cands, brutos, item, cfg):
 
 def _bf_selecionar(cands, qtde):
     """Prioridade: titulo com Black Friday > achado em busca BF > resto; depois maior desconto.
-    Respeita BF_MAX_POR_SEGMENTO."""
-    ordenados = sorted(cands, key=lambda c: (-c["_tier"], -c.get("desconto", 0), c.get("preco", 0)))
-    cont = {}
+    Respeita BF_MAX_POR_SEGMENTO e, numa 1a passada, divide as vagas entre as lojas
+    (para ML/Amazon nao ficarem de fora); a 2a passada completa o que faltar."""
+    ordenados = sorted(cands, key=lambda c: (-c["_tier"], -c.get("_rank_desc", c.get("desconto", 0)), c.get("preco", 0)))
+    n_lojas = max(1, len({c.get("loja") for c in cands}))
+    teto_loja = max(1, -(-qtde // n_lojas))
+    cont_seg = {}
+    cont_loja = {}
+    usados = set()
     sel = []
-    for c in ordenados:
-        if len(sel) >= qtde:
-            break
-        s = c["_seg"]
-        if cont.get(s, 0) >= BF_MAX_POR_SEGMENTO:
-            continue
-        cont[s] = cont.get(s, 0) + 1
-        sel.append(c)
+    for fase in (1, 2):
+        for c in ordenados:
+            if len(sel) >= qtde:
+                break
+            if c["_chave"] in usados:
+                continue
+            s_ = c["_seg"]
+            if cont_seg.get(s_, 0) >= BF_MAX_POR_SEGMENTO:
+                continue
+            if fase == 1 and cont_loja.get(c.get("loja"), 0) >= teto_loja:
+                continue
+            cont_seg[s_] = cont_seg.get(s_, 0) + 1
+            cont_loja[c.get("loja")] = cont_loja.get(c.get("loja"), 0) + 1
+            usados.add(c["_chave"])
+            sel.append(c)
     return sel
 
 
@@ -3439,13 +3468,29 @@ def _bf_passada(cands, plano, pagina, cfg):
     return False
 
 
+def _bf_lock_bot(ativo):
+    """Liga/desliga a pausa das rotinas agendadas do bot enquanto a Black Friday roda."""
+    try:
+        BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+        WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        r = requests.post(BOT_API_URL + "/bf_lock", json={"ativo": ativo},
+                          headers={"X-API-Key": WEB_SECRET_KEY}, timeout=10)
+        return r.status_code == 200
+    except Exception as e:
+        _bf_log("Não consegui " + ("pausar" if ativo else "liberar") + " as rotinas do bot: " + str(e)[:60])
+        return False
+
+
 def _bf_pool_iniciar(cfg):
     """Pede ao bot (que tem os scrapers) para coletar ML/Amazon em segundo plano."""
     try:
         BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
         WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
         r = requests.post(BOT_API_URL + "/bf_pool",
-                          json={"usar_ml": cfg["ml"], "usar_amazon": cfg["amazon"]},
+                          json={"usar_ml": cfg["ml"], "usar_amazon": cfg["amazon"],
+                                "preco_min": cfg["preco_min"], "preco_max": cfg["preco_max"],
+                                "desc_min": cfg["desc_min"], "incluir_moda": cfg["incluir_moda"],
+                                "so_vendidos": cfg["so_vendidos"]},
                           headers={"X-API-Key": WEB_SECRET_KEY}, timeout=15)
         return r.status_code == 200
     except Exception as e:
@@ -3453,7 +3498,23 @@ def _bf_pool_iniciar(cfg):
         return False
 
 
-def _bf_pool_aguardar(timeout=1800):
+def _bf_diag(brutos, cfg):
+    """Resumo por loja de quantos itens vieram e por que foram cortados."""
+    cont = {}
+    for p in brutos:
+        d = cont.setdefault(p.get("loja", "?"), {"t": 0, "preco": 0, "desc": 0, "bloq": 0})
+        d["t"] += 1
+        if p["preco"] < cfg["preco_min"] or (cfg["preco_max"] > 0 and p["preco"] > cfg["preco_max"]):
+            d["preco"] += 1
+        elif p.get("loja") != "AMAZON" and p.get("desconto", 0) < cfg["desc_min"]:
+            d["desc"] += 1
+        elif _bf_bloqueado(p["nome"], cfg["incluir_moda"]):
+            d["bloq"] += 1
+    return "; ".join(k + ": " + str(v["t"]) + " (preço fora " + str(v["preco"]) + ", desconto baixo "
+                     + str(v["desc"]) + ", bloqueados " + str(v["bloq"]) + ")" for k, v in cont.items())
+
+
+def _bf_pool_aguardar(timeout=2700):
     """Espera o bot terminar ML/Amazon. Retorna lista de produtos (ou [])."""
     BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
     WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
@@ -3496,6 +3557,29 @@ def _bf_converter_bot(lista):
     return out
 
 
+def _bf_link_final(c):
+    """Link curto para postar. Tenta TinyURL v2 (2x), depois o TinyURL simples; avisa no log se nao encurtou."""
+    url = c.get("link_original", "")
+    if c.get("_link_pronto") or len(url) <= 60:
+        return url
+    for tentativa in (1, 2):
+        try:
+            curto = encurtar_link(url)
+            if curto and curto != url and curto.startswith("http") and len(curto) < len(url):
+                return curto
+        except Exception:
+            pass
+        time.sleep(1)
+    try:
+        r = requests.get("https://tinyurl.com/api-create.php", params={"url": url}, timeout=10)
+        if r.status_code == 200 and r.text.strip().startswith("https://"):
+            return r.text.strip()
+    except Exception:
+        pass
+    _bf_log("ATENCAO: link nao encurtou (" + str(len(url)) + " caracteres): " + c.get("nome", "")[:40])
+    return url
+
+
 def _bf_registrar(produto):
     try:
         BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
@@ -3511,13 +3595,15 @@ def _bf_registrar(produto):
 
 def _bf_worker(cfg):
     try:
+        if _bf_lock_bot(True):
+            _bf_log("Rotinas agendadas do bot pausadas durante a Black Friday.")
         plano = _bf_montar_plano()
         cands = {}
         _bf_log("Buscando ofertas (desconto >= " + str(cfg["desc_min"]) + "%, R$ " + str(cfg["preco_min"]) + " a R$ " + str(cfg["preco_max"]) + ")...")
         pool_bot = cfg["ml"] or cfg["amazon"]
         if pool_bot:
             if _bf_pool_iniciar(cfg):
-                _bf_log("ML/Amazon: coleta iniciada no bot (pode levar vários minutos).")
+                _bf_log("ML/Amazon: coleta iniciada no bot" + (" (só os mais vendidos)" if cfg["so_vendidos"] else "") + " — pode levar vários minutos.")
             else:
                 pool_bot = False
                 _bf_log("ML/Amazon indisponíveis (bot não aceitou o pedido — o bot.py novo já está no ar?).")
@@ -3528,6 +3614,8 @@ def _bf_worker(cfg):
             brutos_bot = _bf_converter_bot(_bf_pool_aguardar())
             novos_bot = _bf_coletar(cands, brutos_bot, {"bf": False, "seg": None}, cfg)
             _bf_log("ML/Amazon: " + str(len(brutos_bot)) + " do bot, " + str(novos_bot) + " passaram nos filtros.")
+            if brutos_bot:
+                _bf_log("Detalhe -> " + _bf_diag(brutos_bot, cfg))
         sel =_bf_intercalar(_bf_selecionar(list(cands.values()), cfg["qtde"]))
         _BF_ESTADO["total"] = len(sel)
         if not sel:
@@ -3552,10 +3640,12 @@ def _bf_worker(cfg):
                 produto = {
                     "nome": nome_curto, "preco": c["preco"], "preco_original": c["preco_original"],
                     "desconto": c["desconto"], "loja": c["loja"], "frete": c.get("frete", ""),
-                    "link_afiliado": c["link_original"] if c.get("_link_pronto") else encurtar_link(c["link_original"]),
+                    "link_afiliado": _bf_link_final(c),
                     "imagem_url": c.get("imagem_url", ""),
                     "score": 1, "fontes": [], "black_friday": True,
                 }
+                if len(produto["link_afiliado"]) > 250:
+                    raise ValueError("link nao encurtou - nao postado")
                 imagem_path = gerar_imagem(produto)
                 if cfg["telegram"]:
                     ok_tg = postar_telegram({**produto, "imagem_url": ""}, imagem_path)
@@ -3583,6 +3673,7 @@ def _bf_worker(cfg):
         _BF_ESTADO["resumo"] = "Erro no disparo: " + str(e)[:150]
         _bf_log(_BF_ESTADO["resumo"])
     finally:
+        _bf_lock_bot(False)
         with _BF_LOCK:
             _BF_ESTADO["rodando"] = False
             _BF_ESTADO["fim"] = time.time()
@@ -3604,6 +3695,7 @@ def disparar_blackfriday():
             "ml":           bool(data.get("usar_ml", False)),
             "amazon":       bool(data.get("usar_amazon", False)),
             "incluir_moda": bool(data.get("incluir_moda", False)),
+            "so_vendidos":  bool(data.get("so_vendidos", False)),
             "telegram":     bool(data.get("telegram", True)),
             "whatsapp":     bool(data.get("whatsapp", True)),
             "wa_principal": bool(data.get("wa_principal", True)),

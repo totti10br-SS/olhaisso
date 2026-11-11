@@ -2214,22 +2214,166 @@ def ciclo_teste():
 # Aqui só coletamos (mesmas buscas do ciclo automático, sem travas de mercadoria).
 _BF_POOL = {"estado": "idle", "inicio": 0, "produtos": [], "msg": ""}
 
-def _bf_pool_coletar(usar_ml, usar_amazon):
+_BF_COND_RE = re.compile(r"(?<![a-z])(recondicion|remanufatur|usad[oa]|seminov|semi nov|segunda m|2. m|refurbish|vitrine|outlet|com defeito|para pecas)")
+
+# As MELHORES categorias do ML para a Black Friday (substitui as 35 do modo completo).
+# Para trocar/ajustar, é só editar esta lista: (url, nome).
+_BF_ML_MELHORES = [
+    ("https://www.mercadolivre.com.br/ofertas", "Ofertas do Dia"),
+    ("https://lista.mercadolivre.com.br/celulares-smartphones", "Smartphones"),
+    ("https://lista.mercadolivre.com.br/smart-tv", "TVs"),
+    ("https://lista.mercadolivre.com.br/notebooks-acessorios", "Notebooks"),
+    ("https://lista.mercadolivre.com.br/video-games-consoles", "Consoles"),
+    ("https://lista.mercadolivre.com.br/fones-ouvido-headsets", "Fones"),
+    ("https://lista.mercadolivre.com.br/smartwatch", "Smartwatch"),
+    ("https://lista.mercadolivre.com.br/monitores-telas", "Monitores"),
+    ("https://lista.mercadolivre.com.br/fritadeira-air-fryer", "Air Fryer"),
+    ("https://lista.mercadolivre.com.br/aspiradores-de-po", "Aspiradores"),
+    ("https://lista.mercadolivre.com.br/casa-moveis-decoracao", "Casa e Decoração"),
+    ("https://lista.mercadolivre.com.br/ferramentas", "Ferramentas"),
+    ("https://lista.mercadolivre.com.br/beleza-cuidado-pessoal", "Beleza"),
+    ("https://lista.mercadolivre.com.br/esportes-fitness", "Esportes"),
+]
+_BF_ML_MODA = [("https://lista.mercadolivre.com.br/calcados-roupas-bolsas", "Moda")]
+
+# Modo "só os mais vendidos": páginas de RANKING de vendas do ML (a de games já roda em produção;
+# as demais seguem o mesmo padrão /mais-vendidos/<categoria> — se alguma não carregar, o log mostra).
+_BF_ML_MAIS_VENDIDOS = [
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1144", "Mais Vendidos Games"),
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1051", "Mais Vendidos Celulares"),
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1648", "Mais Vendidos Computação"),
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1000", "Mais Vendidos Eletrônicos e Áudio"),
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB5726", "Mais Vendidos Eletrodomésticos"),
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1574", "Mais Vendidos Casa e Decoração"),
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB263532", "Mais Vendidos Ferramentas"),
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1246", "Mais Vendidos Beleza"),
+    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1276", "Mais Vendidos Esportes"),
+]
+_BF_ML_MAIS_VENDIDOS_MODA = [("https://www.mercadolivre.com.br/mais-vendidos/MLB1430", "Mais Vendidos Moda")]
+_BF_AZ_TOP_N = 15   # Amazon: só as N primeiras posições de cada lista de mais vendidos
+
+_BF_AZ_EXTRAS = [
+    ("Mais Vendidos Geral", "https://www.amazon.com.br/gp/bestsellers"),
+    ("Brinquedos",   "https://www.amazon.com.br/gp/bestsellers/toys"),
+    ("Esportes",     "https://www.amazon.com.br/gp/bestsellers/sports"),
+    ("Beleza",       "https://www.amazon.com.br/gp/bestsellers/beauty"),
+    ("Automotivo",   "https://www.amazon.com.br/gp/bestsellers/automotive"),
+    ("Ferramentas",  "https://www.amazon.com.br/gp/bestsellers/hi"),
+    ("Pet",          "https://www.amazon.com.br/gp/bestsellers/pet-supplies"),
+    ("Jardim",       "https://www.amazon.com.br/gp/bestsellers/garden"),
+    ("Bebês",        "https://www.amazon.com.br/gp/bestsellers/baby"),
+    ("Escritório",   "https://www.amazon.com.br/gp/bestsellers/office-products"),
+    ("Em Alta Casa", "https://www.amazon.com.br/gp/movers-and-shakers/kitchen"),
+]
+_BF_AZ_MODA = [("Moda", "https://www.amazon.com.br/gp/bestsellers/apparel")]
+
+
+# ─── BLACK FRIDAY: trava das rotinas agendadas ─────────────────────────────
+# Enquanto a Black Friday roda (o painel liga/desliga via /bf_lock), as rotinas
+# programadas (schedule) PULAM A VEZ. Expira sozinha após 2h por segurança.
+_BF_LOCK_INFO = {"ativo": False, "desde": 0.0}
+_BF_LOCK_MAX_SEG = 7200
+
+def bf_em_andamento():
+    return bool(_BF_LOCK_INFO["ativo"]) and (time.time() - _BF_LOCK_INFO["desde"]) < _BF_LOCK_MAX_SEG
+
+def _agendado(fn):
+    """Envolve uma rotina agendada: se a Black Friday está rodando, ela pula a vez."""
+    def _wrap(*a, **k):
+        if bf_em_andamento():
+            log.info(f"🖤 Black Friday em andamento — {fn.__name__} pulou a vez")
+            return None
+        return fn(*a, **k)
+    _wrap.__name__ = fn.__name__
+    return _wrap
+
+
+def _bf_destravar(ml_mod, az_mod, preco_min, preco_max, desc_min, incluir_moda, so_vendidos=False):
+    """Libera (TEMPORARIAMENTE) os módulos de ML/Amazon para a Black Friday:
+    - preço/desconto passam a ser os valores informados na tela
+    - lista de palavras bloqueadas: mantém só as de CONDIÇÃO (usado/recondicionado/vitrine...)
+    - ML: desliga o filtro 'só tech' (produto_e_tech) e usa só as melhores categorias (_BF_ML_MELHORES)
+    - Amazon: soma departamentos de qualquer mercadoria
+    Retorna lista (módulo, nome, valor_original) para restaurar no finally."""
+    orig = []
+
+    def _set(m, nome, valor):
+        orig.append((m, nome, getattr(m, nome)))
+        setattr(m, nome, valor)
+        log.info(f"🖤 BF destravado: {m.__name__}.{nome}")
+
+    for m in (ml_mod, az_mod):
+        for nome in dir(m):
+            if not nome.isupper():
+                continue
+            v = getattr(m, nome, None)
+            if isinstance(v, (list, tuple)) and re.search(r"BLOQ|BLOCK|LIXO|JUNK|PROIB|BANID", nome):
+                _set(m, nome, [t for t in v if isinstance(t, str) and _BF_COND_RE.search(t.lower())])
+            elif isinstance(v, (int, float)) and not isinstance(v, bool):
+                preco = re.search(r"PRECO|PRICE|VALOR", nome)
+                if preco and "MAX" in nome:
+                    _set(m, nome, type(v)(preco_max))
+                elif preco and "MIN" in nome:
+                    _set(m, nome, type(v)(preco_min))
+                elif re.search(r"DESC|DISCOUNT", nome) and "MIN" in nome:
+                    _set(m, nome, type(v)(desc_min))
+
+    if hasattr(ml_mod, "produto_e_tech"):
+        _set(ml_mod, "produto_e_tech", lambda nome: True)
+    if hasattr(ml_mod, "URLS_BUSCA") and hasattr(ml_mod, "URLS_BUSCA_EXTRA"):
+        # o modo completo junta URLS_BUSCA + URLS_BUSCA_EXTRA: deixo só as melhores
+        if so_vendidos:
+            _set(ml_mod, "URLS_BUSCA", list(_BF_ML_MAIS_VENDIDOS) + (list(_BF_ML_MAIS_VENDIDOS_MODA) if incluir_moda else []))
+        else:
+            _set(ml_mod, "URLS_BUSCA", list(_BF_ML_MELHORES) + (list(_BF_ML_MODA) if incluir_moda else []))
+        _set(ml_mod, "URLS_BUSCA_EXTRA", [])
+    if hasattr(az_mod, "CATEGORIAS"):
+        extras = list(_BF_AZ_EXTRAS) + (list(_BF_AZ_MODA) if incluir_moda else [])
+        cats = list(az_mod.CATEGORIAS) + extras
+        if so_vendidos:   # "Em Alta" = crescimento, não volume de vendas
+            cats = [c for c in cats if not c[0].lower().startswith("em alta")]
+        _set(az_mod, "CATEGORIAS", cats)
+    return orig
+
+
+def _bf_pool_coletar(usar_ml, usar_amazon, preco_min=0, preco_max=1000000, desc_min=0, incluir_moda=False, so_vendidos=False):
+    orig = []
     try:
+        import mercadolivre_api as _ml_mod
+        import amazon_api as _az_mod
+        orig = _bf_destravar(_ml_mod, _az_mod, preco_min, preco_max, desc_min, incluir_moda, so_vendidos)
         todos = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
             futs = {}
             if usar_ml:
-                futs["ml"] = ex.submit(buscar_ml)
+                # completo=True: varre todas as categorias (como o ciclo manual) — demora mais, traz mais
+                futs["ml"] = ex.submit(buscar_ml, completo=True)
             if usar_amazon:
                 futs["amazon"] = ex.submit(buscar_amazon)
             for nome_f, fut in futs.items():
                 try:
-                    r = fut.result(timeout=1800) or []
+                    r = fut.result(timeout=2400) or []
                     log.info(f"🖤 BF pool {nome_f}: {len(r)} produtos")
                     todos.extend(r)
                 except Exception as e:
                     log.warning(f"🖤 BF pool {nome_f} erro: {e}")
+        if so_vendidos:
+            # ML: tudo que veio das páginas de ranking é "mais vendido". Amazon: só o topo de cada lista.
+            filtrados = []
+            pos_cat = {}
+            for p in todos:
+                if p.get("loja") == "AMAZON":
+                    cat = p.get("categoria", "")
+                    if cat.lower().startswith("em alta"):
+                        continue
+                    pos_cat[cat] = pos_cat.get(cat, 0) + 1
+                    if pos_cat[cat] > _BF_AZ_TOP_N:
+                        continue
+                    p["rank_vendas"] = pos_cat[cat]
+                p["mais_vendido"] = True
+                filtrados.append(p)
+            log.info(f"🖤 BF só mais vendidos: {len(todos)} → {len(filtrados)} produtos")
+            todos = filtrados
         saida = []
         vistos = set()
         for p in todos:
@@ -2245,13 +2389,21 @@ def _bf_pool_coletar(usar_ml, usar_amazon):
                 "preco_original": p.get("preco_original", 0),
                 "desconto": p.get("desconto", 0), "loja": p.get("loja", ""),
                 "frete": p.get("frete", ""), "link_afiliado": p.get("link_afiliado", ""),
-                "imagem_url": p.get("imagem_url", ""),
+                "imagem_url": p.get("imagem_url", ""), "asin": p.get("asin", ""),
             })
         _BF_POOL.update({"estado": "pronto", "produtos": saida, "msg": f"{len(saida)} produtos"})
         log.info(f"🖤 BF pool pronto: {len(saida)} produtos (ML/Amazon)")
     except Exception as e:
         _BF_POOL.update({"estado": "erro", "produtos": [], "msg": str(e)[:200]})
         log.error(f"🖤 BF pool erro: {e}")
+    finally:
+        for m, nome, v in reversed(orig):
+            try:
+                setattr(m, nome, v)
+            except Exception:
+                pass
+        if orig:
+            log.info("🖤 BF: travas restauradas (ML/Amazon voltaram ao normal)")
 
 
 def iniciar_api_historico():
@@ -2569,6 +2721,29 @@ def iniciar_api_historico():
                     self.end_headers()
                     self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
 
+            elif self.path.startswith("/bf_lock"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    ativo = bool(body.get("ativo", False))
+                    _BF_LOCK_INFO["ativo"] = ativo
+                    _BF_LOCK_INFO["desde"] = time.time() if ativo else 0.0
+                    log.info("🖤 Black Friday: rotinas agendadas " + ("PAUSADAS" if ativo else "liberadas"))
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok": true}')
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
             elif self.path.startswith("/bf_pool"):
                 api_key = self.headers.get("X-API-Key", "")
                 if api_key != WEB_API_KEY:
@@ -2583,7 +2758,12 @@ def iniciar_api_historico():
                         import threading as _th
                         _th.Thread(
                             target=_bf_pool_coletar,
-                            args=(bool(body.get("usar_ml", True)), bool(body.get("usar_amazon", True))),
+                            args=(bool(body.get("usar_ml", True)), bool(body.get("usar_amazon", True)),
+                                  float(body.get("preco_min", 0) or 0),
+                                  float(body.get("preco_max", 0) or 1000000),
+                                  int(body.get("desc_min", 0) or 0),
+                                  bool(body.get("incluir_moda", False)),
+                                  bool(body.get("so_vendidos", False))),
                             daemon=True
                         ).start()
                     self.send_response(200)
@@ -2694,13 +2874,13 @@ def main():
     log.info(f"🎯 Máx por tema: {MAX_POR_TEMA}")
     log.info(f"🗓️ Sem repetir por: {HORAS_SEM_REPETIR} horas\n")
     for h in HORARIOS:
-        schedule.every().day.at(h).do(ciclo)
+        schedule.every().day.at(h).do(_agendado(ciclo))
     for h in HORARIO_TV_GAMES:
-        schedule.every().day.at(h).do(ciclo)
+        schedule.every().day.at(h).do(_agendado(ciclo))
     for h in HORARIO_TOP_OFERTAS:
-        schedule.every().day.at(h).do(ciclo_top_ofertas)
+        schedule.every().day.at(h).do(_agendado(ciclo_top_ofertas))
     for h in HORARIOS_ELETRO:
-        schedule.every().day.at(h).do(ciclo_eletro)
+        schedule.every().day.at(h).do(_agendado(ciclo_eletro))
     log.info(f"📺🎮 Ciclo TVs & Games: {', '.join(HORARIO_TV_GAMES)}")
     log.info(f"🔥 Ciclo TOP Ofertas: {', '.join(HORARIO_TOP_OFERTAS)}")
     log.info(f"💰 Ciclo ticket baixo (≤R${PRECO_TICKET_BAIXO:.0f}): {', '.join(HORARIO_TICKET_BAIXO)}")
