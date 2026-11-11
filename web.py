@@ -3124,6 +3124,8 @@ import random as _bf_random
 BF_MAX_POR_SEGMENTO = 3     # nunca 4 itens do mesmo segmento no mesmo disparo
 BF_INTERVALO_POSTS  = 10    # segundos entre postagens
 BF_QTDE_MAX         = 50
+# Segmentos que NUNCA entram na Black Friday (nomes iguais aos de _BF_SEGMENTOS)
+BF_SEGMENTOS_BLOQUEADOS = {"brinquedo", "ferramentas"}
 
 _BF_LOCK     = _bf_threading.Lock()
 _BF_POSTADOS = set()        # chaves de produtos ja postados pelo modulo (ate reiniciar o painel)
@@ -3180,7 +3182,7 @@ _BF_SEGMENTOS = [
 _BF_PALAVRAS_BF = ["black friday", "oferta black friday", "black friday eletronicos", "black friday casa",
                    "black friday cozinha", "black friday celular", "black friday informatica",
                    "black friday gamer", "black friday fone", "black friday beleza",
-                   "black friday ferramentas", "black friday esporte"]
+                   "black friday esporte"]
 
 _BF_PALAVRAS_CAT = {
     "audio":       ["fone bluetooth", "caixa de som bluetooth", "microfone"],
@@ -3191,10 +3193,8 @@ _BF_PALAVRAS_CAT = {
     "gamer":       ["controle gamer", "headset gamer", "cadeira gamer"],
     "cozinha":     ["fritadeira airfryer", "cafeteira", "liquidificador", "panela", "garrafa termica"],
     "casa":        ["organizador", "luminaria led", "aspirador robo", "ventilador", "umidificador"],
-    "ferramentas": ["parafusadeira", "kit ferramentas", "furadeira"],
     "beleza":      ["secador de cabelo", "aparador de barba", "chapinha"],
     "esporte":     ["halter", "esteira", "bicicleta ergometrica"],
-    "brinquedo":   ["brinquedo educativo", "blocos de montar"],
     "auto":        ["acessorio carro", "aspirador automotivo", "camera veicular"],
     "seguranca":   ["camera wifi", "fechadura digital"],
     "tv_video":    ["projetor", "tv box", "smart tv"],
@@ -3231,6 +3231,8 @@ def _bf_segmento(nome, seg_kw=None):
 
 def _bf_bloqueado(nome, incluir_moda=False):
     n = _bf_norm(nome)
+    if _bf_segmento(nome) in BF_SEGMENTOS_BLOQUEADOS:
+        return True
     for t in _BF_BLOQ_GERAL:
         if _bf_tem_termo(n, t):
             return True

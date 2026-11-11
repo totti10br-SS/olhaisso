@@ -2230,7 +2230,6 @@ _BF_ML_MELHORES = [
     ("https://lista.mercadolivre.com.br/fritadeira-air-fryer", "Air Fryer"),
     ("https://lista.mercadolivre.com.br/aspiradores-de-po", "Aspiradores"),
     ("https://lista.mercadolivre.com.br/casa-moveis-decoracao", "Casa e Decoração"),
-    ("https://lista.mercadolivre.com.br/ferramentas", "Ferramentas"),
     ("https://lista.mercadolivre.com.br/beleza-cuidado-pessoal", "Beleza"),
     ("https://lista.mercadolivre.com.br/esportes-fitness", "Esportes"),
 ]
@@ -2245,7 +2244,6 @@ _BF_ML_MAIS_VENDIDOS = [
     ("https://www.mercadolivre.com.br/mais-vendidos/MLB1000", "Mais Vendidos Eletrônicos e Áudio"),
     ("https://www.mercadolivre.com.br/mais-vendidos/MLB5726", "Mais Vendidos Eletrodomésticos"),
     ("https://www.mercadolivre.com.br/mais-vendidos/MLB1574", "Mais Vendidos Casa e Decoração"),
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB263532", "Mais Vendidos Ferramentas"),
     ("https://www.mercadolivre.com.br/mais-vendidos/MLB1246", "Mais Vendidos Beleza"),
     ("https://www.mercadolivre.com.br/mais-vendidos/MLB1276", "Mais Vendidos Esportes"),
 ]
@@ -2254,11 +2252,9 @@ _BF_AZ_TOP_N = 15   # Amazon: só as N primeiras posições de cada lista de mai
 
 _BF_AZ_EXTRAS = [
     ("Mais Vendidos Geral", "https://www.amazon.com.br/gp/bestsellers"),
-    ("Brinquedos",   "https://www.amazon.com.br/gp/bestsellers/toys"),
     ("Esportes",     "https://www.amazon.com.br/gp/bestsellers/sports"),
     ("Beleza",       "https://www.amazon.com.br/gp/bestsellers/beauty"),
     ("Automotivo",   "https://www.amazon.com.br/gp/bestsellers/automotive"),
-    ("Ferramentas",  "https://www.amazon.com.br/gp/bestsellers/hi"),
     ("Pet",          "https://www.amazon.com.br/gp/bestsellers/pet-supplies"),
     ("Jardim",       "https://www.amazon.com.br/gp/bestsellers/garden"),
     ("Bebês",        "https://www.amazon.com.br/gp/bestsellers/baby"),
