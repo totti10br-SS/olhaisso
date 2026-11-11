@@ -275,12 +275,15 @@ def gerar_imagem(produto):
 
     # ── TOPO: badge único grande centralizado ──────────────────
     label_score, cor_score = badge_score(produto.get("score", 0), produto.get("ticket_baixo", False), produto.get("tv_games", False))
+    cor_txt_badge = COR_BRANCO
+    if produto.get("black_friday", False):
+        label_score, cor_score, cor_txt_badge = "BLACK FRIDAY", (255, 196, 0), (0, 0, 0)
     f_badge = carregar_fonte(54, negrito=True)
     bw, bh = 580, 90
     bx = (W - bw) // 2
     draw.rounded_rectangle([bx, 24, bx+bw, 24+bh], radius=45, fill=cor_score)
     bb = draw.textbbox((0,0), label_score, font=f_badge)
-    draw.text((bx+(bw-(bb[2]-bb[0]))//2, 24+(bh-(bb[3]-bb[1]))//2), label_score, font=f_badge, fill=COR_BRANCO)
+    draw.text((bx+(bw-(bb[2]-bb[0]))//2, 24+(bh-(bb[3]-bb[1]))//2), label_score, font=f_badge, fill=cor_txt_badge)
 
     # ── BADGES LOJA + DESCONTO lado a lado ────────────────────
     f_sub_badge = carregar_fonte(44, negrito=True)
@@ -450,6 +453,8 @@ def montar_caption(produto):
         badge = "📺🎮 <b>MOMENTO TVS & GAMES!</b>"
     if produto.get("hora_gamer", False):
         badge = "🎮🕹️👾 <b>A HORA GAMER!!!</b> 🎮🕹️👾"
+    if produto.get("black_friday", False):
+        badge = "🖤 <b>BLACK FRIDAY</b> 🖤"
 
     # Badge de loja
     loja_badge = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
@@ -603,7 +608,9 @@ def postar_whatsapp(produto, imagem_path):
 
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee", "AMAZON": "📦 Amazon"}.get(loja, loja)
         _sc = produto.get("score", 0)
-        if produto.get("tv_games", False):
+        if produto.get("black_friday", False):
+            badge = "🖤 BLACK FRIDAY"
+        elif produto.get("tv_games", False):
             badge = "📺🎮 MOMENTO TVS & GAMES!"
         elif produto.get("ticket_baixo", False):
             badge = "🤑 Momento BOM e BARATO"
@@ -2137,7 +2144,9 @@ def postar_whatsapp_custom(produto, imagem_path, group_id):
         loja_label = {"ALIEXPRESS": "🛍️ AliExpress", "SHOPEE": "🧡 Shopee",
                       "AMAZON": "📦 Amazon", "MERCADOLIVRE": "🟡 Mercado Livre"}.get(loja, loja)
         _sc = produto.get("score", 0)
-        if produto.get("tv_games", False):
+        if produto.get("black_friday", False):
+            badge = "🖤 BLACK FRIDAY"
+        elif produto.get("tv_games", False):
             badge = "📺🎮 MOMENTO TVS & GAMES!"
         elif produto.get("ticket_baixo", False):
             badge = "🤑 Momento BOM e BARATO"

@@ -63,6 +63,8 @@ def postar_whatsapp_grupo(produto, imagem_path, group_id):
             "AMAZON": "Amazon", "MERCADOLIVRE": "Mercado Livre"
         }.get(loja, loja)
         badge = "VIRAL AGORA" if produto.get("score", 0) >= 3 else "TENDENCIA" if produto.get("score", 0) == 2 else "OFERTA DO DIA"
+        if produto.get("black_friday", False):
+            badge = "BLACK FRIDAY"
         def fmt(v):
             return "R$ {:,.2f}".format(v).replace(",", "X").replace(".", ",").replace("X", ".")
         linhas = [
@@ -568,6 +570,7 @@ HTML = """<!DOCTYPE html>
     <div class="tab" onclick="trocarAba('ml')">🔗 Gerar Link</div>
     <div class="tab" onclick="trocarAba('historico'); carregarHistorico()">📊 Histórico</div>
     <div class="tab" onclick="trocarAba('analytics'); carregarAnalytics()">📈 Analytics</div>
+    <div class="tab" onclick="trocarAba('bf')" style="background:#1a1500;border-color:#FFC400;color:#FFC400;">🖤 Black Friday</div>
     <div class="tab" onclick="trocarAba('teste')" style="background:#0d2a1a;border-color:#00BB44;color:#00BB44;">🧪 Teste</div>
   </div>
 
@@ -989,7 +992,7 @@ function copiarLink(btn) {
 }
 
 function trocarAba(aba) {
-  const abas = ['afiliado', 'produto', 'busca', 'web', 'ml', 'historico', 'analytics', 'teste'];
+  const abas = ['afiliado', 'produto', 'busca', 'web', 'ml', 'historico', 'analytics', 'bf', 'teste'];
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', aba === abas[i]));
   abas.forEach(a => {
     const card = document.getElementById('card_' + a);
@@ -1892,6 +1895,93 @@ async function testarScraping() {
   }
 }
 
+// ===== BLACK FRIDAY JS =====
+let _bfTimer = null;
+
+function bfEsc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function bfRender(d) {
+  const box = document.getElementById('bf_status_box');
+  box.style.display = 'block';
+  const estado = d.rodando ? '⏳ <strong>Rodando...</strong>' : '✅ <strong>Finalizado</strong>';
+  let h = `${estado} &nbsp; Publicadas: <strong>${d.publicados}</strong> / ${d.total} &nbsp; Falhas: ${d.falhas}`;
+  if (d.resumo) h += `<br>${bfEsc(d.resumo)}`;
+  h += '<div style="margin-top:8px;max-height:260px;overflow:auto;font-size:12px;color:#aaa;">' + (d.log || []).map(bfEsc).join('<br>') + '</div>';
+  box.innerHTML = h;
+}
+
+async function pollBF(auto) {
+  try {
+    const resp = await fetch('/bf_status');
+    const d = await resp.json();
+    if (!d.ok) return;
+    if (!d.rodando && !d.inicio) {
+      if (!auto) mostrarMsg('<div class="msg msg-ok">Nenhum disparo Black Friday desde que o painel iniciou.</div>');
+      return;
+    }
+    bfRender(d);
+    document.getElementById('btn_bf').disabled = !!d.rodando;
+    if (_bfTimer) { clearTimeout(_bfTimer); _bfTimer = null; }
+    if (d.rodando) _bfTimer = setTimeout(() => pollBF(true), 4000);
+  } catch(e) {
+    if (!auto) mostrarMsg('<div class="msg msg-err">❌ Falha ao consultar andamento</div>');
+  }
+}
+
+async function dispararBF() {
+  const preco_min    = parseFloat(document.getElementById('bf_preco_min').value) || 0;
+  const preco_max    = parseFloat(document.getElementById('bf_preco_max').value) || 0;
+  const desconto_min = parseInt(document.getElementById('bf_desconto_min').value);
+  const qtde         = parseInt(document.getElementById('bf_qtde').value) || 0;
+  const usar_shopee  = document.getElementById('bf_usar_shopee').checked;
+  const usar_ali     = document.getElementById('bf_usar_ali').checked;
+  const incluir_moda = document.getElementById('bf_moda').checked;
+  const telegram     = document.getElementById('bf_telegram').checked;
+  const whatsapp     = document.getElementById('bf_whatsapp').checked;
+  const grupos       = getGruposWA('bf');
+
+  if (!usar_shopee && !usar_ali) return alert("Selecione ao menos uma loja!");
+  if (!preco_max || preco_max <= preco_min) return alert("Informe o preço máximo (maior que o mínimo)!");
+  if (isNaN(desconto_min) || desconto_min < 0) return alert("Informe o desconto mínimo (use 0 para sem limite)!");
+  if (qtde < 1 || qtde > 50) return alert("Quantidade deve ser de 1 a 50!");
+  if (!telegram && !whatsapp) return alert("Selecione ao menos um destino!");
+
+  const partes = [];
+  if (telegram) partes.push('Telegram');
+  if (whatsapp) {
+    if (grupos.wa_principal && grupos.wa_teste) partes.push('WhatsApp (Principal + Teste)');
+    else if (grupos.wa_teste) partes.push('WhatsApp (Teste)');
+    else partes.push('WhatsApp (Principal)');
+  }
+  const ok = confirm(`Disparar ${qtde} oferta(s) Black Friday (desconto de ${desconto_min}% ou mais, R$ ${preco_min} a R$ ${preco_max}) em: ${partes.join(' + ')}?`);
+  if (!ok) return;
+
+  const btn = document.getElementById('btn_bf');
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/disparar_blackfriday', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ preco_min, preco_max, desconto_min, qtde, usar_shopee, usar_ali,
+        incluir_moda, telegram, whatsapp, ...grupos })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      mostrarMsg('<div class="msg msg-ok">🖤 Disparo Black Friday iniciado! Acompanhe abaixo.</div>');
+      pollBF(true);
+    } else {
+      mostrarMsg(`<div class="msg msg-err">❌ ${data.erro}</div>`);
+      btn.disabled = false;
+    }
+  } catch(e) {
+    mostrarMsg('<div class="msg msg-err">❌ Erro de conexão</div>');
+    btn.disabled = false;
+  }
+}
+// ===== FIM BLACK FRIDAY JS =====
+
 async function carregarAnalytics() {
   const loader = document.getElementById('analytics_loader');
   if (loader) loader.style.display = 'block';
@@ -2033,6 +2123,85 @@ async function carregarAnalytics() {
     <div id="ts_resultados" style="margin-top:10px;"></div>
   </div>
 
+  <!-- FLUXO: Black Friday -->
+  <div class="card" id="card_bf">
+    <h2>🖤 Black Friday — Disparo em Massa</h2>
+    <div class="info" style="background:#1a1500;border-color:#FFC400;color:#e6c34d;">
+      💡 Procura ofertas de <strong>qualquer coisa</strong> em Shopee + AliExpress dentro das suas faixas. Ofertas com "Black Friday" no título ou achadas em buscas de Black Friday entram <strong>primeiro</strong>. No máximo <strong>3 itens por segmento</strong> em cada disparo (nunca 4 do mesmo tipo), intercalados, sem repetir produto já postado. Roda em segundo plano — pode acompanhar o andamento abaixo.
+    </div>
+
+    <label style="margin-bottom:8px;">🏪 Buscar em:</label>
+    <div class="destinos" style="margin-bottom:14px;">
+      <label class="destino on" id="dest_bf_shopee">
+        <input type="checkbox" id="bf_usar_shopee" checked onchange="toggleDestino('dest_bf_shopee', this)">
+        <span>🧡 Shopee</span>
+      </label>
+      <label class="destino on" id="dest_bf_ali">
+        <input type="checkbox" id="bf_usar_ali" checked onchange="toggleDestino('dest_bf_ali', this)">
+        <span>🛍️ AliExpress</span>
+      </label>
+    </div>
+
+    <div class="row2">
+      <div>
+        <label>💰 Preço mínimo (R$) *</label>
+        <input type="number" id="bf_preco_min" step="0.01" min="0" value="30" placeholder="Ex: 30">
+      </div>
+      <div>
+        <label>💵 Preço máximo (R$) *</label>
+        <input type="number" id="bf_preco_max" step="0.01" min="0" value="1500" placeholder="Ex: 1500">
+      </div>
+    </div>
+
+    <div class="row2">
+      <div>
+        <label>🏷️ Desconto mínimo (%) *</label>
+        <input type="number" id="bf_desconto_min" step="1" min="0" max="99" value="25" placeholder="Ex: 25">
+      </div>
+      <div>
+        <label>📦 Qtde de ofertas *</label>
+        <input type="number" id="bf_qtde" step="1" min="1" max="50" value="10" placeholder="Ex: 10">
+      </div>
+    </div>
+
+    <label style="margin-bottom:8px;">👕 Moda / vestuário:</label>
+    <div class="destinos" style="margin-bottom:14px;">
+      <label class="destino" id="dest_bf_moda">
+        <input type="checkbox" id="bf_moda" onchange="toggleDestino('dest_bf_moda', this)">
+        <span>Incluir roupas, calçados e bolsas</span>
+      </label>
+    </div>
+
+    <label style="margin-bottom:8px;">📢 Publicar em:</label>
+    <div class="destinos">
+      <label class="destino on" id="dest_tg_bf">
+        <input type="checkbox" id="bf_telegram" checked onchange="toggleDestino('dest_tg_bf', this)">
+        <span>✈️ Telegram</span>
+      </label>
+      <label class="destino on" id="dest_wa_bf">
+        <input type="checkbox" id="bf_whatsapp" checked onchange="toggleDestino('dest_wa_bf', this); document.getElementById('wa_grupo_bf').style.display=this.checked?'block':'none';">
+        <span>📱 WhatsApp</span>
+      </label>
+    </div>
+    <div class="wa-grupo" id="wa_grupo_bf">
+      <label>📱 Grupo WhatsApp:</label>
+      <div class="opcoes">
+        <label class="op on" id="op_bf_principal">
+          <input type="checkbox" id="bf_wa_principal" checked onchange="toggleGrupo('op_bf_principal', this)">
+          <span>👥 Principal</span>
+        </label>
+        <label class="op" id="op_bf_teste">
+          <input type="checkbox" id="bf_wa_teste" onchange="toggleGrupo('op_bf_teste', this)">
+          <span>🧪 Teste</span>
+        </label>
+      </div>
+    </div>
+
+    <button class="btn btn-orange" id="btn_bf" onclick="dispararBF()">🖤 Disparar Black Friday</button>
+    <button class="btn" id="btn_bf_status" onclick="pollBF(false)" style="margin-top:8px;background:#2a2a2a;color:#ccc;">🔄 Ver andamento</button>
+    <div id="bf_status_box" style="display:none;margin-top:14px;background:#1a1a1a;border:1px solid #FFC400;border-radius:10px;padding:12px;font-size:13px;color:#ddd;line-height:1.5;"></div>
+  </div>
+
 
 {% endif %}
 </body>
@@ -2166,7 +2335,7 @@ def publicar():
 
 
 @app.route("/encurtar_link", methods=["POST"])
-def encurtar_link():
+def encurtar_link_rota():
     if not session.get("logged_in"):
         return jsonify({"ok": False, "erro": "Não autorizado"}), 401
     data = request.json
@@ -2926,6 +3095,467 @@ def testar_scraping():
 
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e), "logs": logs})
+
+
+# ===== BLACK FRIDAY INICIO =====
+import threading as _bf_threading
+import unicodedata as _bf_unicodedata
+import random as _bf_random
+
+BF_MAX_POR_SEGMENTO = 3     # nunca 4 itens do mesmo segmento no mesmo disparo
+BF_INTERVALO_POSTS  = 10    # segundos entre postagens
+BF_QTDE_MAX         = 50
+
+_BF_LOCK     = _bf_threading.Lock()
+_BF_POSTADOS = set()        # chaves de produtos ja postados pelo modulo (ate reiniciar o painel)
+_BF_ESTADO   = {"rodando": False, "inicio": 0, "fim": 0, "total": 0,
+                "publicados": 0, "falhas": 0, "resumo": "", "log": []}
+
+_BF_TERMOS_TITULO = ["black friday", "blackfriday", "black week", "black november"]
+
+_BF_BLOQ_GERAL = [
+    "separador de tela", "manutencao", "desmontagem", "reparo", "solda", "placa mae",
+    "cabo flex", "ferramenta de reparo", "kit de reparo", "separador lcd", "substituicao",
+    "peca de reposicao", "conserto", "estacao de solda", "repair", "maintenance", "soldering",
+    "pcb", "lcd separator", "rework", "fixture", "jig", "spare part", "replacement part",
+    "motherboard", "flex cable", "digitizer", "screen separator", "wholesale", "bulk",
+    "lot of", "pcs lot", "oem", "odm", "industrial", "factory", "mold",
+    "wig", "hair extension", "nail art", "eyelash", "lace front", "fishing", "hunting",
+    "medical", "surgical", "clinical", "dental", "diaper", "baby formula", "pet food",
+    "arduino", "esp32", "esp8266", "raspberry", "diy kit", "servo motor", "sensor module",
+    "breadboard", "robot kit", "programmable robot", "sg90",
+    "vibrador", "sexy", "erotico", "preservativo", "lingerie", "sexshop",
+]
+
+_BF_BLOQ_MODA = [
+    "camiseta", "camisa", "blusa", "regata", "vestido", "saia", "calca", "calcas", "bermuda",
+    "short", "shorts", "jaqueta", "casaco", "moletom", "blazer", "jeans", "legging", "pijama",
+    "meia", "meias", "cueca", "calcinha", "sutia", "biquini", "maio", "sunga", "body",
+    "tenis", "sapato", "sapatos", "sandalia", "chinelo", "bota", "sapatilha", "rasteirinha",
+    "bolsa", "bolsas", "mochila feminina", "carteira feminina", "cinto", "roupa", "roupas",
+    "vestuario", "fantasia", "conjunto feminino", "conjunto masculino", "bone", "lenco",
+    "camisola", "robe", "kimono", "cropped", "macacao", "colete", "gravata", "uniforme",
+]
+
+# Ordem importa: o primeiro segmento que casar vence.
+_BF_SEGMENTOS = [
+    ("gamer",       ["gamer", "gaming", "joystick", "console", "videogame", "playstation", "xbox", "nintendo", "controle ps4", "controle ps5"]),
+    ("audio",       ["fone", "fones", "headphone", "headset", "earbuds", "earbud", "earphone", "airpods", "caixa de som", "soundbar", "speaker", "microfone"]),
+    ("relogio",     ["smartwatch", "relogio", "smartband", "watch"]),
+    ("energia",     ["carregador", "power bank", "powerbank", "charger", "cabo usb", "cabo tipo c", "bateria", "fonte"]),
+    ("celular",     ["celular", "smartphone", "iphone", "galaxy", "redmi", "pelicula", "capinha", "capa para celular", "suporte celular"]),
+    ("tv_video",    ["tv", "smart tv", "projetor", "tv box", "chromecast", "fire stick"]),
+    ("informatica", ["notebook", "ssd", "memoria ram", "placa de video", "processador", "pen drive", "hd externo", "roteador", "cooler", "pc"]),
+    ("perifericos", ["mouse", "teclado", "webcam", "monitor", "mousepad", "hub usb", "adaptador", "suporte notebook"]),
+    ("seguranca",   ["camera", "cameras", "fechadura", "alarme", "interfone", "drone"]),
+    ("cozinha",     ["fritadeira", "airfryer", "panela", "cafeteira", "liquidificador", "batedeira", "faca", "talheres", "marmita", "garrafa", "copo", "chaleira", "sanduicheira", "processador de alimentos", "utensilio", "cozinha", "forma", "tabua"]),
+    ("ferramentas", ["furadeira", "parafusadeira", "ferramenta", "ferramentas", "alicate", "trena", "serra", "maleta", "chave de fenda", "esmerilhadeira", "lixadeira", "compressor"]),
+    ("beleza",      ["secador", "chapinha", "barbeador", "aparador", "escova", "maquiagem", "perfume", "hidratante", "creme", "shampoo", "depilador", "massageador", "babyliss", "modelador"]),
+    ("auto",        ["carro", "automotivo", "veicular", "moto", "pneu", "automovel"]),
+    ("esporte",     ["halter", "esteira", "yoga", "bicicleta", "bike", "fitness", "academia", "elastico", "corda de pular", "bola"]),
+    ("brinquedo",   ["brinquedo", "boneca", "carrinho", "infantil", "bebe", "blocos de montar", "lego", "quebra cabeca"]),
+    ("pet",         ["pet", "cachorro", "gato", "comedouro", "coleira"]),
+    ("casa",        ["organizador", "luminaria", "lampada", "led", "tapete", "toalha", "lencol", "travesseiro", "decoracao", "cortina", "aspirador", "ventilador", "umidificador", "purificador", "cama", "mesa", "cadeira", "prateleira", "tomada"]),
+]
+
+_BF_PALAVRAS_BF = ["black friday", "oferta black friday", "black friday eletronicos", "black friday casa",
+                   "black friday cozinha", "black friday celular", "black friday informatica",
+                   "black friday gamer", "black friday fone", "black friday beleza",
+                   "black friday ferramentas", "black friday esporte"]
+
+_BF_PALAVRAS_CAT = {
+    "audio":       ["fone bluetooth", "caixa de som bluetooth", "microfone"],
+    "relogio":     ["smartwatch", "relogio digital"],
+    "energia":     ["carregador turbo", "power bank", "cabo usb c"],
+    "celular":     ["smartphone", "suporte celular", "pelicula celular"],
+    "perifericos": ["mouse sem fio", "teclado mecanico", "webcam", "monitor"],
+    "gamer":       ["controle gamer", "headset gamer", "cadeira gamer"],
+    "cozinha":     ["fritadeira airfryer", "cafeteira", "liquidificador", "panela", "garrafa termica"],
+    "casa":        ["organizador", "luminaria led", "aspirador robo", "ventilador", "umidificador"],
+    "ferramentas": ["parafusadeira", "kit ferramentas", "furadeira"],
+    "beleza":      ["secador de cabelo", "aparador de barba", "chapinha"],
+    "esporte":     ["halter", "esteira", "bicicleta ergometrica"],
+    "brinquedo":   ["brinquedo educativo", "blocos de montar"],
+    "auto":        ["acessorio carro", "aspirador automotivo", "camera veicular"],
+    "seguranca":   ["camera wifi", "fechadura digital"],
+    "tv_video":    ["projetor", "tv box", "smart tv"],
+    "informatica": ["ssd", "notebook", "roteador wifi"],
+    "pet":         ["comedouro automatico pet"],
+}
+
+
+def _bf_norm(txt):
+    t = _bf_unicodedata.normalize("NFKD", str(txt or "")).encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+def _bf_tem_termo(texto_norm, termo):
+    """Casa palavra inteira (aceita plural simples com 's')."""
+    base = " " + texto_norm + " "
+    t = _bf_norm(termo)
+    return (" " + t + " ") in base or (" " + t + "s ") in base
+
+
+def _bf_eh_black_friday(nome):
+    n = _bf_norm(nome)
+    return any(_bf_tem_termo(n, t) for t in _BF_TERMOS_TITULO)
+
+
+def _bf_segmento(nome, seg_kw=None):
+    n = _bf_norm(nome)
+    for seg, termos in _BF_SEGMENTOS:
+        for t in termos:
+            if _bf_tem_termo(n, t):
+                return seg
+    return seg_kw or "outros"
+
+
+def _bf_bloqueado(nome, incluir_moda=False):
+    n = _bf_norm(nome)
+    for t in _BF_BLOQ_GERAL:
+        if _bf_tem_termo(n, t):
+            return True
+    if not incluir_moda:
+        for t in _BF_BLOQ_MODA:
+            if _bf_tem_termo(n, t):
+                return True
+    return False
+
+
+def _bf_chave(nome):
+    return _bf_norm(nome)[:70]
+
+
+def _bf_log(msg):
+    linha = time.strftime("%H:%M:%S") + " " + str(msg)
+    print("[BF] " + linha)
+    _BF_ESTADO["log"].append(linha)
+    if len(_BF_ESTADO["log"]) > 150:
+        del _BF_ESTADO["log"][:len(_BF_ESTADO["log"]) - 150]
+
+
+def _bf_busca_shopee(keyword, limit=40, page=1):
+    """Busca Shopee SEM filtros. Retorna dicts crus (link ainda nao encurtado)."""
+    query = """query getProducts($keyword: String!, $limit: Int!, $page: Int!) {
+  productOfferV2(listType: 0, sortType: 2, keyword: $keyword, limit: $limit, page: $page) {
+    nodes {
+      productName priceMin priceDiscountRate imageUrl offerLink productLink
+    }
+  }
+}"""
+    body = {"query": query, "operationName": "getProducts",
+            "variables": {"keyword": keyword, "limit": limit, "page": page}}
+    payload_str = json.dumps(body, separators=(",", ":"))
+    timestamp = int(time.time())
+    fator = SHOPEE_APP_ID + str(timestamp) + payload_str + SHOPEE_SECRET
+    sign = hashlib.sha256(fator.encode("utf-8")).hexdigest()
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"SHA256 Credential={SHOPEE_APP_ID},Timestamp={timestamp},Signature={sign}",
+    }
+    r = requests.post(SHOPEE_URL, data=payload_str, headers=headers, timeout=20)
+    data = r.json()
+    nodes = data.get("data", {}).get("productOfferV2", {}).get("nodes", []) or []
+    out = []
+    for item in nodes:
+        try:
+            preco = float(str(item.get("priceMin", "0")).replace(",", "."))
+            desc_raw = item.get("priceDiscountRate", "0") or "0"
+            desconto = int(str(desc_raw).replace("%", "").strip() or 0)
+        except Exception:
+            continue
+        nome = item.get("productName", "")
+        link = item.get("offerLink") or item.get("productLink", "")
+        if not nome or not link or preco <= 0:
+            continue
+        orig = round(preco / (1 - desconto / 100), 2) if 0 < desconto < 100 else round(preco, 2)
+        out.append({"nome": nome, "preco": round(preco, 2), "preco_original": orig,
+                    "desconto": desconto, "loja": "SHOPEE", "frete": "✅ Frete grátis",
+                    "link_original": link, "imagem_url": item.get("imageUrl", "")})
+    return out
+
+
+def _bf_busca_ali(keyword, limit=40, page=1):
+    """Busca AliExpress SEM filtros. Retorna dicts crus (link ainda nao encurtado)."""
+    timestamp = str(int(time.time() * 1000))
+    params = {
+        "app_key": ALIEXPRESS_APP_KEY, "timestamp": timestamp,
+        "sign_method": "md5", "method": "aliexpress.affiliate.product.query",
+        "keywords": keyword, "page_no": str(page), "page_size": str(min(limit, 50)),
+        "sort": "LAST_VOLUME_DESC", "target_currency": "BRL",
+        "target_language": "PT", "tracking_id": ALIEXPRESS_TRACKING,
+        "ship_to_country": "BR",
+        "fields": "product_id,product_title,target_sale_price,target_original_price,discount,product_main_image_url,promotion_link",
+    }
+    keys = sorted(params.keys())
+    base = ALIEXPRESS_APP_SECRET + "".join(f"{k}{params[k]}" for k in keys) + ALIEXPRESS_APP_SECRET
+    params["sign"] = hashlib.md5(base.encode("utf-8")).hexdigest().upper()
+    r = requests.post("https://api-sg.aliexpress.com/sync", data=params, timeout=20)
+    data = r.json()
+    resp = data.get("aliexpress_affiliate_product_query_response", {}).get("resp_result", {})
+    if resp.get("resp_code") != 200:
+        return []
+    items = resp.get("result", {}).get("products", {}).get("product", []) or []
+    out = []
+    for item in items:
+        try:
+            preco = float(str(item.get("target_sale_price", "0")).replace(",", "."))
+            orig = float(str(item.get("target_original_price", "0")).replace(",", "."))
+        except Exception:
+            continue
+        desconto = int((1 - preco / orig) * 100) if orig > preco > 0 else 0
+        nome = item.get("product_title", "")
+        link = item.get("promotion_link", "")
+        if not nome or not link or preco <= 0:
+            continue
+        out.append({"nome": nome, "preco": round(preco, 2), "preco_original": round(max(orig, preco), 2),
+                    "desconto": desconto, "loja": "ALIEXPRESS", "frete": "🚢 Frete grátis",
+                    "link_original": link, "imagem_url": item.get("product_main_image_url", "")})
+    return out
+
+
+def _bf_coletar(cands, brutos, item, cfg):
+    """Filtra os resultados crus e acumula em cands (dict chave -> candidato). Retorna qtos entraram."""
+    entrou = 0
+    for p in brutos:
+        try:
+            nome = p["nome"]
+            if not p.get("imagem_url"):
+                continue
+            if p["preco"] < cfg["preco_min"]:
+                continue
+            if cfg["preco_max"] > 0 and p["preco"] > cfg["preco_max"]:
+                continue
+            if p.get("desconto", 0) < cfg["desc_min"]:
+                continue
+            if _bf_bloqueado(nome, cfg["incluir_moda"]):
+                continue
+            chave = _bf_chave(nome)
+            if not chave or chave in _BF_POSTADOS:
+                continue
+            tier = 2 if _bf_eh_black_friday(nome) else (1 if item["bf"] else 0)
+            c = dict(p)
+            c["_tier"] = tier
+            c["_seg"] = _bf_segmento(nome, item.get("seg"))
+            c["_chave"] = chave
+            atual = cands.get(chave)
+            if atual is None:
+                cands[chave] = c
+                entrou += 1
+            elif (c["_tier"], c.get("desconto", 0)) > (atual["_tier"], atual.get("desconto", 0)):
+                cands[chave] = c
+        except Exception:
+            continue
+    return entrou
+
+
+def _bf_selecionar(cands, qtde):
+    """Prioridade: titulo com Black Friday > achado em busca BF > resto; depois maior desconto.
+    Respeita BF_MAX_POR_SEGMENTO."""
+    ordenados = sorted(cands, key=lambda c: (-c["_tier"], -c.get("desconto", 0), c.get("preco", 0)))
+    cont = {}
+    sel = []
+    for c in ordenados:
+        if len(sel) >= qtde:
+            break
+        s = c["_seg"]
+        if cont.get(s, 0) >= BF_MAX_POR_SEGMENTO:
+            continue
+        cont[s] = cont.get(s, 0) + 1
+        sel.append(c)
+    return sel
+
+
+def _bf_intercalar(sel):
+    """Round-robin por segmento, para nao postar o mesmo tipo em sequencia."""
+    grupos = {}
+    ordem = []
+    for c in sel:
+        s = c["_seg"]
+        if s not in grupos:
+            grupos[s] = []
+            ordem.append(s)
+        grupos[s].append(c)
+    res = []
+    while any(grupos[s] for s in ordem):
+        for s in ordem:
+            if grupos[s]:
+                res.append(grupos[s].pop(0))
+    return res
+
+
+def _bf_montar_plano():
+    plano = [{"kw": k, "seg": None, "bf": True} for k in _BF_PALAVRAS_BF]
+    segs = list(_BF_PALAVRAS_CAT.keys())
+    _bf_random.shuffle(segs)
+    filas = {}
+    for s in segs:
+        kws = list(_BF_PALAVRAS_CAT[s])
+        _bf_random.shuffle(kws)
+        filas[s] = kws
+    while any(filas[s] for s in segs):
+        for s in segs:
+            if filas[s]:
+                plano.append({"kw": filas[s].pop(0), "seg": s, "bf": False})
+    return plano
+
+
+def _bf_passada(cands, plano, pagina, cfg):
+    """Percorre o plano. Retorna True quando ja ha candidatos suficientes (depois das buscas BF)."""
+    bf_total = sum(1 for p in plano if p["bf"])
+    bf_feitas = 0
+    lojas = []
+    if cfg["shopee"]:
+        lojas.append(("Shopee", _bf_busca_shopee))
+    if cfg["ali"]:
+        lojas.append(("Ali", _bf_busca_ali))
+    for item in plano:
+        if item["bf"]:
+            bf_feitas += 1
+        partes = []
+        for nome_loja, fn in lojas:
+            try:
+                brutos = fn(item["kw"], 40, pagina)
+            except Exception as e:
+                brutos = []
+                _bf_log("erro " + nome_loja + " '" + item["kw"] + "': " + str(e)[:80])
+            novos = _bf_coletar(cands, brutos, item, cfg)
+            partes.append(nome_loja + " +" + str(novos))
+        _bf_log("'" + item["kw"] + "' p" + str(pagina) + ": " + ", ".join(partes) + " (total " + str(len(cands)) + ")")
+        if bf_feitas >= bf_total and len(_bf_selecionar(list(cands.values()), cfg["qtde"])) >= cfg["qtde"]:
+            return True
+    return False
+
+
+def _bf_registrar(produto):
+    try:
+        BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+        WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        requests.post(
+            BOT_API_URL + "/registrar",
+            json={"nome": produto["nome"], "preco": produto["preco"], "loja": produto["loja"],
+                  "origem": "WEB_BF", "link": produto.get("link_afiliado", "")},
+            headers={"X-API-Key": WEB_SECRET_KEY}, timeout=5)
+    except Exception:
+        pass
+
+
+def _bf_worker(cfg):
+    try:
+        plano = _bf_montar_plano()
+        cands = {}
+        _bf_log("Buscando ofertas (desconto >= " + str(cfg["desc_min"]) + "%, R$ " + str(cfg["preco_min"]) + " a R$ " + str(cfg["preco_max"]) + ")...")
+        for pagina in (1, 2):
+            if _bf_passada(cands, plano, pagina, cfg):
+                break
+        sel = _bf_intercalar(_bf_selecionar(list(cands.values()), cfg["qtde"]))
+        _BF_ESTADO["total"] = len(sel)
+        if not sel:
+            _BF_ESTADO["resumo"] = "Nenhuma oferta encontrada com esses filtros. Tente baixar o desconto mínimo ou ampliar a faixa de preço."
+            _bf_log(_BF_ESTADO["resumo"])
+            return
+
+        segs = {}
+        n_bf = 0
+        for c in sel:
+            segs[c["_seg"]] = segs.get(c["_seg"], 0) + 1
+            if c["_tier"] >= 1:
+                n_bf += 1
+        _bf_log("Selecionadas " + str(len(sel)) + " de " + str(len(cands)) + " candidatas | com Black Friday: " + str(n_bf)
+                + " | segmentos: " + ", ".join(k + "=" + str(v) for k, v in segs.items()))
+        if len(sel) < cfg["qtde"]:
+            _bf_log("Só deu para juntar " + str(len(sel)) + " (limite de " + str(BF_MAX_POR_SEGMENTO) + " por segmento).")
+
+        for idx, c in enumerate(sel):
+            nome_curto = c["nome"] if len(c["nome"]) <= 110 else c["nome"][:107].rsplit(" ", 1)[0] + "..."
+            try:
+                produto = {
+                    "nome": nome_curto, "preco": c["preco"], "preco_original": c["preco_original"],
+                    "desconto": c["desconto"], "loja": c["loja"], "frete": c.get("frete", ""),
+                    "link_afiliado": encurtar_link(c["link_original"]), "imagem_url": c["imagem_url"],
+                    "score": 1, "fontes": [], "black_friday": True,
+                }
+                imagem_path = gerar_imagem(produto)
+                if cfg["telegram"]:
+                    ok_tg = postar_telegram({**produto, "imagem_url": ""}, imagem_path)
+                    if ok_tg is False:
+                        _bf_log("Telegram falhou em: " + nome_curto[:40])
+                if cfg["whatsapp"]:
+                    if cfg["wa_principal"]:
+                        postar_whatsapp_grupo(produto, imagem_path, WHATSAPP_GROUP_ID)
+                    if cfg["wa_teste"]:
+                        postar_whatsapp_grupo(produto, imagem_path, WHATSAPP_TEST_GROUP_ID)
+                    if not cfg["wa_principal"] and not cfg["wa_teste"]:
+                        postar_whatsapp(produto, imagem_path)
+                _BF_POSTADOS.add(c["_chave"])
+                _bf_registrar(produto)
+                _BF_ESTADO["publicados"] += 1
+                _bf_log("Postado " + str(idx + 1) + "/" + str(len(sel)) + " [" + c["_seg"] + "] "
+                        + str(c["desconto"]) + "% - " + nome_curto[:50])
+            except Exception as e:
+                _BF_ESTADO["falhas"] += 1
+                _bf_log("Falha ao postar '" + nome_curto[:40] + "': " + str(e)[:100])
+            if idx < len(sel) - 1:
+                time.sleep(BF_INTERVALO_POSTS)
+        _BF_ESTADO["resumo"] = "Concluído: " + str(_BF_ESTADO["publicados"]) + " publicada(s), " + str(_BF_ESTADO["falhas"]) + " falha(s)."
+    except Exception as e:
+        _BF_ESTADO["resumo"] = "Erro no disparo: " + str(e)[:150]
+        _bf_log(_BF_ESTADO["resumo"])
+    finally:
+        with _BF_LOCK:
+            _BF_ESTADO["rodando"] = False
+            _BF_ESTADO["fim"] = time.time()
+
+
+@app.route("/disparar_blackfriday", methods=["POST"])
+def disparar_blackfriday():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Não autorizado"}), 401
+    data = request.json or {}
+    try:
+        cfg = {
+            "preco_min":    float(data.get("preco_min", 0) or 0),
+            "preco_max":    float(data.get("preco_max", 0) or 0),
+            "desc_min":     int(data.get("desconto_min", 25) if data.get("desconto_min") is not None else 25),
+            "qtde":         int(data.get("qtde", 10) or 10),
+            "shopee":       bool(data.get("usar_shopee", True)),
+            "ali":          bool(data.get("usar_ali", True)),
+            "incluir_moda": bool(data.get("incluir_moda", False)),
+            "telegram":     bool(data.get("telegram", True)),
+            "whatsapp":     bool(data.get("whatsapp", True)),
+            "wa_principal": bool(data.get("wa_principal", True)),
+            "wa_teste":     bool(data.get("wa_teste", False)),
+        }
+    except Exception:
+        return jsonify({"ok": False, "erro": "Valores inválidos"})
+    if not cfg["shopee"] and not cfg["ali"]:
+        return jsonify({"ok": False, "erro": "Selecione ao menos uma loja"})
+    if not cfg["telegram"] and not cfg["whatsapp"]:
+        return jsonify({"ok": False, "erro": "Selecione ao menos um destino"})
+    if cfg["preco_max"] <= 0 or cfg["preco_max"] <= cfg["preco_min"]:
+        return jsonify({"ok": False, "erro": "Preço máximo deve ser maior que o mínimo"})
+    if cfg["qtde"] < 1 or cfg["qtde"] > BF_QTDE_MAX:
+        return jsonify({"ok": False, "erro": "Quantidade deve ser de 1 a " + str(BF_QTDE_MAX)})
+    cfg["desc_min"] = max(0, min(cfg["desc_min"], 99))
+
+    with _BF_LOCK:
+        if _BF_ESTADO["rodando"]:
+            return jsonify({"ok": False, "erro": "Já existe um disparo Black Friday em andamento. Aguarde terminar."})
+        _BF_ESTADO.update({"rodando": True, "inicio": time.time(), "fim": 0, "total": 0,
+                           "publicados": 0, "falhas": 0, "resumo": "", "log": []})
+    _bf_threading.Thread(target=_bf_worker, args=(cfg,), daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.route("/bf_status")
+def bf_status():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "erro": "Não autorizado"}), 401
+    est = dict(_BF_ESTADO)
+    est["log"] = list(_BF_ESTADO["log"])
+    est["ok"] = True
+    return jsonify(est)
+# ===== BLACK FRIDAY FIM =====
 
 
 if __name__ == "__main__":
