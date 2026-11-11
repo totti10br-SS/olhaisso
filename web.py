@@ -3160,12 +3160,13 @@ _BF_BLOQ_MODA = [
 
 # Ordem importa: o primeiro segmento que casar vence.
 _BF_SEGMENTOS = [
-    ("gamer",       ["gamer", "gaming", "joystick", "console", "videogame", "playstation", "xbox", "nintendo", "controle ps4", "controle ps5"]),
+    ("celular",     ["celular", "smartphone", "iphone", "galaxy", "redmi", "pelicula", "capinha", "capa para celular", "suporte celular"]),
+    ("tv_video",    ["tv", "smart tv", "projetor", "tv box", "chromecast", "fire stick"]),
+    ("gamer",       ["gamer", "gaming", "joystick", "console", "videogame", "playstation", "xbox", "nintendo", "controle ps4", "controle ps5", "dualsense", "ps5", "ps4"]),
     ("audio",       ["fone", "fones", "headphone", "headset", "earbuds", "earbud", "earphone", "airpods", "caixa de som", "soundbar", "speaker", "microfone"]),
     ("relogio",     ["smartwatch", "relogio", "smartband", "watch"]),
     ("energia",     ["carregador", "power bank", "powerbank", "charger", "cabo usb", "cabo tipo c", "bateria", "fonte"]),
-    ("celular",     ["celular", "smartphone", "iphone", "galaxy", "redmi", "pelicula", "capinha", "capa para celular", "suporte celular"]),
-    ("tv_video",    ["tv", "smart tv", "projetor", "tv box", "chromecast", "fire stick"]),
+    ("impressora",  ["impressora", "multifuncional", "toner", "cartucho"]),
     ("informatica", ["notebook", "ssd", "memoria ram", "placa de video", "processador", "pen drive", "hd externo", "roteador", "cooler", "pc"]),
     ("perifericos", ["mouse", "teclado", "webcam", "monitor", "mousepad", "hub usb", "adaptador", "suporte notebook"]),
     ("seguranca",   ["camera", "cameras", "fechadura", "alarme", "interfone", "drone"]),
@@ -3226,7 +3227,11 @@ def _bf_segmento(nome, seg_kw=None):
         for t in termos:
             if _bf_tem_termo(n, t):
                 return seg
-    return seg_kw or "outros"
+    if seg_kw:
+        return seg_kw
+    # sem segmento conhecido: separa pela 1a palavra do titulo (assim "outros" nao vira um balde so)
+    palavras = n.split()
+    return "outros:" + (palavras[0] if palavras else "")
 
 
 def _bf_bloqueado(nome, incluir_moda=False):
@@ -3347,8 +3352,9 @@ def _bf_coletar(cands, brutos, item, cfg):
                 continue
             if cfg["preco_max"] > 0 and p["preco"] > cfg["preco_max"]:
                 continue
-            eh_amazon = p.get("loja") == "AMAZON"
-            # Amazon: o scraper nao traz desconto real (vem fixo 23%), entao nao filtra por desconto
+            # Amazon (fixo 23%) e ranking do ML (0 quando nao ha "% OFF") nao trazem desconto confiavel:
+            # nao filtra por desconto nesses casos
+            eh_amazon = p.get("loja") == "AMAZON" or bool(p.get("desc_desconhecido"))
             if not eh_amazon and p.get("desconto", 0) < cfg["desc_min"]:
                 continue
             if _bf_bloqueado(nome, cfg["incluir_moda"]):
@@ -3356,7 +3362,7 @@ def _bf_coletar(cands, brutos, item, cfg):
             chave = _bf_chave(nome)
             if not chave or chave in _BF_POSTADOS:
                 continue
-            tier = 2 if _bf_eh_black_friday(nome) else (1 if item["bf"] else 0)
+            tier = 2 if _bf_eh_black_friday(nome) else (1 if (item["bf"] or p.get("selo_vendas")) else 0)
             c = dict(p)
             if eh_amazon:
                 c["desconto"] = 0                   # nao exibe desconto inventado
@@ -3508,7 +3514,7 @@ def _bf_diag(brutos, cfg):
         d["t"] += 1
         if p["preco"] < cfg["preco_min"] or (cfg["preco_max"] > 0 and p["preco"] > cfg["preco_max"]):
             d["preco"] += 1
-        elif p.get("loja") != "AMAZON" and p.get("desconto", 0) < cfg["desc_min"]:
+        elif p.get("loja") != "AMAZON" and not p.get("desc_desconhecido") and p.get("desconto", 0) < cfg["desc_min"]:
             d["desc"] += 1
         elif _bf_bloqueado(p["nome"], cfg["incluir_moda"]):
             d["bloq"] += 1
@@ -3530,6 +3536,12 @@ def _bf_pool_aguardar(timeout=2700):
             d = r.json()
             falhas = 0
             if d.get("estado") == "pronto":
+                ct = d.get("contagens") or {}
+                if ct:
+                    _bf_log("Bot entregou -> ML: " + str(ct.get("ml", 0)) + " (" + str(ct.get("ml_selo", 0))
+                            + " com selo mais vendido) | Amazon: " + str(ct.get("amazon", 0)))
+                    if ct.get("ml", 0) == 0:
+                        _bf_log("ATENCAO: nenhum item do ML. Veja o log do bot (linhas 'ML ...') para o motivo.")
                 return d.get("produtos", []) or []
             if d.get("estado") in ("erro", "idle"):
                 _bf_log("ML/Amazon: bot informou '" + str(d.get("estado")) + "' " + str(d.get("msg", ""))[:80])

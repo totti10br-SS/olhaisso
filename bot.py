@@ -2235,19 +2235,10 @@ _BF_ML_MELHORES = [
 ]
 _BF_ML_MODA = [("https://lista.mercadolivre.com.br/calcados-roupas-bolsas", "Moda")]
 
-# Modo "só os mais vendidos": páginas de RANKING de vendas do ML (a de games já roda em produção;
-# as demais seguem o mesmo padrão /mais-vendidos/<categoria> — se alguma não carregar, o log mostra).
-_BF_ML_MAIS_VENDIDOS = [
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1144", "Mais Vendidos Games"),
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1051", "Mais Vendidos Celulares"),
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1648", "Mais Vendidos Computação"),
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1000", "Mais Vendidos Eletrônicos e Áudio"),
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB5726", "Mais Vendidos Eletrodomésticos"),
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1574", "Mais Vendidos Casa e Decoração"),
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1246", "Mais Vendidos Beleza"),
-    ("https://www.mercadolivre.com.br/mais-vendidos/MLB1276", "Mais Vendidos Esportes"),
-]
-_BF_ML_MAIS_VENDIDOS_MODA = [("https://www.mercadolivre.com.br/mais-vendidos/MLB1430", "Mais Vendidos Moda")]
+# Modo "só os mais vendidos" no ML: as páginas /mais-vendidos/ dão CAPTCHA no BrightData (testado em produção),
+# então usamos as páginas de LISTA normais e damos PRIORIDADE a quem tem o selo "MAIS VENDIDO"/ranking.
+# Se mudar para True, o ML entrega SÓ itens com o selo (o selo é raro nas listas: pode vir muito pouco).
+_BF_ML_SO_COM_SELO = False
 _BF_AZ_TOP_N = 15   # Amazon: só as N primeiras posições de cada lista de mais vendidos
 
 _BF_AZ_EXTRAS = [
@@ -2318,11 +2309,15 @@ def _bf_destravar(ml_mod, az_mod, preco_min, preco_max, desc_min, incluir_moda, 
         _set(ml_mod, "produto_e_tech", lambda nome: True)
     if hasattr(ml_mod, "URLS_BUSCA") and hasattr(ml_mod, "URLS_BUSCA_EXTRA"):
         # o modo completo junta URLS_BUSCA + URLS_BUSCA_EXTRA: deixo só as melhores
-        if so_vendidos:
-            _set(ml_mod, "URLS_BUSCA", list(_BF_ML_MAIS_VENDIDOS) + (list(_BF_ML_MAIS_VENDIDOS_MODA) if incluir_moda else []))
-        else:
-            _set(ml_mod, "URLS_BUSCA", list(_BF_ML_MELHORES) + (list(_BF_ML_MODA) if incluir_moda else []))
+        _set(ml_mod, "URLS_BUSCA", list(_BF_ML_MELHORES) + (list(_BF_ML_MODA) if incluir_moda else []))
         _set(ml_mod, "URLS_BUSCA_EXTRA", [])
+        if so_vendidos and _BF_ML_SO_COM_SELO and hasattr(ml_mod, "_processar_item_html"):
+            _orig_html = ml_mod._processar_item_html
+            def _so_com_selo(item_raw, _o=_orig_html):
+                if not (item_raw.get("mais_vendido") or item_raw.get("rank_vendas")):
+                    return None   # evita gerar link de afiliado à toa
+                return _o(item_raw)
+            _set(ml_mod, "_processar_item_html", _so_com_selo)
     if hasattr(az_mod, "CATEGORIAS"):
         extras = list(_BF_AZ_EXTRAS) + (list(_BF_AZ_MODA) if incluir_moda else [])
         cats = list(az_mod.CATEGORIAS) + extras
@@ -2353,8 +2348,10 @@ def _bf_pool_coletar(usar_ml, usar_amazon, preco_min=0, preco_max=1000000, desc_
                     todos.extend(r)
                 except Exception as e:
                     log.warning(f"🖤 BF pool {nome_f} erro: {e}")
+        n_ml_bruto = sum(1 for p in todos if p.get("loja") == "MERCADOLIVRE")
+        n_fallback = 0
         if so_vendidos:
-            # ML: tudo que veio das páginas de ranking é "mais vendido". Amazon: só o topo de cada lista.
+            # Amazon: só o topo de cada lista de mais vendidos. ML: marca quem tem selo/ranking de vendas.
             filtrados = []
             pos_cat = {}
             for p in todos:
@@ -2366,7 +2363,11 @@ def _bf_pool_coletar(usar_ml, usar_amazon, preco_min=0, preco_max=1000000, desc_
                     if pos_cat[cat] > _BF_AZ_TOP_N:
                         continue
                     p["rank_vendas"] = pos_cat[cat]
-                p["mais_vendido"] = True
+                    p["mais_vendido"] = True
+                else:
+                    p["selo_vendas"] = bool(p.get("mais_vendido") or (p.get("rank_vendas") or 0) > 0 or (p.get("score") or 0) >= 3)
+                    if _BF_ML_SO_COM_SELO and not p["selo_vendas"]:
+                        continue
                 filtrados.append(p)
             log.info(f"🖤 BF só mais vendidos: {len(todos)} → {len(filtrados)} produtos")
             todos = filtrados
@@ -2386,8 +2387,17 @@ def _bf_pool_coletar(usar_ml, usar_amazon, preco_min=0, preco_max=1000000, desc_
                 "desconto": p.get("desconto", 0), "loja": p.get("loja", ""),
                 "frete": p.get("frete", ""), "link_afiliado": p.get("link_afiliado", ""),
                 "imagem_url": p.get("imagem_url", ""), "asin": p.get("asin", ""),
+                # desconto de ranking/Amazon não é confiável (vem 0 ou fixo): o painel não filtra por ele
+                "desc_desconhecido": bool(p.get("loja") == "AMAZON"),
+                "selo_vendas": bool(p.get("selo_vendas", False)),
             })
-        _BF_POOL.update({"estado": "pronto", "produtos": saida, "msg": f"{len(saida)} produtos"})
+        contagens = {
+            "ml": sum(1 for p in saida if p["loja"] == "MERCADOLIVRE"),
+            "amazon": sum(1 for p in saida if p["loja"] == "AMAZON"),
+            "ml_bruto": n_ml_bruto, "ml_fallback": 0,
+            "ml_selo": sum(1 for p in saida if p["loja"] == "MERCADOLIVRE" and p.get("selo_vendas")),
+        }
+        _BF_POOL.update({"estado": "pronto", "produtos": saida, "msg": f"{len(saida)} produtos", "contagens": contagens})
         log.info(f"🖤 BF pool pronto: {len(saida)} produtos (ML/Amazon)")
     except Exception as e:
         _BF_POOL.update({"estado": "erro", "produtos": [], "msg": str(e)[:200]})
@@ -2839,7 +2849,8 @@ def iniciar_api_historico():
                     return
                 try:
                     estado = _BF_POOL.get("estado", "idle")
-                    resp = {"ok": True, "estado": estado, "msg": _BF_POOL.get("msg", "")}
+                    resp = {"ok": True, "estado": estado, "msg": _BF_POOL.get("msg", ""),
+                            "contagens": _BF_POOL.get("contagens", {})}
                     if estado == "pronto":
                         resp["produtos"] = _BF_POOL.get("produtos", [])
                     body = _json.dumps(resp, default=str).encode()
