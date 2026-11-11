@@ -2209,6 +2209,51 @@ def ciclo_teste():
         log.error(f"🧪 Ciclo teste erro: {e}")
 
 
+# ─── BLACK FRIDAY: pool de ML/Amazon para o painel web ─────────────────────
+# O painel (web.py) junta este pool com Shopee/AliExpress e escolhe/posta.
+# Aqui só coletamos (mesmas buscas do ciclo automático, sem travas de mercadoria).
+_BF_POOL = {"estado": "idle", "inicio": 0, "produtos": [], "msg": ""}
+
+def _bf_pool_coletar(usar_ml, usar_amazon):
+    try:
+        todos = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+            futs = {}
+            if usar_ml:
+                futs["ml"] = ex.submit(buscar_ml)
+            if usar_amazon:
+                futs["amazon"] = ex.submit(buscar_amazon)
+            for nome_f, fut in futs.items():
+                try:
+                    r = fut.result(timeout=1800) or []
+                    log.info(f"🖤 BF pool {nome_f}: {len(r)} produtos")
+                    todos.extend(r)
+                except Exception as e:
+                    log.warning(f"🖤 BF pool {nome_f} erro: {e}")
+        saida = []
+        vistos = set()
+        for p in todos:
+            nome = p.get("nome") or ""
+            if not nome or (p.get("preco") or 0) <= 0:
+                continue
+            h = hashlib.md5(nome.encode()).hexdigest()
+            if h in vistos or ja_postado(h):
+                continue
+            vistos.add(h)
+            saida.append({
+                "nome": nome, "preco": p.get("preco", 0),
+                "preco_original": p.get("preco_original", 0),
+                "desconto": p.get("desconto", 0), "loja": p.get("loja", ""),
+                "frete": p.get("frete", ""), "link_afiliado": p.get("link_afiliado", ""),
+                "imagem_url": p.get("imagem_url", ""),
+            })
+        _BF_POOL.update({"estado": "pronto", "produtos": saida, "msg": f"{len(saida)} produtos"})
+        log.info(f"🖤 BF pool pronto: {len(saida)} produtos (ML/Amazon)")
+    except Exception as e:
+        _BF_POOL.update({"estado": "erro", "produtos": [], "msg": str(e)[:200]})
+        log.error(f"🖤 BF pool erro: {e}")
+
+
 def iniciar_api_historico():
     """Sobe mini servidor HTTP para expor historico do banco."""
     import json as _json
@@ -2524,6 +2569,33 @@ def iniciar_api_historico():
                     self.end_headers()
                     self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
 
+            elif self.path.startswith("/bf_pool"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = _json.loads(self.rfile.read(length)) if length else {}
+                    if _BF_POOL.get("estado") != "rodando":
+                        _BF_POOL.update({"estado": "rodando", "inicio": time.time(), "produtos": [], "msg": ""})
+                        import threading as _th
+                        _th.Thread(
+                            target=_bf_pool_coletar,
+                            args=(bool(body.get("usar_ml", True)), bool(body.get("usar_amazon", True))),
+                            daemon=True
+                        ).start()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok": true}')
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"ok": False, "erro": str(e)}).encode())
+
             elif self.path.startswith("/registrar"):
                 api_key = self.headers.get("X-API-Key", "")
                 if api_key != WEB_API_KEY:
@@ -2577,6 +2649,26 @@ def iniciar_api_historico():
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(body)
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(_json.dumps({"erro": str(e)}).encode())
+            elif self.path.startswith("/bf_pool_status"):
+                api_key = self.headers.get("X-API-Key", "")
+                if api_key != WEB_API_KEY:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                try:
+                    estado = _BF_POOL.get("estado", "idle")
+                    resp = {"ok": True, "estado": estado, "msg": _BF_POOL.get("msg", "")}
+                    if estado == "pronto":
+                        resp["produtos"] = _BF_POOL.get("produtos", [])
+                    body = _json.dumps(resp, default=str).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(body)
                 except Exception as e:

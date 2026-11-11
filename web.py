@@ -1937,12 +1937,14 @@ async function dispararBF() {
   const qtde         = parseInt(document.getElementById('bf_qtde').value) || 0;
   const usar_shopee  = document.getElementById('bf_usar_shopee').checked;
   const usar_ali     = document.getElementById('bf_usar_ali').checked;
+  const usar_ml      = document.getElementById('bf_usar_ml').checked;
+  const usar_amazon  = document.getElementById('bf_usar_amazon').checked;
   const incluir_moda = document.getElementById('bf_moda').checked;
   const telegram     = document.getElementById('bf_telegram').checked;
   const whatsapp     = document.getElementById('bf_whatsapp').checked;
   const grupos       = getGruposWA('bf');
 
-  if (!usar_shopee && !usar_ali) return alert("Selecione ao menos uma loja!");
+  if (!usar_shopee && !usar_ali && !usar_ml && !usar_amazon) return alert("Selecione ao menos uma loja!");
   if (!preco_max || preco_max <= preco_min) return alert("Informe o preço máximo (maior que o mínimo)!");
   if (isNaN(desconto_min) || desconto_min < 0) return alert("Informe o desconto mínimo (use 0 para sem limite)!");
   if (qtde < 1 || qtde > 50) return alert("Quantidade deve ser de 1 a 50!");
@@ -1965,7 +1967,7 @@ async function dispararBF() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ preco_min, preco_max, desconto_min, qtde, usar_shopee, usar_ali,
-        incluir_moda, telegram, whatsapp, ...grupos })
+        usar_ml, usar_amazon, incluir_moda, telegram, whatsapp, ...grupos })
     });
     const data = await resp.json();
     if (data.ok) {
@@ -2127,7 +2129,7 @@ async function carregarAnalytics() {
   <div class="card" id="card_bf">
     <h2>🖤 Black Friday — Disparo em Massa</h2>
     <div class="info" style="background:#1a1500;border-color:#FFC400;color:#e6c34d;">
-      💡 Procura ofertas de <strong>qualquer coisa</strong> em Shopee + AliExpress dentro das suas faixas. Ofertas com "Black Friday" no título ou achadas em buscas de Black Friday entram <strong>primeiro</strong>. No máximo <strong>3 itens por segmento</strong> em cada disparo (nunca 4 do mesmo tipo), intercalados, sem repetir produto já postado. Roda em segundo plano — pode acompanhar o andamento abaixo.
+      💡 Procura ofertas de <strong>qualquer coisa</strong> em Shopee, AliExpress, Mercado Livre e Amazon dentro das suas faixas (ML e Amazon vêm do bot e demoram mais). Ofertas com "Black Friday" no título ou achadas em buscas de Black Friday entram <strong>primeiro</strong>. No máximo <strong>3 itens por segmento</strong> em cada disparo (nunca 4 do mesmo tipo), intercalados, sem repetir produto já postado. Roda em segundo plano — pode acompanhar o andamento abaixo.
     </div>
 
     <label style="margin-bottom:8px;">🏪 Buscar em:</label>
@@ -2139,6 +2141,14 @@ async function carregarAnalytics() {
       <label class="destino on" id="dest_bf_ali">
         <input type="checkbox" id="bf_usar_ali" checked onchange="toggleDestino('dest_bf_ali', this)">
         <span>🛍️ AliExpress</span>
+      </label>
+      <label class="destino on" id="dest_bf_ml">
+        <input type="checkbox" id="bf_usar_ml" checked onchange="toggleDestino('dest_bf_ml', this)">
+        <span>🟡 Mercado Livre</span>
+      </label>
+      <label class="destino on" id="dest_bf_amazon">
+        <input type="checkbox" id="bf_usar_amazon" checked onchange="toggleDestino('dest_bf_amazon', this)">
+        <span>📦 Amazon</span>
       </label>
     </div>
 
@@ -3320,8 +3330,8 @@ def _bf_coletar(cands, brutos, item, cfg):
     for p in brutos:
         try:
             nome = p["nome"]
-            if not p.get("imagem_url"):
-                continue
+            if not p.get("imagem_url") and p.get("loja") != "AMAZON":
+                continue   # Amazon busca a foto na hora de gerar a imagem
             if p["preco"] < cfg["preco_min"]:
                 continue
             if cfg["preco_max"] > 0 and p["preco"] > cfg["preco_max"]:
@@ -3409,6 +3419,8 @@ def _bf_passada(cands, plano, pagina, cfg):
         lojas.append(("Shopee", _bf_busca_shopee))
     if cfg["ali"]:
         lojas.append(("Ali", _bf_busca_ali))
+    if not lojas:
+        return False
     for item in plano:
         if item["bf"]:
             bf_feitas += 1
@@ -3425,6 +3437,63 @@ def _bf_passada(cands, plano, pagina, cfg):
         if bf_feitas >= bf_total and len(_bf_selecionar(list(cands.values()), cfg["qtde"])) >= cfg["qtde"]:
             return True
     return False
+
+
+def _bf_pool_iniciar(cfg):
+    """Pede ao bot (que tem os scrapers) para coletar ML/Amazon em segundo plano."""
+    try:
+        BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+        WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+        r = requests.post(BOT_API_URL + "/bf_pool",
+                          json={"usar_ml": cfg["ml"], "usar_amazon": cfg["amazon"]},
+                          headers={"X-API-Key": WEB_SECRET_KEY}, timeout=15)
+        return r.status_code == 200
+    except Exception as e:
+        _bf_log("Bot não respondeu para ML/Amazon: " + str(e)[:80])
+        return False
+
+
+def _bf_pool_aguardar(timeout=1800):
+    """Espera o bot terminar ML/Amazon. Retorna lista de produtos (ou [])."""
+    BOT_API_URL = os.getenv("BOT_API_URL", "http://olhaisso.railway.internal:8081")
+    WEB_SECRET_KEY = os.getenv("WEB_SECRET_KEY", "olhaissotech2026")
+    limite = time.time() + timeout
+    ultimo_log = 0
+    falhas = 0
+    while time.time() < limite:
+        try:
+            r = requests.get(BOT_API_URL + "/bf_pool_status",
+                             headers={"X-API-Key": WEB_SECRET_KEY}, timeout=30)
+            d = r.json()
+            falhas = 0
+            if d.get("estado") == "pronto":
+                return d.get("produtos", []) or []
+            if d.get("estado") in ("erro", "idle"):
+                _bf_log("ML/Amazon: bot informou '" + str(d.get("estado")) + "' " + str(d.get("msg", ""))[:80])
+                return []
+        except Exception as e:
+            falhas += 1
+            if falhas >= 5:
+                _bf_log("ML/Amazon: bot parou de responder (" + str(e)[:60] + ")")
+                return []
+        if time.time() - ultimo_log > 120:
+            _bf_log("Aguardando ML/Amazon no bot...")
+            ultimo_log = time.time()
+        time.sleep(15)
+    _bf_log("ML/Amazon: tempo esgotado, seguindo sem eles.")
+    return []
+
+
+def _bf_converter_bot(lista):
+    """Converte produtos do bot (link ja de afiliado) para o formato de candidato."""
+    out = []
+    for p in lista:
+        q = dict(p)
+        q["link_original"] = p.get("link_afiliado", "")
+        q["_link_pronto"] = True
+        if q["link_original"]:
+            out.append(q)
+    return out
 
 
 def _bf_registrar(produto):
@@ -3445,10 +3514,21 @@ def _bf_worker(cfg):
         plano = _bf_montar_plano()
         cands = {}
         _bf_log("Buscando ofertas (desconto >= " + str(cfg["desc_min"]) + "%, R$ " + str(cfg["preco_min"]) + " a R$ " + str(cfg["preco_max"]) + ")...")
+        pool_bot = cfg["ml"] or cfg["amazon"]
+        if pool_bot:
+            if _bf_pool_iniciar(cfg):
+                _bf_log("ML/Amazon: coleta iniciada no bot (pode levar vários minutos).")
+            else:
+                pool_bot = False
+                _bf_log("ML/Amazon indisponíveis (bot não aceitou o pedido — o bot.py novo já está no ar?).")
         for pagina in (1, 2):
             if _bf_passada(cands, plano, pagina, cfg):
                 break
-        sel = _bf_intercalar(_bf_selecionar(list(cands.values()), cfg["qtde"]))
+        if pool_bot:
+            brutos_bot = _bf_converter_bot(_bf_pool_aguardar())
+            novos_bot = _bf_coletar(cands, brutos_bot, {"bf": False, "seg": None}, cfg)
+            _bf_log("ML/Amazon: " + str(len(brutos_bot)) + " do bot, " + str(novos_bot) + " passaram nos filtros.")
+        sel =_bf_intercalar(_bf_selecionar(list(cands.values()), cfg["qtde"]))
         _BF_ESTADO["total"] = len(sel)
         if not sel:
             _BF_ESTADO["resumo"] = "Nenhuma oferta encontrada com esses filtros. Tente baixar o desconto mínimo ou ampliar a faixa de preço."
@@ -3472,7 +3552,8 @@ def _bf_worker(cfg):
                 produto = {
                     "nome": nome_curto, "preco": c["preco"], "preco_original": c["preco_original"],
                     "desconto": c["desconto"], "loja": c["loja"], "frete": c.get("frete", ""),
-                    "link_afiliado": encurtar_link(c["link_original"]), "imagem_url": c["imagem_url"],
+                    "link_afiliado": c["link_original"] if c.get("_link_pronto") else encurtar_link(c["link_original"]),
+                    "imagem_url": c.get("imagem_url", ""),
                     "score": 1, "fontes": [], "black_friday": True,
                 }
                 imagem_path = gerar_imagem(produto)
@@ -3520,6 +3601,8 @@ def disparar_blackfriday():
             "qtde":         int(data.get("qtde", 10) or 10),
             "shopee":       bool(data.get("usar_shopee", True)),
             "ali":          bool(data.get("usar_ali", True)),
+            "ml":           bool(data.get("usar_ml", False)),
+            "amazon":       bool(data.get("usar_amazon", False)),
             "incluir_moda": bool(data.get("incluir_moda", False)),
             "telegram":     bool(data.get("telegram", True)),
             "whatsapp":     bool(data.get("whatsapp", True)),
@@ -3528,7 +3611,7 @@ def disparar_blackfriday():
         }
     except Exception:
         return jsonify({"ok": False, "erro": "Valores inválidos"})
-    if not cfg["shopee"] and not cfg["ali"]:
+    if not (cfg["shopee"] or cfg["ali"] or cfg["ml"] or cfg["amazon"]):
         return jsonify({"ok": False, "erro": "Selecione ao menos uma loja"})
     if not cfg["telegram"] and not cfg["whatsapp"]:
         return jsonify({"ok": False, "erro": "Selecione ao menos um destino"})
