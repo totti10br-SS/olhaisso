@@ -1320,9 +1320,15 @@ async function publicarAuto() {
     } else {
       // Amazon — adiciona tag de afiliado se não tiver, depois encurta
       let linkComTag = link;
-      if (!link.includes('olhaissotec0a-20')) {
-        const sep = link.includes('?') ? '&' : '?';
-        linkComTag = link + sep + 'tag=olhaissotec0a-20';
+      if (link.includes('amazon.com.br')) {
+        try {
+          const uAmz = new URL(link);
+          uAmz.searchParams.set('tag', '{{ amazon_tag }}');
+          linkComTag = uAmz.toString();
+        } catch (eAmz) {
+          const sep = link.includes('?') ? '&' : '?';
+          linkComTag = link + sep + 'tag={{ amazon_tag }}';
+        }
       }
       loader.textContent = "⏳ Encurtando link Amazon...";
       try {
@@ -2245,8 +2251,12 @@ def gerar_link():
     elif "amazon.com.br" in url or "amzn.to" in url:
         loja = "AMAZON"
         link = url
-        if AMAZON_TAG not in url:
-            link = url + ("&" if "?" in url else "?") + f"tag={AMAZON_TAG}"
+        if "amazon.com.br" in url:
+            from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+            _p = urlsplit(url)
+            _q = [(k, v) for k, v in parse_qsl(_p.query, keep_blank_values=True) if k.lower() != "tag"]
+            _q.append(("tag", AMAZON_TAG))
+            link = urlunsplit((_p.scheme, _p.netloc, _p.path, urlencode(_q), _p.fragment))
         link = encurtar_link(link)
     else:
         loja = "OUTRO"

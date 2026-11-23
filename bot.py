@@ -57,7 +57,7 @@ ADMIN_CHAT_ID    = os.getenv("ADMIN_CHAT_ID", "")  # Seu chat ID pessoal para al
 # Contador de falhas consecutivas do WhatsApp
 _wa_falhas_consecutivas = 0
 _WA_FALHAS_ALERTA = 3  # Alerta após 3 falhas seguidas
-AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotech-20")
+AMAZON_TAG       = os.getenv("AMAZON_TAG", "olhaissotecho-20")
 PRECO_MAXIMO     = float(os.getenv("PRECO_MAXIMO", "800"))
 DESCONTO_MINIMO  = int(os.getenv("DESCONTO_MINIMO", "20"))
 POSTS_POR_CICLO  = int(os.getenv("POSTS_POR_CICLO", "8"))
